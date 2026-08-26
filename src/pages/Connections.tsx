@@ -55,7 +55,7 @@ export default function Connections() {
     const r = await schwabSync()
     setSyncing(false)
     if (r.ok && r.payload) {
-      applyImport(r.payload, 'replace')
+      applyImport(r.payload, 'replace', 'live')
       setLive(true)
       setLiveMsg(`Synced ${r.payload.accounts.length} account(s) from Schwab.`)
     } else if (r.error === 'refresh_expired' || r.error === 'not_connected') {

@@ -82,4 +82,6 @@ export interface AppData {
   transactions: Transaction[]
   connections: Connection[]
   lastSyncAt: string
+  // Where the current dataset came from — drives the header badge.
+  source?: 'sample' | 'imported' | 'live'
 }

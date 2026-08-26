@@ -55,7 +55,7 @@ interface StoreCtx {
   syncConnection: (id: string) => void
   addConnection: (broker: string) => void
   removeConnection: (id: string) => void
-  applyImport: (result: ImportPayload, mode: 'replace' | 'merge') => void
+  applyImport: (result: ImportPayload, mode: 'replace' | 'merge', source?: 'imported' | 'live') => void
   reset: () => void
 }
 
@@ -202,9 +202,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   const applyImport: StoreCtx['applyImport'] = useCallback(
-    (result, mode) => {
+    (result, mode, source = 'imported') => {
       const now = new Date().toISOString()
       mutate((d) => {
+        d.source = source
         if (mode === 'replace') {
           d.accounts = result.accounts
           d.positions = result.positions

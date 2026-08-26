@@ -381,6 +381,7 @@ export function buildSeed(): AppData {
     transactions,
     connections,
     lastSyncAt: nowMinus(120),
+    source: 'sample',
   }
 }
 

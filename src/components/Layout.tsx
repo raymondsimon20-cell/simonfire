@@ -1,9 +1,37 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { useState } from 'react'
-import { RefreshCw, ChevronDown, Layers, Clock, RotateCcw } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { RefreshCw, ChevronDown, Layers, Clock, RotateCcw, Zap, FlaskConical } from 'lucide-react'
 import { useStore } from '../lib/store'
+import { schwabStatus, schwabSync } from '../lib/api'
 import { relTime } from '../lib/format'
 import clsx from 'clsx'
+
+// Header badge showing whether the data is live, imported, or the built-in sample.
+function SourceBadge({ source, syncing }: { source?: string; syncing?: boolean }) {
+  if (syncing)
+    return (
+      <span className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-muted sm:flex">
+        <RefreshCw size={11} className="animate-spin" /> Syncing…
+      </span>
+    )
+  if (source === 'live')
+    return (
+      <span className="hidden items-center gap-1.5 rounded-full bg-[#123024] px-2.5 py-1 text-xs font-medium text-[#3fd88a] sm:flex">
+        <Zap size={11} /> Live · Schwab
+      </span>
+    )
+  if (source === 'imported')
+    return (
+      <span className="hidden items-center gap-1.5 rounded-full bg-[#10233f] px-2.5 py-1 text-xs font-medium text-[#5aa2ff] sm:flex">
+        Imported
+      </span>
+    )
+  return (
+    <span className="hidden items-center gap-1.5 rounded-full bg-[#35240f] px-2.5 py-1 text-xs font-medium text-[#f0a94a] sm:flex">
+      <FlaskConical size={11} /> Sample data
+    </span>
+  )
+}
 
 const NAV = [
   { to: '/', label: 'Dashboard', end: true },
@@ -94,8 +122,27 @@ function AccountScope() {
 }
 
 export default function Layout() {
-  const { data, syncAll, reset } = useStore()
+  const { data, syncAll, applyImport, reset } = useStore()
   const [syncing, setSyncing] = useState(false)
+  const [autoSyncing, setAutoSyncing] = useState(false)
+
+  // Auto-sync on load: if this browser is connected to Schwab, pull live data so
+  // every browser/device shows the real portfolio without a manual Sync Now.
+  useEffect(() => {
+    let cancelled = false
+    schwabStatus().then((st) => {
+      if (cancelled || !st.connected) return
+      setAutoSyncing(true)
+      schwabSync().then((r) => {
+        if (!cancelled && r.ok && r.payload) applyImport(r.payload, 'replace', 'live')
+        if (!cancelled) setAutoSyncing(false)
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const doSync = () => {
     setSyncing(true)
@@ -130,6 +177,7 @@ export default function Layout() {
             ))}
           </nav>
           <div className="flex items-center gap-2">
+            <SourceBadge source={data.source} syncing={autoSyncing} />
             <span className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-muted md:flex">
               <Clock size={12} className="text-[#3fd88a]" />
               {relTime(data.lastSyncAt)}

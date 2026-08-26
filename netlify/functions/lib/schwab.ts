@@ -344,6 +344,15 @@ function mapTxn(accountId: string, t: any) {
   else if (rawType.includes('FEE')) type = 'Fee'
   if (type === 'Contribution' && amount < 0) type = 'Withdrawal'
 
+  // Margin interest can arrive under JOURNAL / other types rather than
+  // DIVIDEND_OR_INTEREST — catch it by description so it counts as an Interest cost.
+  if (
+    (type === 'Other' || type === 'Fee') &&
+    amount < 0 &&
+    /MARGIN INTEREST|INTEREST CHARGED|MARGIN INT\b|INT CHARGE|MARGININT/.test(desc)
+  )
+    type = 'Interest'
+
   // A disbursement to a third party (a biller, loan, or card) is a Bill Payment,
   // not a cash withdrawal to yourself. Distinguish by the payee in the description.
   const looksBill = /\b(PAYMENT|PMT|BILLPAY|BILL PAY|BILL|CARD|CREDIT CARD|LOAN|MORTGAGE|AUTOPAY|BEST EGG|ACH DEBIT)\b/.test(desc)

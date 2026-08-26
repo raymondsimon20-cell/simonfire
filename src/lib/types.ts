@@ -95,4 +95,10 @@ export interface AppData {
   lastSyncAt: string
   // Where the current dataset came from — drives the header badge.
   source?: 'sample' | 'imported' | 'live'
+  // Target plan: tickers to keep. Off-plan holdings surface on the Rebalance page.
+  keepList?: string[]
+  // Positions marked sold in the tracker ("accountId|SYMBOL"); filtered out on sync.
+  soldSymbols?: string[]
+  // Target allocation: bucket name → target percent (0–100), should sum to 100.
+  targetAlloc?: Record<string, number>
 }

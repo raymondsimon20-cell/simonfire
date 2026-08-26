@@ -9,6 +9,9 @@ import {
 } from 'react'
 import type { Account, AppData, Connection, Position, Transaction } from './types'
 import { buildSeed } from './seed'
+import { DEFAULT_KEEP } from './plan'
+
+const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
 const STORAGE_KEY = 'simonfire.data.v1'
 
@@ -18,7 +21,11 @@ function load(): AppData {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as AppData
-      if (parsed && parsed.version === 1) return parsed
+      if (parsed && parsed.version === 1) {
+        if (!parsed.keepList) parsed.keepList = DEFAULT_KEEP
+        if (!parsed.soldSymbols) parsed.soldSymbols = []
+        return parsed
+      }
     }
   } catch {
     /* ignore */
@@ -57,6 +64,12 @@ interface StoreCtx {
   removeConnection: (id: string) => void
   applyImport: (result: ImportPayload, mode: 'replace' | 'merge', source?: 'imported' | 'live') => void
   reset: () => void
+  // Target-plan / rebalance
+  setKeepList: (list: string[]) => void
+  sellPosition: (accountId: string, symbol: string) => void
+  sellOffPlan: (keepSet: Set<string>) => void
+  unsell: (accountId: string, symbol: string) => void
+  setTargetAlloc: (alloc: Record<string, number>) => void
 }
 
 export interface ImportPayload {
@@ -217,6 +230,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           d.transactions.unshift(...result.transactions)
           d.transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         }
+        // Keep positions marked sold in the tracker out of the synced set.
+        const sold = new Set(d.soldSymbols ?? [])
+        if (sold.size) d.positions = d.positions.filter((p) => !sold.has(soldKey(p.accountId, p.symbol)))
         // Reflect the import as a connection so the Connections page shows it.
         const broker = result.broker || 'Schwab'
         d.connections = [
@@ -244,6 +260,78 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setScope('all')
   }, [])
 
+  const setKeepList: StoreCtx['setKeepList'] = useCallback(
+    (list) => mutate((d) => {
+      d.keepList = list
+      return d
+    }),
+    [mutate],
+  )
+
+  // Mark a holding sold: log the realized sale and drop it from the tracker.
+  // Does NOT place a brokerage order — that's done at Schwab.
+  const sellOne = (d: AppData, accountId: string, symbol: string) => {
+    const i = d.positions.findIndex((p) => p.accountId === accountId && p.symbol === symbol)
+    if (i < 0) return
+    const p = d.positions[i]
+    const proceeds = +(p.shares * p.lastPrice).toFixed(2)
+    const pl = +(p.shares * (p.lastPrice - p.avgCost)).toFixed(2)
+    d.transactions.unshift({
+      id: uid(),
+      accountId,
+      date: new Date().toISOString().slice(0, 10),
+      type: 'Sell',
+      symbol,
+      description: `Sold ${p.shares} ${symbol} (off-plan)`,
+      amount: proceeds,
+      units: -p.shares,
+      pl,
+      tags: ['rebalance'],
+    })
+    d.positions.splice(i, 1)
+    d.soldSymbols = d.soldSymbols ?? []
+    const key = soldKey(accountId, symbol)
+    if (!d.soldSymbols.includes(key)) d.soldSymbols.push(key)
+  }
+
+  const sellPosition: StoreCtx['sellPosition'] = useCallback(
+    (accountId, symbol) => mutate((d) => {
+      sellOne(d, accountId, symbol)
+      d.transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+      return d
+    }),
+    [mutate],
+  )
+
+  const sellOffPlan: StoreCtx['sellOffPlan'] = useCallback(
+    (keepSet) => mutate((d) => {
+      const off = d.positions.filter(
+        (p) => !keepSet.has(String(p.symbol).toUpperCase().replace(/[^A-Z0-9]/g, '')),
+      )
+      for (const p of off) sellOne(d, p.accountId, p.symbol)
+      d.transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+      return d
+    }),
+    [mutate],
+  )
+
+  const unsell: StoreCtx['unsell'] = useCallback(
+    (accountId, symbol) => mutate((d) => {
+      const key = soldKey(accountId, symbol)
+      d.soldSymbols = (d.soldSymbols ?? []).filter((k) => k !== key)
+      return d
+    }),
+    [mutate],
+  )
+
+  const setTargetAlloc: StoreCtx['setTargetAlloc'] = useCallback(
+    (alloc) => mutate((d) => {
+      d.targetAlloc = alloc
+      return d
+    }),
+    [mutate],
+  )
+
   const value = useMemo<StoreCtx>(
     () => ({
       data,
@@ -260,6 +348,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       removeConnection,
       applyImport,
       reset,
+      setKeepList,
+      sellPosition,
+      sellOffPlan,
+      unsell,
+      setTargetAlloc,
     }),
     [
       data,
@@ -275,6 +368,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       removeConnection,
       applyImport,
       reset,
+      setKeepList,
+      sellPosition,
+      sellOffPlan,
+      unsell,
+      setTargetAlloc,
     ],
   )
 

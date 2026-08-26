@@ -6,6 +6,7 @@ import type {
   Transaction,
   TxnType,
 } from './types'
+import { DEFAULT_KEEP } from './plan'
 
 // Small deterministic PRNG so the sample data is stable between reloads.
 function mulberry32(seed: number) {
@@ -420,6 +421,8 @@ export function buildSeed(): AppData {
     connections,
     lastSyncAt: nowMinus(120),
     source: 'sample',
+    keepList: DEFAULT_KEEP,
+    soldSymbols: [],
   }
 }
 

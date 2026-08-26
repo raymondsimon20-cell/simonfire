@@ -13,6 +13,8 @@ import MonthClose from './pages/MonthClose'
 import Ledger from './pages/Ledger'
 import Connections from './pages/Connections'
 import AccountDetail from './pages/AccountDetail'
+import Rebalance from './pages/Rebalance'
+import Allocation from './pages/Allocation'
 
 // Use hash routing for the self-contained single-file demo (opened without a server),
 // browser routing for the normal Netlify build.
@@ -25,6 +27,8 @@ const router = makeRouter([
       { index: true, element: <Dashboard /> },
       { path: 'positions', element: <Positions /> },
       { path: 'account/:id', element: <AccountDetail /> },
+      { path: 'rebalance', element: <Rebalance /> },
+      { path: 'allocation', element: <Allocation /> },
       { path: 'transactions', element: <Transactions /> },
       { path: 'cash-flow', element: <CashFlow /> },
       { path: 'dividends', element: <Dividends /> },

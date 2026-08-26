@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Download, Search, DollarSign, Layers, TrendingUp, Trophy, ArrowUpDown } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
-import { positionMetrics, realizedPL } from '../lib/calc'
+import { positionMetrics, investmentReturn } from '../lib/calc'
 import { usd, pct, num, intfmt, shortDate, posNeg } from '../lib/format'
 import { KpiCard, PageHeader, Button } from '../components/ui'
 import { PositionDrawer } from '../components/PositionDrawer'
@@ -85,7 +85,7 @@ export default function Positions() {
       value: m.reduce((s, x) => s + x.value, 0),
       dayChange: m.reduce((s, x) => s + x.dayChange, 0),
       totalGain: m.reduce((s, x) => s + x.totalGain, 0),
-      totalReturn: m.reduce((s, x) => s + x.totalReturn, 0) + realizedPL(transactions),
+      totalReturn: investmentReturn(positions, transactions).investmentChange,
       cost: m.reduce((s, x) => s + x.costBasis, 0),
     }
   }, [positions, transactions])

@@ -38,6 +38,78 @@ export function positionMetrics(p: Position): PosMetrics {
   }
 }
 
+// ---------- Schwab "Value vs. Net Contributions" (Investment Change) ----------
+// Schwab's total return isn't a cost-basis number — it's Investment Change =
+// Ending Value − Beginning Value − Net Contributions, i.e. what the investments
+// actually earned (price gain/loss + income − fees), with money you added or
+// withdrew factored out. This mirrors Schwab's account "return" report.
+export interface ReturnBreakdown {
+  investmentGainLoss: number // unrealized (value − cost) + realized P/L
+  income: number // dividends + interest income
+  dividends: number
+  interestIncome: number
+  fees: number // brokerage fees + margin interest (positive magnitude)
+  investmentChange: number // gain/loss + income − fees  ← Schwab "total return"
+  contributions: number
+  withdrawals: number // positive magnitude (incl. bill payments)
+  netContributions: number // contributions − withdrawals
+  endingValue: number // current market value of holdings
+  beginningValue: number // derived: ending − netContributions − investmentChange
+  costBasis: number
+}
+
+export function investmentReturn(
+  positions: Position[],
+  transactions: Transaction[],
+  endingValueOverride?: number,
+): ReturnBreakdown {
+  let unrealized = 0
+  let cost = 0
+  let value = 0
+  for (const p of positions) {
+    const m = positionMetrics(p)
+    unrealized += m.totalGain
+    cost += m.costBasis
+    value += m.value
+  }
+  const realized = realizedPL(transactions)
+  const investmentGainLoss = unrealized + realized
+
+  let dividends = 0
+  let interestIncome = 0
+  let fees = 0
+  let contributions = 0
+  let withdrawals = 0
+  for (const t of transactions) {
+    if (t.type === 'Dividend') dividends += t.amount
+    else if (t.type === 'Interest') {
+      if (t.amount >= 0) interestIncome += t.amount
+      else fees += -t.amount // margin interest is a cost
+    } else if (t.type === 'Fee') fees += Math.abs(t.amount)
+    else if (t.type === 'Contribution') contributions += Math.max(0, t.amount)
+    else if (t.type === 'Withdrawal' || t.type === 'Bill Payment') withdrawals += Math.abs(t.amount)
+  }
+  const income = dividends + interestIncome
+  const investmentChange = investmentGainLoss + income - fees
+  const netContributions = contributions - withdrawals
+  const endingValue = endingValueOverride ?? value
+  const beginningValue = endingValue - netContributions - investmentChange
+  return {
+    investmentGainLoss,
+    income,
+    dividends,
+    interestIncome,
+    fees,
+    investmentChange,
+    contributions,
+    withdrawals,
+    netContributions,
+    endingValue,
+    beginningValue,
+    costBasis: cost,
+  }
+}
+
 // ---------- Portfolio summary ----------
 export interface PortfolioSummary {
   gross: number
@@ -70,18 +142,16 @@ export function portfolioSummary(
   let cost = 0
   let day = 0
   let gain = 0
-  let ret = 0
   for (const p of positions) {
     const m = positionMetrics(p)
     value += m.value
     cost += m.costBasis
     day += m.dayChange
     gain += m.totalGain
-    ret += m.totalReturn
   }
-  // Total Return = unrealized gain + dividends on holdings + realized P/L from
-  // sells. Every view uses realizedPL() so the same number shows everywhere.
-  ret += realizedPL(transactions)
+  // Total Return uses Schwab's Investment Change (gain/loss + income − fees), so
+  // it reflects what the investments earned rather than a raw cost-basis delta.
+  const ret = investmentReturn(positions, transactions, value).investmentChange
 
   const gross = value + availableCash
   const net = gross - marginUsed

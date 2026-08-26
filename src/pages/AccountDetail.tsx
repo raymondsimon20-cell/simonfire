@@ -22,9 +22,9 @@ import {
   Calendar,
 } from 'lucide-react'
 import { useStore } from '../lib/store'
-import { portfolioSummary, positionMetrics, realizedPL, monthClose, availableMonths } from '../lib/calc'
+import { portfolioSummary, positionMetrics, investmentReturn, monthClose, availableMonths } from '../lib/calc'
 import { schwabStatus, schwabSync } from '../lib/api'
-import { usd, pct, num, intfmt, relTime, monthLabel, posNeg } from '../lib/format'
+import { usd, pct, num, relTime, monthLabel, posNeg } from '../lib/format'
 import { Badge } from '../components/ui'
 import { PositionDrawer } from '../components/PositionDrawer'
 import { TransactionDrawer } from '../components/TransactionDrawer'
@@ -215,7 +215,7 @@ export default function AccountDetail() {
         <TransactionsTab transactions={acctTxns} onSelect={setSelectedTxn} />
       )}
       {tab === 'balance' && (
-        <BalanceHistoryTab account={account} txns={acctTxns} summary={summary} />
+        <BalanceHistoryTab account={account} positions={acctPositions} txns={acctTxns} summary={summary} />
       )}
 
       <PositionDrawer position={selectedPos} onClose={() => setSelectedPos(null)} />
@@ -285,7 +285,7 @@ function PositionsTab({
       value: m.reduce((s, x) => s + x.value, 0),
       dayChange: m.reduce((s, x) => s + x.dayChange, 0),
       totalGain: m.reduce((s, x) => s + x.totalGain, 0),
-      totalReturn: m.reduce((s, x) => s + x.totalReturn, 0) + realizedPL(transactions),
+      totalReturn: investmentReturn(positions, transactions).investmentChange,
       cost: m.reduce((s, x) => s + x.costBasis, 0),
     }
   }, [positions, transactions])
@@ -404,94 +404,156 @@ function TransactionsTab({
 
 function BalanceHistoryTab({
   account,
+  positions,
   txns,
   summary,
 }: {
   account: import('../lib/types').Account
+  positions: Position[]
   txns: Transaction[]
   summary: import('../lib/calc').PortfolioSummary
 }) {
-  const series = useMemo(() => {
-    const months = availableMonths(txns) // desc
-    if (months.length === 0) return []
-    const pts = months
-      .slice(0, 14)
-      .map((ym) => {
-        const mc = monthClose([account], txns, account.id, ym, summary)
-        return { month: monthLabel(ym).replace(/ 20/, " '"), equity: +mc.netEquity.toFixed(2) }
-      })
-      .reverse()
-    return pts
-  }, [account, txns, summary])
+  const rb = useMemo(() => investmentReturn(positions, txns), [positions, txns])
 
-  const first = series[0]?.equity ?? 0
-  const last = series[series.length - 1]?.equity ?? summary.net
-  const change = last - first
+  const series = useMemo(() => {
+    const monthsAsc = availableMonths(txns).slice(0, 14).reverse()
+    let cum = rb.beginningValue
+    return monthsAsc.map((ym) => {
+      const flows = txns.filter((t) => t.date.slice(0, 7) === ym)
+      const net = flows.reduce(
+        (s, t) =>
+          s +
+          (t.type === 'Contribution'
+            ? Math.max(0, t.amount)
+            : t.type === 'Withdrawal' || t.type === 'Bill Payment'
+              ? -Math.abs(t.amount)
+              : 0),
+        0,
+      )
+      cum += net
+      const mc = monthClose([account], txns, account.id, ym, summary)
+      return {
+        month: monthLabel(ym).replace(/ 20/, " '"),
+        value: +mc.netEquity.toFixed(2),
+        contrib: +cum.toFixed(2),
+      }
+    })
+  }, [account, txns, summary, rb.beginningValue])
 
   return (
-    <div className="card mt-4 p-5">
-      <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-lg font-semibold">Balance History</h3>
-        <div className="text-sm">
-          <span className="num font-semibold">{usd(last)}</span>{' '}
-          <span className={clsx('num', posNeg(change))}>
-            ({usd(change, { sign: true })})
-          </span>
+    <div className="space-y-4">
+      <div className="card p-5">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="text-lg font-semibold">Value vs. Net Contributions</h3>
+          <div className="text-sm text-muted">
+            Investments {rb.investmentChange >= 0 ? 'earned' : 'lost'}{' '}
+            <span className={clsx('num font-semibold', posNeg(rb.investmentChange))}>
+              {usd(rb.investmentChange, { sign: true })}
+            </span>{' '}
+            excluding net contributions
+          </div>
+        </div>
+        {series.length >= 2 ? (
+          <div className="h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={series} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="eq" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#34d17d" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="#34d17d" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#1b2432" vertical={false} />
+                <XAxis dataKey="month" tick={{ fill: '#5c6a80', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#1b2432' }} />
+                <YAxis
+                  tick={{ fill: '#5c6a80', fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={64}
+                  tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(0)}K` : `$${v.toFixed(0)}`)}
+                />
+                <Tooltip
+                  content={({ active, payload, label }: any) =>
+                    active && payload?.length ? (
+                      <div className="rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-xl">
+                        <div className="mb-1 text-muted">{label}</div>
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-[#34d17d]">Value</span>
+                          <span className="num font-semibold">{usd(payload.find((p: any) => p.dataKey === 'value')?.value ?? 0)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-faint">Net contributions</span>
+                          <span className="num">{usd(payload.find((p: any) => p.dataKey === 'contrib')?.value ?? 0)}</span>
+                        </div>
+                      </div>
+                    ) : null
+                  }
+                />
+                <Area type="monotone" dataKey="value" stroke="#34d17d" strokeWidth={2} fill="url(#eq)" />
+                <Area type="monotone" dataKey="contrib" stroke="#8a97ad" strokeWidth={1.5} strokeDasharray="5 4" fill="none" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="grid place-items-center py-16 text-sm text-muted">
+            Not enough history yet — this builds up as transactions accumulate.
+          </div>
+        )}
+        <div className="mt-2 flex items-center gap-5 text-xs text-faint">
+          <span className="flex items-center gap-1.5"><span className="h-2 w-4 rounded bg-[#34d17d]" /> Value</span>
+          <span className="flex items-center gap-1.5"><span className="h-0 w-4 border-t border-dashed border-[#8a97ad]" /> Net contributions</span>
         </div>
       </div>
-      <p className="mb-4 text-xs text-faint">Estimated month-end net equity, reconciled from cash flows.</p>
-      {series.length >= 2 ? (
-        <div className="h-72 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={series} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
-              <defs>
-                <linearGradient id="eq" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#34d17d" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="#34d17d" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke="#1b2432" vertical={false} />
-              <XAxis dataKey="month" tick={{ fill: '#5c6a80', fontSize: 11 }} tickLine={false} axisLine={{ stroke: '#1b2432' }} />
-              <YAxis
-                tick={{ fill: '#5c6a80', fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-                width={64}
-                tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(0)}K` : `$${v.toFixed(0)}`)}
-              />
-              <Tooltip
-                content={({ active, payload, label }: any) =>
-                  active && payload?.length ? (
-                    <div className="rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-xl">
-                      <div className="mb-0.5 text-muted">{label}</div>
-                      <div className="num font-semibold">{usd(payload[0].value)}</div>
-                    </div>
-                  ) : null
-                }
-              />
-              <Area type="monotone" dataKey="equity" stroke="#34d17d" strokeWidth={2} fill="url(#eq)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      ) : (
-        <div className="grid place-items-center py-16 text-sm text-muted">
-          Not enough history yet — balance history builds up as transactions accumulate.
-        </div>
-      )}
-      <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-        <div className="rounded-lg border border-border-soft bg-surface-2/40 p-3">
-          <div className="text-xs text-muted">Unique Positions</div>
-          <div className="num mt-1 font-semibold">{intfmt(summary.uniquePositions)}</div>
-        </div>
-        <div className="rounded-lg border border-border-soft bg-surface-2/40 p-3">
-          <div className="text-xs text-muted">Equity %</div>
-          <div className="num mt-1 font-semibold">{pct(summary.equityPct * 100)}</div>
-        </div>
-        <div className="rounded-lg border border-border-soft bg-surface-2/40 p-3">
-          <div className="text-xs text-muted">Available Cash</div>
-          <div className="num mt-1 font-semibold">{usd(summary.availableCash)}</div>
-        </div>
+
+      {/* Schwab-style Investment Change breakdown */}
+      <div className="card p-5">
+        <BreakdownRow label="Beginning Value" value={rb.beginningValue} bold />
+        <Divider />
+        <BreakdownRow label="Net Contributions (This Period)" value={rb.netContributions} bold color />
+        <BreakdownRow label="Contributions" value={rb.contributions} indent />
+        <BreakdownRow label="Withdrawals" value={-rb.withdrawals} indent />
+        <Divider />
+        <BreakdownRow label="Investment Change" value={rb.investmentChange} bold color />
+        <BreakdownRow label="Investment Gain / Loss" value={rb.investmentGainLoss} indent color />
+        <BreakdownRow label="Income (dividends & interest)" value={rb.income} indent color />
+        <BreakdownRow label="Fees & Expenses" value={-rb.fees} indent color />
+        <Divider />
+        <BreakdownRow label="Ending Value" value={rb.endingValue} bold />
+        <BreakdownRow label="Market Value" value={rb.endingValue} indent />
       </div>
+    </div>
+  )
+}
+
+function Divider() {
+  return <div className="my-2 border-t border-border-soft" />
+}
+
+function BreakdownRow({
+  label,
+  value,
+  bold,
+  indent,
+  color,
+}: {
+  label: string
+  value: number
+  bold?: boolean
+  indent?: boolean
+  color?: boolean
+}) {
+  return (
+    <div className={clsx('flex items-center justify-between py-1.5', indent && 'pl-4')}>
+      <span className={clsx(bold ? 'font-semibold' : 'text-sm text-muted')}>{label}</span>
+      <span
+        className={clsx(
+          'num',
+          bold ? 'text-base font-semibold' : 'text-sm',
+          color ? posNeg(value) : indent ? 'text-muted' : '',
+        )}
+      >
+        {color || indent ? usd(value, { sign: true }) : usd(value)}
+      </span>
     </div>
   )
 }

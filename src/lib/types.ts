@@ -36,6 +36,12 @@ export interface Position {
   // Total lifetime dividends received on this holding (for total-return calc)
   dividendsReceived: number
   isOption?: boolean
+  // Option contract detail (present when isOption). avgCost/lastPrice are stored
+  // per-contract (premium × 100) so value/cost math matches; display divides back.
+  optionType?: 'Put' | 'Call'
+  strike?: number
+  expiration?: string // ISO yyyy-mm-dd
+  underlying?: string
 }
 
 export type TxnType =

@@ -52,3 +52,19 @@ export const relTime = (iso: string) => {
 }
 
 export const posNeg = (n: number) => (n >= 0 ? 'text-pos' : 'text-neg')
+
+// Contract subtitle for an option position, e.g. "Put $1 Sep 18, 2026".
+export const optionLabel = (p: {
+  optionType?: string
+  strike?: number
+  expiration?: string
+  name?: string
+}) => {
+  const parts = [
+    p.optionType ?? 'Option',
+    p.strike != null ? `$${p.strike}` : '',
+    p.expiration ? shortDate(p.expiration) : '',
+  ].filter(Boolean)
+  const s = parts.join(' ')
+  return s || p.name || ''
+}

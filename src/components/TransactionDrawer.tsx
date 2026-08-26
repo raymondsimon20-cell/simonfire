@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -11,8 +11,11 @@ import {
   Wallet,
   TrendingUp,
   ExternalLink,
+  ChevronDown,
+  Check,
+  Pencil,
 } from 'lucide-react'
-import type { Transaction } from '../lib/types'
+import type { Transaction, TxnType } from '../lib/types'
 import { useStore } from '../lib/store'
 import { portfolioSummary } from '../lib/calc'
 import { usd, num, shortDate, posNeg } from '../lib/format'
@@ -37,6 +40,72 @@ function Tile({
         <span>{label}</span>
       </div>
       <div className={clsx('num mt-1.5 text-base font-semibold', valueClass)}>{value}</div>
+    </div>
+  )
+}
+
+const TYPE_OPTIONS: TxnType[] = [
+  'Buy',
+  'Sell',
+  'Dividend',
+  'Interest',
+  'Contribution',
+  'Withdrawal',
+  'Bill Payment',
+  'Fee',
+  'Other',
+]
+
+// Editable category: click the badge to re-classify a transaction (e.g. flag a
+// disbursement as a Bill Payment or a Withdrawal). Persists via updateTransaction.
+function CategoryEditor({ txn }: { txn: Transaction }) {
+  const { updateTransaction } = useStore()
+  const [open, setOpen] = useState(false)
+  const [localType, setLocalType] = useState<TxnType>(txn.type)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => setLocalType(txn.type), [txn.id, txn.type])
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1.5 rounded-md hover:opacity-90"
+        title="Change category"
+      >
+        <Badge>{localType}</Badge>
+        <Pencil size={12} className="text-faint" />
+        <ChevronDown size={13} className="text-faint" />
+      </button>
+      {open && (
+        <div className="absolute left-0 z-[110] mt-1.5 w-48 overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
+          <div className="border-b border-border-soft px-3 py-2 text-xs font-medium text-faint">
+            Change category
+          </div>
+          {TYPE_OPTIONS.map((t) => (
+            <button
+              key={t}
+              onClick={() => {
+                setLocalType(t)
+                updateTransaction(txn.id, { type: t })
+                setOpen(false)
+              }}
+              className={clsx(
+                'flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-surface-2',
+                t === localType ? 'text-ink' : 'text-muted',
+              )}
+            >
+              {t}
+              {t === localType && <Check size={14} className="text-brand" />}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -104,7 +173,7 @@ export function TransactionDrawer({
               <Tile icon={<Building2 size={13} />} label="Institution" value={detail.account?.broker ?? '—'} />
             </div>
             <div className="mt-3">
-              <Badge>{txn.type}</Badge>
+              <CategoryEditor txn={txn} />
             </div>
 
             <div className="mb-3 mt-7 text-sm font-semibold text-muted">Financials</div>

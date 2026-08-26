@@ -178,6 +178,43 @@ for (const d of distribute) {
   }
 }
 
+// A couple of short option positions to exercise option handling. avgCost/lastPrice
+// are stored per-contract (premium × 100); short positions carry negative shares.
+positions.push(
+  {
+    id: `pos_${pid++}`,
+    accountId: 'acc_margin',
+    symbol: 'OXSQ',
+    name: 'Put $1 Sep 18, 2026',
+    shares: -3,
+    avgCost: 4.33,
+    lastPrice: 5,
+    prevClose: 5,
+    dividendsReceived: 0,
+    isOption: true,
+    optionType: 'Put',
+    strike: 1,
+    expiration: '2026-09-18',
+    underlying: 'OXSQ',
+  },
+  {
+    id: `pos_${pid++}`,
+    accountId: 'acc_margin',
+    symbol: 'O',
+    name: 'Put $62.5 Sep 18, 2026',
+    shares: -1,
+    avgCost: 56.34,
+    lastPrice: 100,
+    prevClose: 100,
+    dividendsReceived: 0,
+    isOption: true,
+    optionType: 'Put',
+    strike: 62.5,
+    expiration: '2026-09-18',
+    underlying: 'O',
+  },
+)
+
 // ---- Transactions across trailing ~13 months ----
 const transactions: Transaction[] = []
 let tid = 0
@@ -189,8 +226,9 @@ const bySymbol = new Map<string, SymDef>(catalog.map((c) => [c.symbol, c]))
 
 // Dividend payments for each holding based on frequency.
 for (const p of positions) {
-  const def = bySymbol.get(p.symbol)!
-  if (def.annualYield <= 0) continue
+  if (p.isOption) continue // options don't pay dividends
+  const def = bySymbol.get(p.symbol)
+  if (!def || def.annualYield <= 0) continue
   const perYear = def.freq === 'weekly' ? 52 : 12
   const stepDays = def.freq === 'weekly' ? 7 : 30
   const perPayment = (p.shares * def.price * def.annualYield) / perYear

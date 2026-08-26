@@ -138,6 +138,41 @@ async function api(path: string, token: string): Promise<any> {
 // ---- Data fetch + mapping to the app's model ----
 const num = (v: any): number => (typeof v === 'number' ? v : parseFloat(v)) || 0
 
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function fmtDate(iso: string) {
+  const [y, m, d] = iso.split('-')
+  return `${MON[+m - 1]} ${+d}, ${y}`
+}
+
+// Parse an option instrument into underlying/type/strike/expiration. Handles the
+// OSI symbol (root + YYMMDD + C/P + strike×1000), falling back to Schwab fields.
+function parseOption(inst: any) {
+  const raw = String(inst.symbol ?? '')
+  const noSpace = raw.replace(/\s+/g, '')
+  const putCall = String(inst.putCall ?? '').toUpperCase()
+  let optionType: 'Put' | 'Call' | undefined =
+    putCall === 'PUT' ? 'Put' : putCall === 'CALL' ? 'Call' : undefined
+  let strike: number | undefined
+  let expiration: string | undefined
+  let underlying = String(inst.underlyingSymbol ?? '').trim()
+  if (noSpace.length >= 15 && /^\d{6}[CP]\d{8}$/.test(noSpace.slice(-15))) {
+    const tail = noSpace.slice(-15)
+    if (!underlying) underlying = noSpace.slice(0, -15)
+    expiration = `20${tail.slice(0, 2)}-${tail.slice(2, 4)}-${tail.slice(4, 6)}`
+    if (!optionType) optionType = tail[6] === 'P' ? 'Put' : 'Call'
+    strike = parseInt(tail.slice(7), 10) / 1000
+  }
+  if (!underlying) underlying = raw.split(/\s+/)[0] || raw
+  const label = [
+    optionType ?? 'Option',
+    strike != null ? `$${strike}` : '',
+    expiration ? fmtDate(expiration) : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  return { optionType, strike, expiration, underlying, label }
+}
+
 export async function fetchPortfolio(token: string) {
   const accountsRaw: any[] = await api('/accounts?fields=positions', token)
   const hashList: any[] = await api('/accounts/accountNumbers', token).catch(() => [])
@@ -202,17 +237,21 @@ export async function fetchPortfolio(token: string) {
       const lastPrice = qty ? marketValue / qty : num(inst.closePrice) * mult
       const dayPL = num(p.currentDayProfitLoss)
       const prevClose = qty ? (marketValue - dayPL) / qty : lastPrice
+      const opt = isOption ? parseOption(inst) : null
       positions.push({
         id: 'pos_' + Math.random().toString(36).slice(2, 9),
         accountId: accId,
-        symbol: String(inst.symbol ?? 'UNKNOWN'),
-        name: String(inst.description ?? inst.symbol ?? ''),
+        symbol: opt?.underlying ?? String(inst.symbol ?? 'UNKNOWN'),
+        name: opt ? opt.label : String(inst.description ?? inst.symbol ?? ''),
         shares: qty,
         avgCost: num(p.averagePrice) * mult,
         lastPrice,
         prevClose,
         dividendsReceived: 0,
         isOption,
+        ...(opt
+          ? { optionType: opt.optionType, strike: opt.strike, expiration: opt.expiration, underlying: opt.underlying }
+          : {}),
       })
     }
 

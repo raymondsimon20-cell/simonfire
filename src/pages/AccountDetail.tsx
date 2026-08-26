@@ -28,6 +28,7 @@ import { usd, pct, num, intfmt, relTime, monthLabel, posNeg } from '../lib/forma
 import { Badge } from '../components/ui'
 import { PositionDrawer } from '../components/PositionDrawer'
 import { TransactionDrawer } from '../components/TransactionDrawer'
+import { HoldingCell, displayPrice, displayShares } from '../components/HoldingCell'
 import type { Position, Transaction } from '../lib/types'
 import clsx from 'clsx'
 
@@ -325,18 +326,15 @@ function PositionsTab({
               onClick={() => onSelect(p)}
               className="cursor-pointer border-b border-border-soft last:border-0 hover:bg-surface-2/40"
             >
-              <td className="px-4 py-3">
-                <div className="font-semibold">{p.symbol}</div>
-                <div className="max-w-[180px] truncate text-xs text-faint">{p.name}</div>
-              </td>
-              <td className="num px-4 py-3 text-right">{num(p.shares)}</td>
-              <td className="num px-4 py-3 text-right">{usd(p.lastPrice)}</td>
-              <td className={clsx('num px-4 py-3 text-right', posNeg(m.dayChange))}>{usd(m.dayChange, { sign: true })}</td>
-              <td className={clsx('num px-4 py-3 text-right', posNeg(m.dayChange))}>{pct(m.dayChangePct * 100, { sign: true })}</td>
+              <td className="px-4 py-3"><HoldingCell p={p} /></td>
+              <td className="num px-4 py-3 text-right">{num(displayShares(p))}</td>
+              <td className="num px-4 py-3 text-right">{usd(displayPrice(p))}</td>
+              <td className={clsx('num px-4 py-3 text-right', p.isOption ? 'text-faint' : posNeg(m.dayChange))}>{p.isOption ? '—' : usd(m.dayChange, { sign: true })}</td>
+              <td className={clsx('num px-4 py-3 text-right', p.isOption ? 'text-faint' : posNeg(m.dayChange))}>{p.isOption ? '—' : pct(m.dayChangePct * 100, { sign: true })}</td>
               <td className={clsx('num px-4 py-3 text-right', posNeg(m.totalGain))}>{usd(m.totalGain, { sign: true })}</td>
-              <td className={clsx('num px-4 py-3 text-right', posNeg(m.totalGain))}>{pct(m.totalGainPct * 100, { sign: true })}</td>
-              <td className={clsx('num px-4 py-3 text-right', posNeg(m.totalReturn))}>{usd(m.totalReturn, { sign: true })}</td>
-              <td className={clsx('num px-4 py-3 text-right', posNeg(m.totalReturn))}>{pct(m.totalReturnPct * 100, { sign: true })}</td>
+              <td className={clsx('num px-4 py-3 text-right', p.isOption ? 'text-faint' : posNeg(m.totalGain))}>{p.isOption ? '—' : pct(m.totalGainPct * 100, { sign: true })}</td>
+              <td className={clsx('num px-4 py-3 text-right', p.isOption ? 'text-faint' : posNeg(m.totalReturn))}>{p.isOption ? '—' : usd(m.totalReturn, { sign: true })}</td>
+              <td className={clsx('num px-4 py-3 text-right', p.isOption ? 'text-faint' : posNeg(m.totalReturn))}>{p.isOption ? '—' : pct(m.totalReturnPct * 100, { sign: true })}</td>
               <td className="num px-4 py-3 text-right font-semibold">{usd(m.value)}</td>
               <td className="num px-4 py-3 text-right text-muted">{pct(weight * 100)}</td>
             </tr>

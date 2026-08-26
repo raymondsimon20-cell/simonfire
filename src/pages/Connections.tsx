@@ -17,6 +17,7 @@ import { useStore } from '../lib/store'
 import { relTime } from '../lib/format'
 import { PageHeader, Button, Badge } from '../components/ui'
 import { Modal } from '../components/Modal'
+import { ImportModal } from '../components/ImportModal'
 import clsx from 'clsx'
 
 const BROKERS = [
@@ -30,8 +31,9 @@ const BROKERS = [
 ]
 
 export default function Connections() {
-  const { data, syncAll, syncConnection, addConnection, removeConnection } = useStore()
+  const { data, syncAll, syncConnection, removeConnection } = useStore()
   const [modal, setModal] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ conn_schwab: false })
   const [hidden, setHidden] = useState<Record<string, boolean>>({})
@@ -56,8 +58,8 @@ export default function Connections() {
         subtitle="Connect and sync your brokerage accounts"
         right={
           <>
-            <Button onClick={doSync}>
-              <RefreshCw size={15} className={syncing ? 'animate-spin' : ''} /> Refresh
+            <Button onClick={() => setImportOpen(true)}>
+              <Upload size={15} /> Import CSV
             </Button>
             <Button variant="primary" onClick={() => setModal(true)}>
               <Plus size={15} /> Connect New Broker
@@ -193,6 +195,10 @@ export default function Connections() {
       </div>
 
       <Modal open={modal} onClose={() => setModal(false)} title="Connect a Brokerage" subtitle="Select your brokerage to securely connect your accounts." width="max-w-lg">
+        <div className="mb-4 rounded-lg bg-[#10233f] px-3 py-2.5 text-xs text-[#a9c7f0]">
+          Live auto-sync (SnapTrade) is coming next. For now, choose your broker to
+          <span className="font-medium text-ink"> import a CSV export</span> and load your real portfolio.
+        </div>
         <div className="space-y-3">
           {BROKERS.map((b) => (
             <div key={b.name} className="flex items-center gap-3 rounded-xl border border-border-soft p-3">
@@ -206,8 +212,8 @@ export default function Connections() {
               {b.status === 'Available' ? (
                 <Button
                   onClick={() => {
-                    addConnection(b.name)
                     setModal(false)
+                    setImportOpen(true)
                   }}
                 >
                   Connect
@@ -219,9 +225,12 @@ export default function Connections() {
           ))}
         </div>
         <p className="mt-5 text-center text-xs text-faint">
-          Your credentials are securely handled by SnapTrade. We never see or store your login information.
+          With live sync, credentials are handled by SnapTrade — never seen or stored by this app. CSV import keeps
+          everything in your browser.
         </p>
       </Modal>
+
+      <ImportModal open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   )
 }

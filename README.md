@@ -45,6 +45,23 @@ This repo is Netlify-ready. Either:
    - Publish directory: `dist`
    - SPA redirect (`/* → /index.html`) is configured for client-side routing.
 
+## Loading your real data (CSV import)
+
+The app ships with sample data, but you can load your actual portfolio with no backend:
+
+1. In **Schwab**, export your data as CSV:
+   - **Positions**: Accounts → Positions → **Export** (top-right).
+   - **Transactions**: Accounts → History → Transactions → **Export**.
+2. In the app, go to **Connections → Import CSV** (or Connect New Broker → pick your broker).
+3. Upload the positions and/or transactions CSV, preview the parsed counts, and click **Replace with imported data** (or add alongside the sample data).
+
+Everything is parsed in your browser and stored in `localStorage` — nothing is uploaded anywhere.
+The importer (`src/lib/import.ts`) tolerates Schwab's title rows, per-account sections,
+`$`-formatted numbers, and maps Schwab actions (dividends, buys/sells, transfers, margin interest)
+to the app's transaction types. Multi-account exports are split automatically.
+
+Live auto-sync via **SnapTrade** (what the original app uses) is the planned phase 2 — see below.
+
 ## Upgrade path: real cloud data (Supabase)
 
 The store is intentionally isolated. To move from `localStorage` to real accounts + cloud sync:

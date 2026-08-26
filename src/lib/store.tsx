@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { AppData, Connection, Transaction } from './types'
+import type { Account, AppData, Connection, Position, Transaction } from './types'
 import { buildSeed } from './seed'
 
 const STORAGE_KEY = 'simonfire.data.v1'
@@ -55,7 +55,15 @@ interface StoreCtx {
   syncConnection: (id: string) => void
   addConnection: (broker: string) => void
   removeConnection: (id: string) => void
+  applyImport: (result: ImportPayload, mode: 'replace' | 'merge') => void
   reset: () => void
+}
+
+export interface ImportPayload {
+  accounts: Account[]
+  positions: Position[]
+  transactions: Transaction[]
+  broker?: string
 }
 
 const Ctx = createContext<StoreCtx | null>(null)
@@ -193,6 +201,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [mutate],
   )
 
+  const applyImport: StoreCtx['applyImport'] = useCallback(
+    (result, mode) => {
+      const now = new Date().toISOString()
+      mutate((d) => {
+        if (mode === 'replace') {
+          d.accounts = result.accounts
+          d.positions = result.positions
+          d.transactions = result.transactions
+        } else {
+          const existingIds = new Set(d.accounts.map((a) => a.id))
+          d.accounts.push(...result.accounts.filter((a) => !existingIds.has(a.id)))
+          d.positions.push(...result.positions)
+          d.transactions.unshift(...result.transactions)
+          d.transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+        }
+        // Reflect the import as a connection so the Connections page shows it.
+        const broker = result.broker || 'Schwab'
+        d.connections = [
+          {
+            id: 'conn_' + uid(),
+            broker,
+            status: 'Active',
+            accountIds: result.accounts.map((a) => a.id),
+            lastSynced: now,
+            events: [{ at: now, kind: 'connect', message: `Imported ${result.accounts.length} account(s) from CSV` }],
+          },
+          ...(mode === 'merge' ? d.connections : []),
+        ]
+        d.lastSyncAt = now
+        return d
+      })
+      setScope('all')
+    },
+    [mutate],
+  )
+
   const reset: StoreCtx['reset'] = useCallback(() => {
     const seed = buildSeed()
     setData(seed)
@@ -213,6 +257,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       syncConnection,
       addConnection,
       removeConnection,
+      applyImport,
       reset,
     }),
     [
@@ -227,6 +272,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       syncConnection,
       addConnection,
       removeConnection,
+      applyImport,
       reset,
     ],
   )

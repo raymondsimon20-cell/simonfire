@@ -1,35 +1,46 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { useEffect, useState } from 'react'
-import { RefreshCw, ChevronDown, Layers, Clock, RotateCcw, Zap, FlaskConical } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { relTime } from '../lib/format'
 import clsx from 'clsx'
 
-// Header badge showing whether the data is live, imported, or the built-in sample.
-function SourceBadge({ source, syncing }: { source?: string; syncing?: boolean }) {
-  if (syncing)
-    return (
-      <span className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-muted sm:flex">
-        <RefreshCw size={11} className="animate-spin" /> Syncing…
-      </span>
-    )
-  if (source === 'live')
-    return (
-      <span className="hidden items-center gap-1.5 rounded-full bg-[#123024] px-2.5 py-1 text-xs font-medium text-[#3fd88a] sm:flex">
-        <Zap size={11} /> Live · Schwab
-      </span>
-    )
-  if (source === 'imported')
-    return (
-      <span className="hidden items-center gap-1.5 rounded-full bg-[#10233f] px-2.5 py-1 text-xs font-medium text-[#5aa2ff] sm:flex">
-        Imported
-      </span>
-    )
+// Brand mark: a rounded gradient tile with an upward "portfolio growth" line.
+function LogoMark({ size = 34 }: { size?: number }) {
   return (
-    <span className="hidden items-center gap-1.5 rounded-full bg-[#35240f] px-2.5 py-1 text-xs font-medium text-[#f0a94a] sm:flex">
-      <FlaskConical size={11} /> Sample data
-    </span>
+    <svg width={size} height={size} viewBox="0 0 34 34" fill="none" aria-hidden>
+      <defs>
+        <linearGradient id="sf-mark" x1="0" y1="0" x2="34" y2="34" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#34d17d" />
+          <stop offset="1" stopColor="#3fd6c8" />
+        </linearGradient>
+      </defs>
+      <rect width="34" height="34" rx="9" fill="url(#sf-mark)" />
+      <path d="M7 25 L13 19 L18 22 L27 10 L27 27 L7 27 Z" fill="#0a1512" fillOpacity="0.18" />
+      <path
+        d="M7 25 L13 19 L18 22 L27 10"
+        stroke="#ffffff"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="27" cy="10" r="2.2" fill="#ffffff" />
+    </svg>
+  )
+}
+
+function Logo() {
+  return (
+    <NavLink to="/" className="flex shrink-0 items-center gap-2.5 pr-1">
+      <LogoMark />
+      <span className="hidden text-[17px] font-bold tracking-tight sm:block">
+        <span className="text-ink">Simon</span>
+        <span className="bg-gradient-to-r from-[#34d17d] to-[#3fd6c8] bg-clip-text text-transparent">
+          FIRE
+        </span>
+      </span>
+    </NavLink>
   )
 }
 
@@ -44,20 +55,76 @@ const NAV = [
   { to: '/connections', label: 'Connections' },
 ]
 
-function Logo() {
+// A single compact pill that folds "where the data came from" and "how fresh it
+// is" together, replacing the two separate badges that used to sit in the header.
+function StatusPill({
+  source,
+  lastSyncAt,
+  syncing,
+}: {
+  source?: string
+  lastSyncAt: string
+  syncing?: boolean
+}) {
+  const cfg = syncing
+    ? { dot: 'bg-[#3fd6a8]', text: 'text-muted', icon: <RefreshCw size={11} className="animate-spin" />, label: 'Syncing…' }
+    : source === 'live'
+      ? { dot: 'bg-[#3fd88a]', text: 'text-[#3fd88a]', icon: <Zap size={11} />, label: 'Live · Schwab' }
+      : source === 'imported'
+        ? { dot: 'bg-[#5aa2ff]', text: 'text-[#5aa2ff]', icon: <Upload size={11} />, label: 'Imported' }
+        : { dot: 'bg-[#f0a94a]', text: 'text-[#f0a94a]', icon: <FlaskConical size={11} />, label: 'Sample' }
+
   return (
-    <div className="flex items-center gap-2 pr-2">
-      <div className="grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br from-[#1f6f4e] to-[#12503a] text-xs font-bold text-white">
-        P2
-      </div>
-      <div className="hidden leading-tight sm:block">
-        <div className="text-[11px] font-semibold tracking-wide text-muted">
-          PROCEED TO
+    <div className="hidden items-center gap-2 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs md:flex">
+      <span className={clsx('flex items-center gap-1.5 font-medium', cfg.text)}>
+        {cfg.icon}
+        {cfg.label}
+      </span>
+      {!syncing && (
+        <>
+          <span className="h-3 w-px bg-border" />
+          <span className="text-faint">{relTime(lastSyncAt)}</span>
+        </>
+      )}
+    </div>
+  )
+}
+
+function AvatarMenu({ onReset }: { onReset: () => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-[#3b82f6] to-[#7c3aed] text-xs font-bold text-white outline-none ring-offset-2 ring-offset-bg hover:ring-2 hover:ring-border"
+      >
+        RS
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
+          <div className="border-b border-border-soft px-4 py-3">
+            <div className="text-sm font-semibold">Raymond Simon</div>
+            <div className="text-xs text-faint">SimonFIRE portfolio</div>
+          </div>
+          <button
+            onClick={() => {
+              setOpen(false)
+              onReset()
+            }}
+            className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-muted hover:bg-surface-2 hover:text-ink"
+          >
+            <RotateCcw size={15} /> Reset to sample data
+          </button>
         </div>
-        <div className="-mt-0.5 text-[11px] font-semibold tracking-wide text-muted">
-          PORTFOLIO
-        </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -127,7 +194,7 @@ export default function Layout() {
   const [autoSyncing, setAutoSyncing] = useState(false)
 
   // Auto-sync on load: if this browser is connected to Schwab, pull live data so
-  // every browser/device shows the real portfolio without a manual Sync Now.
+  // every browser/device shows the real portfolio without a manual sync.
   useEffect(() => {
     let cancelled = false
     schwabStatus().then((st) => {
@@ -144,20 +211,33 @@ export default function Layout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const doSync = () => {
+  // Manual sync: pull live from Schwab if connected, otherwise refresh sample prices.
+  const doSync = async () => {
     setSyncing(true)
-    setTimeout(() => {
-      syncAll()
+    try {
+      const st = await schwabStatus()
+      if (st.connected) {
+        const r = await schwabSync()
+        if (r.ok && r.payload) applyImport(r.payload, 'replace', 'live')
+        else syncAll()
+      } else {
+        syncAll()
+      }
+    } finally {
       setSyncing(false)
-    }, 700)
+    }
+  }
+
+  const handleReset = () => {
+    if (confirm('Reset all data back to the sample dataset?')) reset()
   }
 
   return (
     <div className="min-h-full">
       <header className="sticky top-0 z-20 border-b border-border-soft bg-bg/90 backdrop-blur">
-        <div className="mx-auto flex max-w-[1360px] items-center gap-3 px-4 py-3 lg:px-8">
+        <div className="mx-auto flex max-w-[1360px] items-center gap-4 px-4 py-3 lg:px-8">
           <Logo />
-          <nav className="flex flex-1 items-center gap-1 overflow-x-auto">
+          <nav className="flex flex-1 items-center gap-0.5 overflow-x-auto">
             {NAV.map((n) => (
               <NavLink
                 key={n.to}
@@ -167,7 +247,7 @@ export default function Layout() {
                   clsx(
                     'whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                     isActive
-                      ? 'text-[#3fd6a8]'
+                      ? 'bg-surface-2 text-[#3fd6a8]'
                       : 'text-muted hover:bg-surface-2 hover:text-ink',
                   )
                 }
@@ -176,31 +256,17 @@ export default function Layout() {
               </NavLink>
             ))}
           </nav>
-          <div className="flex items-center gap-2">
-            <SourceBadge source={data.source} syncing={autoSyncing} />
-            <span className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-muted md:flex">
-              <Clock size={12} className="text-[#3fd88a]" />
-              {relTime(data.lastSyncAt)}
-            </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <StatusPill source={data.source} lastSyncAt={data.lastSyncAt} syncing={autoSyncing} />
             <button
               onClick={doSync}
               className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-medium hover:bg-[#1c2740]"
+              title="Sync now"
             >
               <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
-              <span className="hidden sm:inline">Sync All</span>
+              <span className="hidden sm:inline">Sync</span>
             </button>
-            <button
-              onClick={() => {
-                if (confirm('Reset all data back to the sample dataset?')) reset()
-              }}
-              title="Reset sample data"
-              className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 text-muted hover:bg-[#1c2740]"
-            >
-              <RotateCcw size={14} />
-            </button>
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-[#3b82f6] to-[#7c3aed] text-xs font-bold text-white">
-              RS
-            </div>
+            <AvatarMenu onReset={handleReset} />
           </div>
         </div>
       </header>

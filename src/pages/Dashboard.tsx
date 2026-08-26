@@ -95,7 +95,7 @@ export default function Dashboard() {
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
         <MoveCard label="Day Change" amount={s.dayChange} pctv={s.dayChangePct * 100} />
         <MoveCard label="Total Gain" amount={s.totalGain} pctv={s.totalGainPct * 100} />
-        <MoveCard label="Total Return" amount={s.totalReturn} pctv={s.totalReturnPct * 100} note="incl. dividends & realized" />
+        <MoveCard label="Total Return" amount={s.totalReturn} pctv={s.totalReturnPct * 100} note="incl. dividends" />
       </div>
 
       {/* Your Accounts ------------------------------------------------------ */}
@@ -116,7 +116,7 @@ export default function Dashboard() {
             syncing={syncing}
             onSync={syncNow}
             onOpen={() => {
-              navigate('/positions')
+              navigate(`/account/${a.id}`)
             }}
           />
         ))}

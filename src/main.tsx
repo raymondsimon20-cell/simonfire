@@ -12,6 +12,7 @@ import Dividends from './pages/Dividends'
 import MonthClose from './pages/MonthClose'
 import Ledger from './pages/Ledger'
 import Connections from './pages/Connections'
+import AccountDetail from './pages/AccountDetail'
 
 // Use hash routing for the self-contained single-file demo (opened without a server),
 // browser routing for the normal Netlify build.
@@ -23,6 +24,7 @@ const router = makeRouter([
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'positions', element: <Positions /> },
+      { path: 'account/:id', element: <AccountDetail /> },
       { path: 'transactions', element: <Transactions /> },
       { path: 'cash-flow', element: <CashFlow /> },
       { path: 'dividends', element: <Dividends /> },

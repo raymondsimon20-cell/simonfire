@@ -17,6 +17,11 @@ export interface Account {
   isMargin: boolean
   cash: number // settled + unsettled cash
   marginBalance: number // outstanding margin (negative liability magnitude, stored positive)
+  // Optional broker-reported balances (populate the account-detail KPIs).
+  equity?: number // net liquidation value / equity
+  buyingPower?: number
+  availableFunds?: number // cash available to withdraw (incl. margin)
+  longMarketValue?: number
 }
 
 export interface Position {

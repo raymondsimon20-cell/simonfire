@@ -74,10 +74,11 @@ export function portfolioSummary(
     gain += m.totalGain
     ret += m.totalReturn
   }
-  const realized = transactions
-    .filter((t) => t.type === 'Sell')
-    .reduce((s, t) => s + (t.pl ?? 0), 0)
-  ret += realized
+  // Total Return = unrealized gain + dividends on current holdings, consistent
+  // with the Positions "Portfolio Total" row and the per-account detail page.
+  // (Realized P/L from fully-closed positions is surfaced in Month Close, not here,
+  // so the same number shows everywhere rather than drifting between views.)
+  void transactions
 
   const gross = value + availableCash
   const net = gross - marginUsed

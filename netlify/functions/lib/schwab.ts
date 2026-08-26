@@ -163,6 +163,11 @@ export async function fetchPortfolio(token: string) {
     const marginBalance = Math.max(0, -num(bal.marginBalance)) // borrowed shown as positive magnitude
     const mask = number.replace(/\D/g, '').slice(-4)
     const accId = 'acc_' + (mask || Math.random().toString(36).slice(2, 8))
+    // Extra balance fields Schwab reports — power the account-detail KPIs.
+    const equity = num(bal.equity ?? bal.liquidationValue)
+    const buyingPower = num(bal.buyingPower ?? bal.buyingPowerNonMarginableTrade)
+    const availableFunds = num(bal.availableFunds ?? bal.cashAvailableForTrading ?? bal.availableFundsNonMarginableTrade)
+    const longMarketValue = num(bal.longMarketValue)
     accounts.push({
       id: accId,
       broker: 'Schwab',
@@ -173,6 +178,10 @@ export async function fetchPortfolio(token: string) {
       isMargin,
       cash,
       marginBalance,
+      equity: equity || undefined,
+      buyingPower: buyingPower || undefined,
+      availableFunds: availableFunds || undefined,
+      longMarketValue: longMarketValue || undefined,
     })
 
     for (const p of sa.positions ?? []) {
@@ -283,6 +292,11 @@ function mapTxn(accountId: string, t: any) {
     type = 'Withdrawal'
   else if (rawType.includes('FEE')) type = 'Fee'
   if (type === 'Contribution' && amount < 0) type = 'Withdrawal'
+
+  // A disbursement to a third party (a biller, loan, or card) is a Bill Payment,
+  // not a cash withdrawal to yourself. Distinguish by the payee in the description.
+  const looksBill = /\b(PAYMENT|PMT|BILLPAY|BILL PAY|BILL|CARD|CREDIT CARD|LOAN|MORTGAGE|AUTOPAY|BEST EGG|ACH DEBIT)\b/.test(desc)
+  if (amount < 0 && (type === 'Withdrawal' || type === 'Other') && looksBill) type = 'Bill Payment'
 
   return {
     id: 'txn_' + Math.random().toString(36).slice(2, 9),

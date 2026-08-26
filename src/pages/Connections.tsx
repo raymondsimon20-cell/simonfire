@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   RefreshCw,
   Plus,
@@ -12,12 +12,15 @@ import {
   EyeOff,
   Info,
   Trash2,
+  Zap,
+  AlertTriangle,
 } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { relTime } from '../lib/format'
 import { PageHeader, Button, Badge } from '../components/ui'
 import { Modal } from '../components/Modal'
 import { ImportModal } from '../components/ImportModal'
+import { schwabStatus, schwabSync, schwabDisconnect, schwabLoginUrl } from '../lib/api'
 import clsx from 'clsx'
 
 const BROKERS = [
@@ -31,7 +34,7 @@ const BROKERS = [
 ]
 
 export default function Connections() {
-  const { data, syncAll, syncConnection, removeConnection } = useStore()
+  const { data, syncAll, syncConnection, removeConnection, applyImport } = useStore()
   const [modal, setModal] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -39,16 +42,70 @@ export default function Connections() {
   const [hidden, setHidden] = useState<Record<string, boolean>>({})
   const [showLog, setShowLog] = useState(false)
   const [menu, setMenu] = useState<string | null>(null)
+  const [live, setLive] = useState(false)
+  const [liveMsg, setLiveMsg] = useState('')
 
   const accountsOf = (ids: string[]) => data.accounts.filter((a) => ids.includes(a.id))
   const allEvents = data.connections.flatMap((c) => c.events).sort((a, b) => (a.at < b.at ? 1 : -1))
 
+  // Live Schwab sync via the Netlify Functions (server-side OAuth).
+  const runLiveSync = async () => {
+    setSyncing(true)
+    setLiveMsg('')
+    const r = await schwabSync()
+    setSyncing(false)
+    if (r.ok && r.payload) {
+      applyImport(r.payload, 'replace')
+      setLive(true)
+      setLiveMsg(`Synced ${r.payload.accounts.length} account(s) from Schwab.`)
+    } else if (r.error === 'refresh_expired' || r.error === 'not_connected') {
+      setLive(false)
+      setLiveMsg('Schwab session expired — reconnect to sync again.')
+    } else {
+      setLiveMsg(
+        r.error === 'unreachable'
+          ? 'Live sync needs the deployed app (Netlify Functions). Use Import CSV here, or deploy to sync live.'
+          : `Sync failed: ${r.error}`,
+      )
+    }
+  }
+
+  // On load: check whether we already hold Schwab tokens, and handle the OAuth return.
+  useEffect(() => {
+    let cancelled = false
+    const params = new URLSearchParams(window.location.search)
+    const connected = params.get('connected')
+    if (connected) {
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+    schwabStatus().then((st) => {
+      if (cancelled) return
+      setLive(st.connected)
+      if (connected === '1') runLiveSync()
+      else if (connected === 'error') setLiveMsg('Schwab connection was cancelled or failed. Try again.')
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const doSync = () => {
+    if (live) {
+      runLiveSync()
+      return
+    }
     setSyncing(true)
     setTimeout(() => {
       syncAll()
       setSyncing(false)
     }, 800)
+  }
+
+  const disconnectSchwab = async () => {
+    await schwabDisconnect()
+    setLive(false)
+    setLiveMsg('Disconnected from Schwab.')
   }
 
   return (
@@ -68,22 +125,40 @@ export default function Connections() {
         }
       />
 
-      <div className="card mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="font-semibold">Sync Status</div>
-          <div className="text-sm text-muted">Last synced: {relTime(data.lastSyncAt)}</div>
+      <div className="card mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 font-semibold">
+              Sync Status
+              {live && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-[#123024] px-2 py-0.5 text-xs font-medium text-[#3fd88a]">
+                  <Zap size={11} /> Schwab live
+                </span>
+              )}
+            </div>
+            <div className="text-sm text-muted">Last synced: {relTime(data.lastSyncAt)}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            {live ? (
+              <Button onClick={disconnectSchwab}>Disconnect</Button>
+            ) : (
+              <Button onClick={() => (window.location.href = schwabLoginUrl)}>
+                <Zap size={15} /> Connect Schwab
+              </Button>
+            )}
+            <button className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 text-muted hover:text-ink" title="History" onClick={() => setShowLog((s) => !s)}>
+              <History size={15} />
+            </button>
+            <Button variant="primary" onClick={doSync}>
+              <RefreshCw size={15} className={syncing ? 'animate-spin' : ''} /> Sync Now
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 text-muted hover:text-ink" title="Export">
-            <Upload size={15} />
-          </button>
-          <button className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 text-muted hover:text-ink" title="History" onClick={() => setShowLog((s) => !s)}>
-            <History size={15} />
-          </button>
-          <Button onClick={doSync}>
-            <RefreshCw size={15} className={syncing ? 'animate-spin' : ''} /> Sync Now
-          </Button>
-        </div>
+        {liveMsg && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-xs text-muted">
+            <AlertTriangle size={13} className="text-[#f0a94a]" /> {liveMsg}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -196,8 +271,9 @@ export default function Connections() {
 
       <Modal open={modal} onClose={() => setModal(false)} title="Connect a Brokerage" subtitle="Select your brokerage to securely connect your accounts." width="max-w-lg">
         <div className="mb-4 rounded-lg bg-[#10233f] px-3 py-2.5 text-xs text-[#a9c7f0]">
-          Live auto-sync (SnapTrade) is coming next. For now, choose your broker to
-          <span className="font-medium text-ink"> import a CSV export</span> and load your real portfolio.
+          <span className="font-medium text-ink">Charles Schwab</span> supports live sync via Schwab's official API —
+          click Connect to authorize (opens Schwab's secure login). Other brokers currently
+          <span className="font-medium text-ink"> import a CSV export</span>.
         </div>
         <div className="space-y-3">
           {BROKERS.map((b) => (
@@ -209,7 +285,13 @@ export default function Connections() {
                 <div className="font-medium">{b.name}</div>
                 <div className="text-xs text-faint">{b.status === 'Available' ? 'Available' : 'Coming soon'}</div>
               </div>
-              {b.status === 'Available' ? (
+              {b.status !== 'Available' ? (
+                <span className="rounded-md bg-surface-2 px-2.5 py-1 text-xs text-faint">Coming Soon</span>
+              ) : b.name === 'Charles Schwab' ? (
+                <Button variant="primary" onClick={() => (window.location.href = schwabLoginUrl)}>
+                  <Zap size={14} /> Connect
+                </Button>
+              ) : (
                 <Button
                   onClick={() => {
                     setModal(false)
@@ -218,8 +300,6 @@ export default function Connections() {
                 >
                   Connect
                 </Button>
-              ) : (
-                <span className="rounded-md bg-surface-2 px-2.5 py-1 text-xs text-faint">Coming Soon</span>
               )}
             </div>
           ))}

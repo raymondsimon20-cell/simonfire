@@ -62,14 +62,43 @@ to the app's transaction types. Multi-account exports are split automatically.
 
 Live auto-sync via **SnapTrade** (what the original app uses) is the planned phase 2 — see below.
 
-## Upgrade path: real cloud data (Supabase)
+## Live Schwab sync (official Schwab API)
+
+The app can pull your real portfolio directly from **Schwab's Trader API** (Accounts and
+Trading) — no third-party aggregator. OAuth and all API calls happen server-side in
+**Netlify Functions**, so your App Key/Secret never reach the browser; tokens are stored in
+**Netlify Blobs** (no database needed).
+
+**Functions** (`netlify/functions/`): `schwab-login` (redirect to Schwab consent),
+`schwab-callback` (code→token exchange, stores tokens), `schwab-sync` (accounts + positions +
+12 months of transactions → app model), `schwab-status`, `schwab-disconnect`. Token refresh is
+automatic; Schwab refresh tokens expire after ~7 days, after which you re-connect.
+
+### One-time setup
+
+1. **Deploy to Netlify** first so you have your site URL (e.g. `https://simonfire.netlify.app`).
+2. On **developer.schwab.com**, open your Accounts-and-Trading app and set its **Callback URL** to
+   exactly: `https://YOUR-SITE.netlify.app/.netlify/functions/schwab-callback`
+3. In **Netlify → Site configuration → Environment variables**, add (see `.env.example`):
+   - `SCHWAB_APP_KEY` and `SCHWAB_APP_SECRET` (from your Schwab app)
+   - `SCHWAB_CALLBACK_URL` = the same callback URL as step 2
+   - `NODE_VERSION` = `22`
+4. **Redeploy**, then in the app go to **Connections → Connect Schwab** (or Connect New Broker →
+   Charles Schwab). You'll authorize on Schwab's site and land back with your real data synced.
+   Use **Sync Now** to refresh; reconnect weekly when the token expires.
+
+Local dev with functions: `netlify dev` (Netlify CLI) runs the Vite app and the functions
+together; without it, the Vite dev/preview build shows the UI but live sync falls back to CSV import.
+
+## Upgrade path: cloud persistence & auto-sync (Supabase)
 
 The store is intentionally isolated. To move from `localStorage` to real accounts + cloud sync:
 
 1. Create a Supabase project; add tables mirroring `src/lib/types.ts` (accounts, positions, transactions, connections).
 2. Replace the `load`/`save`/mutation functions in `src/lib/store.tsx` with Supabase queries (`@supabase/supabase-js`), keeping the same `StoreCtx` interface — no page changes needed.
 3. Add Supabase Auth for sign-in; put keys in Netlify env vars.
-4. For live brokerage sync, integrate **SnapTrade** (what the original uses) behind the Connections page.
+4. For scheduled auto-sync (instead of manual "Sync Now"), add a **Netlify Scheduled Function** that
+   calls the Schwab sync on a cron and writes results to Supabase, so every device reads the latest.
 
 ## Notes
 

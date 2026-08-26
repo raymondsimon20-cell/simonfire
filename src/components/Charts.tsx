@@ -25,8 +25,8 @@ function money(v: number) {
 function ChartTip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-lg border border-[--color-border] bg-[--color-surface] px-3 py-2 text-xs shadow-xl">
-      <div className="mb-0.5 text-[--color-muted]">{label}</div>
+    <div className="rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-xl">
+      <div className="mb-0.5 text-muted">{label}</div>
       <div className="num font-semibold">{usd(payload[0].value)}</div>
     </div>
   )
@@ -121,8 +121,8 @@ export function Waterfall({ steps, height = 300 }: { steps: BridgeStep[]; height
             if (!active || !payload?.length) return null
             const r = payload[0].payload
             return (
-              <div className="rounded-lg border border-[--color-border] bg-[--color-surface] px-3 py-2 text-xs shadow-xl">
-                <div className="mb-0.5 text-[--color-muted]">{r.label}</div>
+              <div className="rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-xl">
+                <div className="mb-0.5 text-muted">{r.label}</div>
                 <div className="num font-semibold">{usd(r.value)}</div>
               </div>
             )

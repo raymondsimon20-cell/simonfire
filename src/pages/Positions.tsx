@@ -4,7 +4,9 @@ import { useScoped, useStore } from '../lib/store'
 import { positionMetrics } from '../lib/calc'
 import { usd, pct, num, intfmt, shortDate, posNeg } from '../lib/format'
 import { KpiCard, PageHeader, Button } from '../components/ui'
+import { PositionDrawer } from '../components/PositionDrawer'
 import { downloadCsv } from '../lib/csv'
+import type { Position } from '../lib/types'
 import clsx from 'clsx'
 
 type SortKey =
@@ -26,6 +28,7 @@ export default function Positions() {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortKey>('value')
   const [dir, setDir] = useState<'asc' | 'desc'>('desc')
+  const [selected, setSelected] = useState<Position | null>(null)
 
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
 
@@ -142,7 +145,7 @@ export default function Positions() {
         subtitle={`As of ${shortDate(data.lastSyncAt.slice(0, 10))}`}
         right={
           <>
-            <span className="hidden items-center gap-1.5 text-xs text-[--color-faint] sm:flex">
+            <span className="hidden items-center gap-1.5 text-xs text-faint sm:flex">
               <span className="h-1.5 w-1.5 rounded-full bg-[#3fd88a]" /> Prices as of Just now
             </span>
             <Button onClick={exportCsv}>
@@ -172,15 +175,15 @@ export default function Positions() {
 
       <div className="card mt-4 flex flex-wrap items-center gap-3 p-4">
         <div className="relative">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[--color-faint]" />
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search symbol…"
-            className="w-56 rounded-lg border border-[--color-border] bg-[--color-surface-2] py-2 pl-9 pr-3 text-sm outline-none focus:border-[--color-brand]"
+            className="w-56 rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm outline-none focus:border-brand"
           />
         </div>
-        <div className="text-xs text-[--color-faint]">
+        <div className="text-xs text-faint">
           {rows.filtered.length} of {positions.length} holdings
         </div>
       </div>
@@ -188,7 +191,7 @@ export default function Positions() {
       <div className="card mt-4 overflow-x-auto p-0">
         <table className="w-full min-w-[980px] text-sm">
           <thead>
-            <tr className="border-b border-[--color-border-soft] text-left text-xs text-[--color-muted]">
+            <tr className="border-b border-border-soft text-left text-xs text-muted">
               <Th onClick={() => toggle('symbol')} active={sort === 'symbol'}>Holding</Th>
               <th className="px-4 py-3 font-medium">Account</th>
               <Th onClick={() => toggle('shares')} active={sort === 'shares'} right>Shares / Contracts</Th>
@@ -204,7 +207,7 @@ export default function Positions() {
             </tr>
           </thead>
           <tbody>
-            <tr className="border-b border-[--color-border-soft] bg-[--color-surface-2]/40 font-semibold">
+            <tr className="border-b border-border-soft bg-surface-2/40 font-semibold">
               <td className="px-4 py-3" colSpan={4}>
                 Portfolio Total
               </td>
@@ -230,12 +233,16 @@ export default function Positions() {
               <td className="num px-4 py-3 text-right">100%</td>
             </tr>
             {rows.filtered.map(({ p, m, weight }) => (
-              <tr key={p.id} className="border-b border-[--color-border-soft] hover:bg-[--color-surface-2]/40">
+              <tr
+                key={p.id}
+                onClick={() => setSelected(p)}
+                className="cursor-pointer border-b border-border-soft hover:bg-surface-2/40"
+              >
                 <td className="px-4 py-3">
                   <div className="font-semibold">{p.symbol}</div>
-                  <div className="max-w-[180px] truncate text-xs text-[--color-faint]">{p.name}</div>
+                  <div className="max-w-[180px] truncate text-xs text-faint">{p.name}</div>
                 </td>
-                <td className="px-4 py-3 text-xs text-[--color-muted]">{accName(p.accountId)}</td>
+                <td className="px-4 py-3 text-xs text-muted">{accName(p.accountId)}</td>
                 <td className="num px-4 py-3 text-right">{num(p.shares)}</td>
                 <td className="num px-4 py-3 text-right">{usd(p.lastPrice)}</td>
                 <td className={clsx('num px-4 py-3 text-right', posNeg(m.dayChange))}>{usd(m.dayChange, { sign: true })}</td>
@@ -245,12 +252,14 @@ export default function Positions() {
                 <td className={clsx('num px-4 py-3 text-right', posNeg(m.totalReturn))}>{usd(m.totalReturn, { sign: true })}</td>
                 <td className={clsx('num px-4 py-3 text-right', posNeg(m.totalReturn))}>{pct(m.totalReturnPct * 100, { sign: true })}</td>
                 <td className="num px-4 py-3 text-right font-semibold">{usd(m.value)}</td>
-                <td className="num px-4 py-3 text-right text-[--color-muted]">{pct(weight * 100)}</td>
+                <td className="num px-4 py-3 text-right text-muted">{pct(weight * 100)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      <PositionDrawer position={selected} onClose={() => setSelected(null)} />
     </div>
   )
 }
@@ -270,14 +279,14 @@ function Th({
     <th
       onClick={onClick}
       className={clsx(
-        'cursor-pointer select-none px-4 py-3 font-medium hover:text-[--color-ink]',
+        'cursor-pointer select-none px-4 py-3 font-medium hover:text-ink',
         right && 'text-right',
-        active && 'text-[--color-ink]',
+        active && 'text-ink',
       )}
     >
       <span className={clsx('inline-flex items-center gap-1', right && 'flex-row-reverse')}>
         {children}
-        <ArrowUpDown size={11} className={active ? 'text-[--color-brand]' : 'text-[--color-faint]'} />
+        <ArrowUpDown size={11} className={active ? 'text-brand' : 'text-faint'} />
       </span>
     </th>
   )

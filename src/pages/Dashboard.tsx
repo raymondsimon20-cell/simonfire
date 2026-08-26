@@ -52,7 +52,7 @@ export default function Dashboard() {
         />
       </div>
 
-      <div className="card mt-4 grid grid-cols-1 divide-y divide-[--color-border-soft] p-0 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+      <div className="card mt-4 grid grid-cols-1 divide-y divide-border-soft p-0 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <SubStat icon={<Layers size={18} />} label="Unique Positions" value={intfmt(s.uniquePositions)} />
         <SubStat
           icon={<Wallet size={18} />}
@@ -77,7 +77,7 @@ export default function Dashboard() {
         <h2 className="text-xl font-semibold">Your Accounts</h2>
         <Link
           to="/connections"
-          className="flex items-center gap-1 text-sm font-medium text-[--color-brand] hover:underline"
+          className="flex items-center gap-1 text-sm font-medium text-brand hover:underline"
         >
           Manage Connections <ArrowUpRight size={15} />
         </Link>
@@ -101,7 +101,7 @@ export default function Dashboard() {
                     </span>
                   )}
                 </div>
-                <div className="truncate text-xs text-[--color-faint]">{a.fullName}</div>
+                <div className="truncate text-xs text-faint">{a.fullName}</div>
               </div>
               <div className="num text-right text-sm font-semibold">{usd(val)}</div>
             </div>
@@ -123,11 +123,11 @@ function SubStat({
 }) {
   return (
     <div className="flex items-center gap-3 p-5">
-      <div className="grid h-10 w-10 place-items-center rounded-lg bg-[--color-surface-2] text-[--color-muted]">
+      <div className="grid h-10 w-10 place-items-center rounded-lg bg-surface-2 text-muted">
         {icon}
       </div>
       <div>
-        <div className="text-xs text-[--color-muted]">{label}</div>
+        <div className="text-xs text-muted">{label}</div>
         <div className="num text-lg font-semibold">{value}</div>
       </div>
     </div>
@@ -147,12 +147,12 @@ function MoveCard({
 }) {
   return (
     <div className="card p-5">
-      <div className="text-sm text-[--color-muted]">{label}</div>
+      <div className="text-sm text-muted">{label}</div>
       <div className={`num mt-1 text-2xl font-semibold ${posNeg(amount)}`}>
         {usd(amount, { sign: true })}
       </div>
       <div className={`text-sm ${posNeg(pctv)}`}>{pct(pctv, { sign: true })}</div>
-      {note && <div className="mt-1 text-xs text-[--color-faint]">{note}</div>}
+      {note && <div className="mt-1 text-xs text-faint">{note}</div>}
     </div>
   )
 }

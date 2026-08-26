@@ -69,13 +69,13 @@ export default function Connections() {
       <div className="card mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="font-semibold">Sync Status</div>
-          <div className="text-sm text-[--color-muted]">Last synced: {relTime(data.lastSyncAt)}</div>
+          <div className="text-sm text-muted">Last synced: {relTime(data.lastSyncAt)}</div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="grid h-9 w-9 place-items-center rounded-lg border border-[--color-border] bg-[--color-surface-2] text-[--color-muted] hover:text-[--color-ink]" title="Export">
+          <button className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 text-muted hover:text-ink" title="Export">
             <Upload size={15} />
           </button>
-          <button className="grid h-9 w-9 place-items-center rounded-lg border border-[--color-border] bg-[--color-surface-2] text-[--color-muted] hover:text-[--color-ink]" title="History" onClick={() => setShowLog((s) => !s)}>
+          <button className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 text-muted hover:text-ink" title="History" onClick={() => setShowLog((s) => !s)}>
             <History size={15} />
           </button>
           <Button onClick={doSync}>
@@ -96,23 +96,23 @@ export default function Connections() {
                 </div>
                 <div className="flex-1">
                   <div className="font-semibold">{c.broker}</div>
-                  <div className="text-xs text-[--color-faint]">
+                  <div className="text-xs text-faint">
                     {c.accountIds.length} account{c.accountIds.length === 1 ? '' : 's'} linked
                   </div>
                 </div>
                 <Badge>{c.status}</Badge>
                 <div className="relative">
-                  <button onClick={() => setMenu((m) => (m === c.id ? null : c.id))} className="text-[--color-faint] hover:text-[--color-ink]">
+                  <button onClick={() => setMenu((m) => (m === c.id ? null : c.id))} className="text-faint hover:text-ink">
                     <MoreVertical size={18} />
                   </button>
                   {menu === c.id && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setMenu(null)} />
-                      <div className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-lg border border-[--color-border] bg-[--color-surface] shadow-xl">
-                        <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[--color-surface-2]" onClick={() => { syncConnection(c.id); setMenu(null) }}>
+                      <div className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-lg border border-border bg-surface shadow-xl">
+                        <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { syncConnection(c.id); setMenu(null) }}>
                           <RefreshCw size={13} /> Sync now
                         </button>
-                        <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-[--color-neg] hover:bg-[--color-surface-2]" onClick={() => { if (confirm(`Disconnect ${c.broker}?`)) removeConnection(c.id); setMenu(null) }}>
+                        <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neg hover:bg-surface-2" onClick={() => { if (confirm(`Disconnect ${c.broker}?`)) removeConnection(c.id); setMenu(null) }}>
                           <Trash2 size={13} /> Disconnect
                         </button>
                       </div>
@@ -122,21 +122,21 @@ export default function Connections() {
               </div>
 
               {c.accountIds.length > 0 && (
-                <div className="border-t border-[--color-border-soft] px-5">
-                  <button onClick={() => setExpanded((e) => ({ ...e, [c.id]: !e[c.id] }))} className="flex w-full items-center justify-between py-3 text-sm text-[--color-muted]">
+                <div className="border-t border-border-soft px-5">
+                  <button onClick={() => setExpanded((e) => ({ ...e, [c.id]: !e[c.id] }))} className="flex w-full items-center justify-between py-3 text-sm text-muted">
                     Accounts
                     <ChevronDown size={16} className={clsx('transition-transform', isOpen && 'rotate-180')} />
                   </button>
                   {isOpen && (
                     <div className="space-y-2 pb-3">
                       {accts.map((a) => (
-                        <div key={a.id} className="flex items-center gap-3 rounded-lg bg-[--color-surface-2] px-3 py-2.5">
-                          <Wallet size={16} className="text-[--color-muted]" />
+                        <div key={a.id} className="flex items-center gap-3 rounded-lg bg-surface-2 px-3 py-2.5">
+                          <Wallet size={16} className="text-muted" />
                           <div className="flex-1">
                             <div className="text-sm font-medium">{a.name}</div>
-                            <div className="text-xs text-[--color-faint]">····{a.mask} · USD</div>
+                            <div className="text-xs text-faint">····{a.mask} · USD</div>
                           </div>
-                          <button onClick={() => setHidden((h) => ({ ...h, [a.id]: !h[a.id] }))} className="text-[--color-faint] hover:text-[--color-ink]">
+                          <button onClick={() => setHidden((h) => ({ ...h, [a.id]: !h[a.id] }))} className="text-faint hover:text-ink">
                             {hidden[a.id] ? <EyeOff size={16} /> : <Eye size={16} />}
                           </button>
                         </div>
@@ -146,9 +146,9 @@ export default function Connections() {
                 </div>
               )}
 
-              <div className="mt-auto flex items-center justify-between border-t border-[--color-border-soft] px-5 py-3 text-xs text-[--color-faint]">
+              <div className="mt-auto flex items-center justify-between border-t border-border-soft px-5 py-3 text-xs text-faint">
                 <span>Last synced: {relTime(c.lastSynced)}</span>
-                <button onClick={() => syncConnection(c.id)} className="hover:text-[--color-ink]">
+                <button onClick={() => syncConnection(c.id)} className="hover:text-ink">
                   <RefreshCw size={14} />
                 </button>
               </div>
@@ -158,14 +158,14 @@ export default function Connections() {
 
         <button
           onClick={() => setModal(true)}
-          className="card grid min-h-[180px] place-items-center border-dashed p-5 text-center transition-colors hover:border-[--color-brand]"
+          className="card grid min-h-[180px] place-items-center border-dashed p-5 text-center transition-colors hover:border-brand"
         >
           <div>
-            <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[--color-surface-2] text-[--color-brand]">
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-surface-2 text-brand">
               <Plus size={22} />
             </div>
             <div className="mt-3 font-medium">Add Connection</div>
-            <div className="text-xs text-[--color-faint]">Connect another broker</div>
+            <div className="text-xs text-faint">Connect another broker</div>
           </div>
         </button>
       </div>
@@ -173,19 +173,19 @@ export default function Connections() {
       <div className="card mt-6">
         <button onClick={() => setShowLog((s) => !s)} className="flex w-full items-center justify-between">
           <span className="flex items-center gap-2 font-semibold">
-            <Info size={16} className="text-[--color-faint]" /> Connection Event Log
+            <Info size={16} className="text-faint" /> Connection Event Log
           </span>
           <ChevronDown size={16} className={clsx('transition-transform', showLog && 'rotate-180')} />
         </button>
         {showLog && (
           <div className="mt-4 space-y-2">
             {allEvents.map((e, i) => (
-              <div key={i} className="flex items-center justify-between rounded-lg bg-[--color-surface-2] px-3 py-2 text-sm">
+              <div key={i} className="flex items-center justify-between rounded-lg bg-surface-2 px-3 py-2 text-sm">
                 <span className="flex items-center gap-2">
-                  <span className={clsx('h-1.5 w-1.5 rounded-full', e.kind === 'error' ? 'bg-[--color-neg]' : 'bg-[#3fd88a]')} />
+                  <span className={clsx('h-1.5 w-1.5 rounded-full', e.kind === 'error' ? 'bg-neg' : 'bg-[#3fd88a]')} />
                   {e.message}
                 </span>
-                <span className="text-xs text-[--color-faint]">{relTime(e.at)}</span>
+                <span className="text-xs text-faint">{relTime(e.at)}</span>
               </div>
             ))}
           </div>
@@ -195,13 +195,13 @@ export default function Connections() {
       <Modal open={modal} onClose={() => setModal(false)} title="Connect a Brokerage" subtitle="Select your brokerage to securely connect your accounts." width="max-w-lg">
         <div className="space-y-3">
           {BROKERS.map((b) => (
-            <div key={b.name} className="flex items-center gap-3 rounded-xl border border-[--color-border-soft] p-3">
+            <div key={b.name} className="flex items-center gap-3 rounded-xl border border-border-soft p-3">
               <div className="grid h-10 w-10 place-items-center rounded-lg bg-[#10233f] text-[#5aa2ff]">
                 <Building2 size={18} />
               </div>
               <div className="flex-1">
                 <div className="font-medium">{b.name}</div>
-                <div className="text-xs text-[--color-faint]">{b.status === 'Available' ? 'Available' : 'Coming soon'}</div>
+                <div className="text-xs text-faint">{b.status === 'Available' ? 'Available' : 'Coming soon'}</div>
               </div>
               {b.status === 'Available' ? (
                 <Button
@@ -213,12 +213,12 @@ export default function Connections() {
                   Connect
                 </Button>
               ) : (
-                <span className="rounded-md bg-[--color-surface-2] px-2.5 py-1 text-xs text-[--color-faint]">Coming Soon</span>
+                <span className="rounded-md bg-surface-2 px-2.5 py-1 text-xs text-faint">Coming Soon</span>
               )}
             </div>
           ))}
         </div>
-        <p className="mt-5 text-center text-xs text-[--color-faint]">
+        <p className="mt-5 text-center text-xs text-faint">
           Your credentials are securely handled by SnapTrade. We never see or store your login information.
         </p>
       </Modal>

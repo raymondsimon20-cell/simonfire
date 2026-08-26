@@ -85,12 +85,12 @@ export default function CashFlow() {
       />
 
       <div className="card mb-4 flex flex-wrap items-center gap-4">
-        <label className="flex items-center gap-2 text-sm text-[--color-muted]">
+        <label className="flex items-center gap-2 text-sm text-muted">
           Date Range:
           <select
             value={range}
             onChange={(e) => setRange(e.target.value)}
-            className="rounded-lg border border-[--color-border] bg-[--color-surface-2] px-3 py-2 text-sm text-[--color-ink] outline-none"
+            className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none"
           >
             {Object.entries(RANGES).map(([k, v]) => (
               <option key={k} value={k}>
@@ -99,12 +99,12 @@ export default function CashFlow() {
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-2 text-sm text-[--color-muted]">
+        <label className="flex items-center gap-2 text-sm text-muted">
           Category:
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            className="rounded-lg border border-[--color-border] bg-[--color-surface-2] px-3 py-2 text-sm text-[--color-ink] outline-none"
+            className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none"
           >
             <option value="all">All Categories</option>
             {['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Fee', 'Buy', 'Sell', 'Other'].map((c) => (
@@ -129,7 +129,7 @@ export default function CashFlow() {
         <KpiCard
           label="Net Operating"
           value={usd(cf.netOperating, { sign: true })}
-          valueClass={cf.netOperating >= 0 ? 'text-[--color-pos]' : 'text-[--color-neg]'}
+          valueClass={cf.netOperating >= 0 ? 'text-pos' : 'text-neg'}
           icon={<Wallet size={20} />}
           tile="green"
           info="Total income minus total expenses."
@@ -138,7 +138,7 @@ export default function CashFlow() {
 
       <div className="card mt-4">
         <div className="mb-1 text-lg font-semibold">Daily Net Operating</div>
-        <div className="mb-4 text-xs text-[--color-faint]">
+        <div className="mb-4 text-xs text-faint">
           {shortDate(from)} – {shortDate(TODAY)} ({RANGES[range].days} days)
         </div>
         <SignedBars data={dailyData} xKey="label" yKey="net" height={280} />
@@ -148,7 +148,7 @@ export default function CashFlow() {
         <div className="p-5 pb-0 text-lg font-semibold">Transaction Details</div>
         <table className="mt-3 w-full min-w-[760px] text-sm">
           <thead>
-            <tr className="border-y border-[--color-border-soft] text-left text-xs text-[--color-muted]">
+            <tr className="border-y border-border-soft text-left text-xs text-muted">
               <th className="px-5 py-3 font-medium">Date</th>
               <th className="px-5 py-3 font-medium">Description</th>
               <th className="px-5 py-3 font-medium">Symbol</th>
@@ -159,20 +159,20 @@ export default function CashFlow() {
           </thead>
           <tbody>
             {detailRows.map((t) => (
-              <tr key={t.id} className="border-b border-[--color-border-soft] hover:bg-[--color-surface-2]/40">
-                <td className="whitespace-nowrap px-5 py-3 text-[--color-muted]">{shortDate(t.date)}</td>
+              <tr key={t.id} className="border-b border-border-soft hover:bg-surface-2/40">
+                <td className="whitespace-nowrap px-5 py-3 text-muted">{shortDate(t.date)}</td>
                 <td className="max-w-[280px] truncate px-5 py-3">{t.description}</td>
                 <td className="px-5 py-3 font-semibold">{t.symbol ?? '—'}</td>
                 <td className="px-5 py-3"><Badge>{t.type}</Badge></td>
-                <td className="px-5 py-3 text-xs text-[--color-muted]">{accName(t.accountId)}</td>
-                <td className={clsx('num px-5 py-3 text-right font-medium', t.amount > 0 ? 'text-[--color-pos]' : t.amount < 0 ? 'text-[--color-neg]' : 'text-[--color-faint]')}>
+                <td className="px-5 py-3 text-xs text-muted">{accName(t.accountId)}</td>
+                <td className={clsx('num px-5 py-3 text-right font-medium', t.amount > 0 ? 'text-pos' : t.amount < 0 ? 'text-neg' : 'text-faint')}>
                   {t.amount === 0 ? usd(0) : usd(t.amount, { sign: true })}
                 </td>
               </tr>
             ))}
             {detailRows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-8 text-center text-[--color-faint]">
+                <td colSpan={6} className="px-5 py-8 text-center text-faint">
                   No transactions in this range.
                 </td>
               </tr>

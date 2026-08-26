@@ -194,7 +194,20 @@ export interface DividendStats {
   forwardYield: number
   symbolCount: number
   future: { month: string; amount: number }[]
-  bySymbol: { symbol: string; ttm: number; estAnnual: number }[]
+  bySymbol: SymbolDividend[]
+}
+
+export interface SymbolDividend {
+  symbol: string
+  cadence: 'Weekly' | 'Monthly'
+  ttm: number
+  allTime: number
+  projAnnual: number
+  yoc: number
+  fwd: number
+  payments12m: number
+  avgPayment: number
+  lastPayment: string
 }
 
 export function dividendStats(
@@ -214,29 +227,64 @@ export function dividendStats(
   const months = new Set<string>()
   const ttmBySym = new Map<string, number>()
   const recentBySym = new Map<string, number>()
+  const allTimeBySym = new Map<string, number>()
+  const count12mBySym = new Map<string, number>()
+  const recentCountBySym = new Map<string, number>()
+  const lastPayBySym = new Map<string, string>()
 
   for (const t of divs) {
     allTime += t.amount
+    if (t.symbol) allTimeBySym.set(t.symbol, (allTimeBySym.get(t.symbol) ?? 0) + t.amount)
+    if (t.symbol && (!lastPayBySym.has(t.symbol) || t.date > lastPayBySym.get(t.symbol)!))
+      lastPayBySym.set(t.symbol, t.date)
     const dt = new Date(t.date + 'T00:00:00')
     if (dt >= yearAgo) {
       trailing12m += t.amount
       months.add(t.date.slice(0, 7))
-      if (t.symbol) ttmBySym.set(t.symbol, (ttmBySym.get(t.symbol) ?? 0) + t.amount)
+      if (t.symbol) {
+        ttmBySym.set(t.symbol, (ttmBySym.get(t.symbol) ?? 0) + t.amount)
+        count12mBySym.set(t.symbol, (count12mBySym.get(t.symbol) ?? 0) + 1)
+      }
     }
-    if (dt >= q && t.symbol)
+    if (dt >= q && t.symbol) {
       recentBySym.set(t.symbol, (recentBySym.get(t.symbol) ?? 0) + t.amount)
+      recentCountBySym.set(t.symbol, (recentCountBySym.get(t.symbol) ?? 0) + 1)
+    }
+  }
+
+  // Per-symbol cost basis / market value from holdings.
+  const costBySym = new Map<string, number>()
+  const valueBySym = new Map<string, number>()
+  for (const p of positions) {
+    costBySym.set(p.symbol, (costBySym.get(p.symbol) ?? 0) + p.shares * p.avgCost)
+    valueBySym.set(p.symbol, (valueBySym.get(p.symbol) ?? 0) + p.shares * p.lastPrice)
   }
 
   // Forward run-rate: annualize the last 90 days per symbol.
-  const bySymbol: { symbol: string; ttm: number; estAnnual: number }[] = []
+  const bySymbol: SymbolDividend[] = []
   let estAnnual = 0
   const payingSymbols = new Set<string>([...ttmBySym.keys(), ...recentBySym.keys()])
   for (const sym of payingSymbols) {
     const est = (recentBySym.get(sym) ?? 0) * (365 / 90)
     estAnnual += est
-    bySymbol.push({ symbol: sym, ttm: ttmBySym.get(sym) ?? 0, estAnnual: est })
+    const ttm = ttmBySym.get(sym) ?? 0
+    const pays = count12mBySym.get(sym) ?? 0
+    const cost = costBySym.get(sym) ?? 0
+    const value = valueBySym.get(sym) ?? 0
+    bySymbol.push({
+      symbol: sym,
+      cadence: (recentCountBySym.get(sym) ?? 0) >= 8 ? 'Weekly' : 'Monthly',
+      ttm,
+      allTime: allTimeBySym.get(sym) ?? 0,
+      projAnnual: est,
+      yoc: cost ? est / cost : 0,
+      fwd: value ? est / value : 0,
+      payments12m: pays,
+      avgPayment: pays ? ttm / pays : 0,
+      lastPayment: lastPayBySym.get(sym) ?? '',
+    })
   }
-  bySymbol.sort((a, b) => b.estAnnual - a.estAnnual)
+  bySymbol.sort((a, b) => b.projAnnual - a.projAnnual)
 
   // Yield metrics against dividend-paying holdings.
   const payerSet = new Set(bySymbol.map((b) => b.symbol))
@@ -274,7 +322,7 @@ export function dividendStats(
     forwardYield: payerValue ? estAnnual / payerValue : 0,
     symbolCount: payerSet.size,
     future,
-    bySymbol: bySymbol.slice(0, 25),
+    bySymbol,
   }
 }
 

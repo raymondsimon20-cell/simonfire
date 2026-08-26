@@ -41,15 +41,15 @@ export function KpiCard({
         {info && (
           <span
             title={info}
-            className="grid h-5 w-5 cursor-help place-items-center rounded-full border border-[--color-border] text-[10px] text-[--color-faint]"
+            className="grid h-5 w-5 cursor-help place-items-center rounded-full border border-border text-[10px] text-faint"
           >
             i
           </span>
         )}
       </div>
-      <div className="mt-4 text-sm text-[--color-muted]">{label}</div>
+      <div className="mt-4 text-sm text-muted">{label}</div>
       <div className={clsx('num mt-1 text-2xl font-semibold', valueClass)}>{value}</div>
-      {sub && <div className="mt-1 text-xs text-[--color-faint]">{sub}</div>}
+      {sub && <div className="mt-1 text-xs text-faint">{sub}</div>}
     </div>
   )
 }
@@ -77,7 +77,7 @@ export function PageHeader({
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-[--color-muted]">{subtitle}</p>}
+        {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
       </div>
       {right && <div className="flex items-center gap-2">{right}</div>}
     </div>
@@ -131,8 +131,8 @@ export function Button({
       className={clsx(
         'inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors',
         variant === 'primary'
-          ? 'bg-[--color-brand] text-white hover:bg-[#2f74e6]'
-          : 'border border-[--color-border] bg-[--color-surface-2] text-[--color-ink] hover:bg-[#1c2740]',
+          ? 'bg-brand text-white hover:bg-[#2f74e6]'
+          : 'border border-border bg-surface-2 text-ink hover:bg-[#1c2740]',
         className,
       )}
     >
@@ -157,7 +157,7 @@ export function Select({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className={clsx(
-        'rounded-lg border border-[--color-border] bg-[--color-surface-2] px-3 py-2 text-sm text-[--color-ink] outline-none focus:border-[--color-brand]',
+        'rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-brand',
         className,
       )}
     >
@@ -178,7 +178,7 @@ export function Field({
   children: ReactNode
 }) {
   return (
-    <label className="flex items-center gap-2 text-sm text-[--color-muted]">
+    <label className="flex items-center gap-2 text-sm text-muted">
       <span>{label}</span>
       {children}
     </label>
@@ -187,7 +187,7 @@ export function Field({
 
 export function EmptyState({ children }: { children: ReactNode }) {
   return (
-    <div className="card grid place-items-center p-12 text-center text-sm text-[--color-muted]">
+    <div className="card grid place-items-center p-12 text-center text-sm text-muted">
       {children}
     </div>
   )

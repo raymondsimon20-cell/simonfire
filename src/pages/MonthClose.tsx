@@ -33,17 +33,17 @@ export default function MonthClose() {
             <button
               onClick={() => setIdx((i) => Math.min(i + 1, months.length - 1))}
               disabled={idx >= months.length - 1}
-              className="grid h-9 w-9 place-items-center rounded-lg border border-[--color-border] bg-[--color-surface-2] disabled:opacity-40"
+              className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 disabled:opacity-40"
             >
               <ChevronLeft size={16} />
             </button>
-            <div className="min-w-[150px] rounded-lg border border-[--color-border] bg-[--color-surface-2] px-3 py-2 text-center text-sm font-medium">
-              {monthLabel(ym)} {isCurrent && <span className="text-[--color-faint]">(MTD)</span>}
+            <div className="min-w-[150px] rounded-lg border border-border bg-surface-2 px-3 py-2 text-center text-sm font-medium">
+              {monthLabel(ym)} {isCurrent && <span className="text-faint">(MTD)</span>}
             </div>
             <button
               onClick={() => setIdx((i) => Math.max(i - 1, 0))}
               disabled={idx <= 0}
-              className="grid h-9 w-9 place-items-center rounded-lg border border-[--color-border] bg-[--color-surface-2] disabled:opacity-40"
+              className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 disabled:opacity-40"
             >
               <ChevronRight size={16} />
             </button>
@@ -56,7 +56,7 @@ export default function MonthClose() {
         <KpiCard
           label="Net Change"
           value={usd(mc.netChange, { sign: true })}
-          valueClass={mc.netChange >= 0 ? 'text-[--color-pos]' : 'text-[--color-neg]'}
+          valueClass={mc.netChange >= 0 ? 'text-pos' : 'text-neg'}
           icon={<TrendingUp size={20} />}
           tile="green"
         />
@@ -64,7 +64,7 @@ export default function MonthClose() {
         <KpiCard
           label="Market & Other"
           value={usd(mc.marketOther, { sign: true })}
-          valueClass={mc.marketOther >= 0 ? 'text-[--color-pos]' : 'text-[--color-neg]'}
+          valueClass={mc.marketOther >= 0 ? 'text-pos' : 'text-neg'}
           icon={<LineChart size={20} />}
           tile="teal"
         />
@@ -73,11 +73,11 @@ export default function MonthClose() {
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <div className="mb-4 text-lg font-semibold">Balance Sheet</div>
-          <Row label="Assets" value={usd(mc.assets)} valueClass="text-[--color-pos]" />
-          <Row label="Liabilities (Margin)" value={`(${usd(mc.liabilities)})`} valueClass="text-[--color-neg]" />
-          <div className="my-3 h-px bg-[--color-border-soft]" />
+          <Row label="Assets" value={usd(mc.assets)} valueClass="text-pos" />
+          <Row label="Liabilities (Margin)" value={`(${usd(mc.liabilities)})`} valueClass="text-neg" />
+          <div className="my-3 h-px bg-border-soft" />
           <Row label="Net Equity" value={usd(mc.netEquity)} bold />
-          <Row label="Equity %" value={pct(mc.equityPct * 100)} valueClass="text-[--color-tile-orange] text-[#f0a94a]" />
+          <Row label="Equity %" value={pct(mc.equityPct * 100)} valueClass="text-tile-orange text-[#f0a94a]" />
         </Card>
 
         <Card>
@@ -102,7 +102,7 @@ function Row({
 }) {
   return (
     <div className="flex items-center justify-between py-2">
-      <span className={clsx('text-sm', bold ? 'font-semibold' : 'text-[--color-muted]')}>{label}</span>
+      <span className={clsx('text-sm', bold ? 'font-semibold' : 'text-muted')}>{label}</span>
       <span className={clsx('num text-sm', bold ? 'font-semibold text-base' : '', valueClass)}>{value}</span>
     </div>
   )

@@ -89,19 +89,19 @@ export default function Transactions() {
               size={16}
               className={clsx('transition-transform', showTotals && 'rotate-90')}
             />
-            Totals by Type <span className="text-[--color-faint]">({totalsByType.length} types)</span>
+            Totals by Type <span className="text-faint">({totalsByType.length} types)</span>
           </span>
-          <span className="text-xs text-[--color-faint]">Filtered rows</span>
+          <span className="text-xs text-faint">Filtered rows</span>
         </button>
         {showTotals && (
           <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             {totalsByType.map(([t, v]) => (
-              <div key={t} className="rounded-xl border border-[--color-border-soft] p-3">
+              <div key={t} className="rounded-xl border border-border-soft p-3">
                 <Badge>{t}</Badge>
-                <div className={clsx('num mt-2 text-sm font-semibold', v.amount >= 0 ? 'text-[--color-pos]' : 'text-[--color-neg]')}>
+                <div className={clsx('num mt-2 text-sm font-semibold', v.amount >= 0 ? 'text-pos' : 'text-neg')}>
                   {usd(v.amount, { sign: true })}
                 </div>
-                <div className="text-xs text-[--color-faint]">{v.count} txns</div>
+                <div className="text-xs text-faint">{v.count} txns</div>
               </div>
             ))}
           </div>
@@ -109,12 +109,12 @@ export default function Transactions() {
       </div>
 
       <div className="card mb-4 flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-[--color-muted]">
+        <label className="flex items-center gap-2 text-sm text-muted">
           Type:
           <select
             value={type}
             onChange={(e) => setType(e.target.value)}
-            className="rounded-lg border border-[--color-border] bg-[--color-surface-2] px-3 py-2 text-sm text-[--color-ink] outline-none"
+            className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none"
           >
             <option value="all">All Types</option>
             {TXN_TYPES.map((t) => (
@@ -124,41 +124,41 @@ export default function Transactions() {
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-2 text-sm text-[--color-muted]">
+        <label className="flex items-center gap-2 text-sm text-muted">
           Symbol:
           <span className="relative">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[--color-faint]" />
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
             <input
               value={symbol}
               onChange={(e) => setSymbol(e.target.value)}
               placeholder="Search symbol…"
-              className="w-40 rounded-lg border border-[--color-border] bg-[--color-surface-2] py-2 pl-8 pr-3 text-sm outline-none"
+              className="w-40 rounded-lg border border-border bg-surface-2 py-2 pl-8 pr-3 text-sm outline-none"
             />
           </span>
         </label>
-        <label className="flex items-center gap-2 text-sm text-[--color-muted]">
+        <label className="flex items-center gap-2 text-sm text-muted">
           Date:
           <input
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="rounded-lg border border-[--color-border] bg-[--color-surface-2] px-2 py-2 text-sm outline-none [color-scheme:dark]"
+            className="rounded-lg border border-border bg-surface-2 px-2 py-2 text-sm outline-none [color-scheme:dark]"
           />
-          <span className="text-[--color-faint]">–</span>
+          <span className="text-faint">–</span>
           <input
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="rounded-lg border border-[--color-border] bg-[--color-surface-2] px-2 py-2 text-sm outline-none [color-scheme:dark]"
+            className="rounded-lg border border-border bg-surface-2 px-2 py-2 text-sm outline-none [color-scheme:dark]"
           />
         </label>
-        <span className="ml-auto text-xs text-[--color-faint]">{filtered.length} transactions</span>
+        <span className="ml-auto text-xs text-faint">{filtered.length} transactions</span>
       </div>
 
       <div className="card overflow-x-auto p-0">
         <table className="w-full min-w-[900px] text-sm">
           <thead>
-            <tr className="border-b border-[--color-border-soft] text-left text-xs text-[--color-muted]">
+            <tr className="border-b border-border-soft text-left text-xs text-muted">
               <th className="px-4 py-3 font-medium">Date</th>
               <th className="px-4 py-3 font-medium">Type</th>
               <th className="px-4 py-3 font-medium">Symbol</th>
@@ -175,20 +175,20 @@ export default function Transactions() {
           </thead>
           <tbody>
             {filtered.slice(0, 400).map((t) => (
-              <tr key={t.id} className="group border-b border-[--color-border-soft] hover:bg-[--color-surface-2]/40">
-                <td className="whitespace-nowrap px-4 py-3 text-[--color-muted]">{shortDate(t.date)}</td>
+              <tr key={t.id} className="group border-b border-border-soft hover:bg-surface-2/40">
+                <td className="whitespace-nowrap px-4 py-3 text-muted">{shortDate(t.date)}</td>
                 <td className="px-4 py-3"><Badge>{t.type}</Badge></td>
                 <td className="px-4 py-3 font-semibold">{t.symbol ?? '—'}</td>
-                <td className="num px-4 py-3 text-right text-[--color-faint]">{t.strike ?? '-'}</td>
-                <td className="num px-4 py-3 text-right text-[--color-faint]">{t.exp ?? '-'}</td>
-                <td className="px-4 py-3 text-xs text-[--color-muted]">{accName(t.accountId)}</td>
-                <td className="max-w-[260px] truncate px-4 py-3 text-[--color-muted]">{t.description}</td>
-                <td className={clsx('num px-4 py-3 text-right font-medium', t.amount > 0 ? 'text-[--color-pos]' : t.amount < 0 ? 'text-[--color-neg]' : 'text-[--color-faint]')}>
+                <td className="num px-4 py-3 text-right text-faint">{t.strike ?? '-'}</td>
+                <td className="num px-4 py-3 text-right text-faint">{t.exp ?? '-'}</td>
+                <td className="px-4 py-3 text-xs text-muted">{accName(t.accountId)}</td>
+                <td className="max-w-[260px] truncate px-4 py-3 text-muted">{t.description}</td>
+                <td className={clsx('num px-4 py-3 text-right font-medium', t.amount > 0 ? 'text-pos' : t.amount < 0 ? 'text-neg' : 'text-faint')}>
                   {t.amount === 0 ? usd(0) : usd(t.amount, { sign: true })}
                 </td>
                 <td className="num px-4 py-3 text-right">{num(t.units)}</td>
-                <td className="num px-4 py-3 text-right text-[--color-faint]">{t.fee ? usd(t.fee) : '-'}</td>
-                <td className={clsx('num px-4 py-3 text-right', t.pl != null ? (t.pl >= 0 ? 'text-[--color-pos]' : 'text-[--color-neg]') : 'text-[--color-faint]')}>
+                <td className="num px-4 py-3 text-right text-faint">{t.fee ? usd(t.fee) : '-'}</td>
+                <td className={clsx('num px-4 py-3 text-right', t.pl != null ? (t.pl >= 0 ? 'text-pos' : 'text-neg') : 'text-faint')}>
                   {t.pl != null ? usd(t.pl, { sign: true }) : '-'}
                 </td>
                 <td className="px-2 py-3">
@@ -197,7 +197,7 @@ export default function Transactions() {
                     className="opacity-0 transition-opacity group-hover:opacity-100"
                     title="Delete"
                   >
-                    <Trash2 size={14} className="text-[--color-faint] hover:text-[--color-neg]" />
+                    <Trash2 size={14} className="text-faint hover:text-neg" />
                   </button>
                 </td>
               </tr>
@@ -205,7 +205,7 @@ export default function Transactions() {
           </tbody>
         </table>
         {filtered.length > 400 && (
-          <div className="p-3 text-center text-xs text-[--color-faint]">
+          <div className="p-3 text-center text-xs text-faint">
             Showing first 400 of {filtered.length}. Narrow filters to see more.
           </div>
         )}

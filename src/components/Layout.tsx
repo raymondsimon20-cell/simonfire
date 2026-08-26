@@ -23,10 +23,10 @@ function Logo() {
         P2
       </div>
       <div className="hidden leading-tight sm:block">
-        <div className="text-[11px] font-semibold tracking-wide text-[--color-muted]">
+        <div className="text-[11px] font-semibold tracking-wide text-muted">
           PROCEED TO
         </div>
-        <div className="-mt-0.5 text-[11px] font-semibold tracking-wide text-[--color-muted]">
+        <div className="-mt-0.5 text-[11px] font-semibold tracking-wide text-muted">
           PORTFOLIO
         </div>
       </div>
@@ -45,35 +45,35 @@ function AccountScope() {
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-lg border border-[--color-border] bg-[--color-surface-2] px-3 py-2 text-sm hover:bg-[#1c2740]"
+        className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm hover:bg-[#1c2740]"
       >
-        <Layers size={15} className="text-[--color-brand]" />
+        <Layers size={15} className="text-brand" />
         <span className="font-medium">{current}</span>
-        <ChevronDown size={15} className="text-[--color-faint]" />
+        <ChevronDown size={15} className="text-faint" />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-20 mt-1 w-64 overflow-hidden rounded-xl border border-[--color-border] bg-[--color-surface] shadow-xl">
+          <div className="absolute right-0 z-20 mt-1 w-64 overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
             <button
               className={clsx(
-                'flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-[--color-surface-2]',
-                scope === 'all' && 'text-[--color-brand]',
+                'flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-surface-2',
+                scope === 'all' && 'text-brand',
               )}
               onClick={() => {
                 setScope('all')
                 setOpen(false)
               }}
             >
-              All Accounts <span className="text-[--color-faint]">{data.accounts.length}</span>
+              All Accounts <span className="text-faint">{data.accounts.length}</span>
             </button>
-            <div className="h-px bg-[--color-border-soft]" />
+            <div className="h-px bg-border-soft" />
             {data.accounts.map((a) => (
               <button
                 key={a.id}
                 className={clsx(
-                  'flex w-full flex-col px-4 py-2.5 text-left text-sm hover:bg-[--color-surface-2]',
-                  scope === a.id && 'text-[--color-brand]',
+                  'flex w-full flex-col px-4 py-2.5 text-left text-sm hover:bg-surface-2',
+                  scope === a.id && 'text-brand',
                 )}
                 onClick={() => {
                   setScope(a.id)
@@ -81,7 +81,7 @@ function AccountScope() {
                 }}
               >
                 <span className="font-medium">{a.name}</span>
-                <span className="text-xs text-[--color-faint]">
+                <span className="text-xs text-faint">
                   {a.broker} ····{a.mask}
                 </span>
               </button>
@@ -107,7 +107,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-full">
-      <header className="sticky top-0 z-30 border-b border-[--color-border-soft] bg-[--color-bg]/90 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-border-soft bg-bg/90 backdrop-blur">
         <div className="mx-auto flex max-w-[1360px] items-center gap-3 px-4 py-3 lg:px-8">
           <Logo />
           <nav className="flex flex-1 items-center gap-1 overflow-x-auto">
@@ -121,7 +121,7 @@ export default function Layout() {
                     'whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                     isActive
                       ? 'text-[#3fd6a8]'
-                      : 'text-[--color-muted] hover:bg-[--color-surface-2] hover:text-[--color-ink]',
+                      : 'text-muted hover:bg-surface-2 hover:text-ink',
                   )
                 }
               >
@@ -130,13 +130,13 @@ export default function Layout() {
             ))}
           </nav>
           <div className="flex items-center gap-2">
-            <span className="hidden items-center gap-1.5 rounded-full border border-[--color-border] px-2.5 py-1 text-xs text-[--color-muted] md:flex">
+            <span className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs text-muted md:flex">
               <Clock size={12} className="text-[#3fd88a]" />
               {relTime(data.lastSyncAt)}
             </span>
             <button
               onClick={doSync}
-              className="flex items-center gap-2 rounded-lg border border-[--color-border] bg-[--color-surface-2] px-3 py-2 text-sm font-medium hover:bg-[#1c2740]"
+              className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-medium hover:bg-[#1c2740]"
             >
               <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
               <span className="hidden sm:inline">Sync All</span>
@@ -146,7 +146,7 @@ export default function Layout() {
                 if (confirm('Reset all data back to the sample dataset?')) reset()
               }}
               title="Reset sample data"
-              className="grid h-9 w-9 place-items-center rounded-lg border border-[--color-border] bg-[--color-surface-2] text-[--color-muted] hover:bg-[#1c2740]"
+              className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface-2 text-muted hover:bg-[#1c2740]"
             >
               <RotateCcw size={14} />
             </button>

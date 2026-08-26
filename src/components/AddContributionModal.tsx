@@ -69,13 +69,13 @@ export function AddContributionModal({
       <div className="space-y-5">
         <div>
           <label className="mb-2 block text-sm font-semibold">Transaction Type</label>
-          <div className="grid grid-cols-2 gap-1 rounded-xl border border-[--color-border] bg-[--color-surface-2] p-1">
+          <div className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-surface-2 p-1">
             {(['Contribution', 'Withdrawal'] as const).map((k) => (
               <button
                 key={k}
                 onClick={() => setKind(k)}
                 className={`rounded-lg py-2 text-sm font-medium transition-colors ${
-                  kind === k ? 'bg-[--color-brand] text-white' : 'text-[--color-muted]'
+                  kind === k ? 'bg-brand text-white' : 'text-muted'
                 }`}
               >
                 {k}
@@ -89,7 +89,7 @@ export function AddContributionModal({
           <select
             value={account}
             onChange={(e) => setAccount(e.target.value)}
-            className="w-full rounded-xl border border-[--color-border] bg-[--color-surface-2] px-3 py-2.5 text-sm outline-none focus:border-[--color-brand]"
+            className="w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm outline-none focus:border-brand"
           >
             <option value="">Select an account</option>
             {data.accounts.map((a) => (
@@ -102,7 +102,7 @@ export function AddContributionModal({
 
         <div>
           <label className="mb-2 block text-sm font-semibold">Amount</label>
-          <div className="flex items-center rounded-xl border border-[--color-border] bg-[--color-surface-2] px-3 focus-within:border-[--color-brand]">
+          <div className="flex items-center rounded-xl border border-border bg-surface-2 px-3 focus-within:border-brand">
             <input
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
@@ -110,9 +110,9 @@ export function AddContributionModal({
               inputMode="decimal"
               className="num w-full bg-transparent py-2.5 text-sm outline-none"
             />
-            <span className="text-sm text-[--color-faint]">USD</span>
+            <span className="text-sm text-faint">USD</span>
           </div>
-          <p className="mt-1 text-xs text-[--color-faint]">Up to $1,000,000 per entry.</p>
+          <p className="mt-1 text-xs text-faint">Up to $1,000,000 per entry.</p>
         </div>
 
         <div>
@@ -121,13 +121,13 @@ export function AddContributionModal({
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="w-full rounded-xl border border-[--color-border] bg-[--color-surface-2] px-3 py-2.5 text-sm outline-none focus:border-[--color-brand] [color-scheme:dark]"
+            className="w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm outline-none focus:border-brand [color-scheme:dark]"
           />
         </div>
 
         <div>
           <label className="mb-2 block text-sm font-semibold">
-            Description <span className="font-normal text-[--color-faint]">(optional)</span>
+            Description <span className="font-normal text-faint">(optional)</span>
           </label>
           <textarea
             value={desc}
@@ -135,9 +135,9 @@ export function AddContributionModal({
             onChange={(e) => setDesc(e.target.value)}
             placeholder="e.g. April paycheck"
             rows={3}
-            className="w-full resize-none rounded-xl border border-[--color-border] bg-[--color-surface-2] px-3 py-2.5 text-sm outline-none focus:border-[--color-brand]"
+            className="w-full resize-none rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm outline-none focus:border-brand"
           />
-          <div className="mt-1 text-right text-xs text-[--color-faint]">{desc.length}/200</div>
+          <div className="mt-1 text-right text-xs text-faint">{desc.length}/200</div>
         </div>
       </div>
     </Modal>

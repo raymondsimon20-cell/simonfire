@@ -206,6 +206,33 @@ export async function fetchPortfolio(token: string) {
     }
   }
 
+  // Dividend/interest transactions often carry only the cash leg, so the ticker
+  // is missing. Recover it by matching the transaction description to a holding's
+  // security name (e.g. "ROUNDHILL WEEKLY T-BILL ETF" -> WEEK).
+  const norm = (s: string) => String(s || '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+  const nameToSym = new Map<string, string>()
+  for (const p of positions) {
+    const key = norm(p.name)
+    if (key && !nameToSym.has(key)) nameToSym.set(key, p.symbol)
+  }
+  const nameEntries = [...nameToSym.entries()].sort((a, b) => b[0].length - a[0].length)
+  const resolveSym = (description: string): string | undefined => {
+    const d = norm(description)
+    if (!d) return undefined
+    if (nameToSym.has(d)) return nameToSym.get(d)
+    for (const [name, sym] of nameEntries) {
+      if (name.length >= 6 && (d.startsWith(name) || name.startsWith(d) || d.includes(name)))
+        return sym
+    }
+    return undefined
+  }
+  for (const t of transactions) {
+    if (!t.symbol && (t.type === 'Dividend' || t.type === 'Other')) {
+      const sym = resolveSym(t.description)
+      if (sym) t.symbol = sym
+    }
+  }
+
   // Backfill lifetime dividends per position from transactions.
   const divBy = new Map<string, number>()
   for (const t of transactions)
@@ -220,19 +247,37 @@ export async function fetchPortfolio(token: string) {
 function mapTxn(accountId: string, t: any) {
   const rawType = String(t.type ?? '').toUpperCase()
   const items: any[] = t.transferItems ?? []
-  const security = items.find((i) => i.instrument?.symbol)
-  const symbol = security?.instrument?.symbol
+  // Prefer the real security leg; Schwab puts the cash leg (CURRENCY_USD) in the
+  // same transferItems array, so skip currency/cash instruments when picking a symbol.
+  const isCurrency = (i: any) => {
+    const at = String(i.instrument?.assetType ?? '').toUpperCase()
+    const sym = String(i.instrument?.symbol ?? '').toUpperCase()
+    return at === 'CURRENCY' || sym === 'CURRENCY_USD' || sym.startsWith('CURRENCY')
+  }
+  const security =
+    items.find((i) => i.instrument?.symbol && !isCurrency(i)) ??
+    items.find((i) => i.instrument?.symbol)
+  let symbol: string | undefined = security?.instrument?.symbol
+  if (symbol && (symbol.toUpperCase() === 'CURRENCY_USD' || symbol.toUpperCase().startsWith('CURRENCY')))
+    symbol = undefined
   const amount = num(t.netAmount)
-  const units = num(security?.amount)
+  // Only count share movement from a non-currency security leg.
+  const units = security && !isCurrency(security) ? num(security.amount) : 0
+  const desc = String(t.description ?? '').toUpperCase()
   const fee = items
     .filter((i) => i.feeType)
     .reduce((s, i) => s + Math.abs(num(i.cost ?? i.amount)), 0)
 
   let type = 'Other'
   if (rawType === 'TRADE') type = units < 0 ? 'Sell' : 'Buy'
-  else if (rawType.includes('DIVIDEND') || rawType.includes('INTEREST'))
-    type = rawType.includes('INTEREST') ? 'Interest' : 'Dividend'
-  else if (rawType === 'ACH_RECEIPT' || rawType === 'WIRE_IN' || rawType === 'CASH_RECEIPT')
+  else if (rawType.includes('DIVIDEND') || rawType.includes('INTEREST')) {
+    // Schwab lumps dividends and interest under DIVIDEND_OR_INTEREST. Real interest
+    // is almost always a margin/credit charge (negative); positive payments on a
+    // fund are dividends.
+    const looksInterest =
+      amount < 0 || /MARGIN INTEREST|CREDIT INTEREST|BANK INTEREST|SCHWAB.*\bINT\b/.test(desc)
+    type = looksInterest ? 'Interest' : 'Dividend'
+  } else if (rawType === 'ACH_RECEIPT' || rawType === 'WIRE_IN' || rawType === 'CASH_RECEIPT')
     type = 'Contribution'
   else if (rawType === 'ACH_DISBURSEMENT' || rawType === 'WIRE_OUT' || rawType === 'CASH_DISBURSEMENT')
     type = 'Withdrawal'

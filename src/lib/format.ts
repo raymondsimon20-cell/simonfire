@@ -51,4 +51,4 @@ export const relTime = (iso: string) => {
   return `${days} day${days === 1 ? '' : 's'} ago`
 }
 
-export const posNeg = (n: number) => (n >= 0 ? 'text-[--color-pos]' : 'text-[--color-neg]')
+export const posNeg = (n: number) => (n >= 0 ? 'text-pos' : 'text-neg')

@@ -1,0 +1,97 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Menlo', monospace;
+
+  /* Surface palette (dark) */
+  --color-bg: #0a0e17;
+  --color-surface: #111725;
+  --color-surface-2: #161d2d;
+  --color-border: #222c3f;
+  --color-border-soft: #1b2432;
+
+  --color-ink: #e8edf5;
+  --color-muted: #8a97ad;
+  --color-faint: #5c6a80;
+
+  --color-pos: #34d17d;
+  --color-neg: #f2607a;
+  --color-brand: #3b82f6;
+
+  --color-tile-green: #123024;
+  --color-tile-blue: #10233f;
+  --color-tile-orange: #35240f;
+  --color-tile-purple: #241a3a;
+  --color-tile-teal: #0e2e2e;
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: local('Inter');
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Number cells: tabular, mono */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #263045 transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #263045;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* Utility: subtle card */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  border-radius: 16px;
+}
+
+.hairline {
+  border-color: var(--color-border-soft);
+}
+
+@keyframes fadein {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fadein {
+  animation: fadein 0.25s ease both;
+}

@@ -193,7 +193,13 @@ export async function fetchPortfolio(token: string) {
       const inst = p.instrument ?? {}
       const qty = num(p.longQuantity) - num(p.shortQuantity)
       const marketValue = num(p.marketValue)
-      const lastPrice = qty ? marketValue / qty : num(inst.closePrice)
+      // Options: Schwab's marketValue already includes the contract multiplier
+      // (×100), so lastPrice = marketValue/qty is per-CONTRACT — but averagePrice
+      // is per-SHARE premium. Scale avgCost by the same multiplier so cost basis
+      // (qty × avgCost) matches value (qty × lastPrice) and the gain is correct.
+      const isOption = String(inst.assetType ?? inst.type ?? '').toUpperCase() === 'OPTION'
+      const mult = isOption ? num(inst.multiplier) || 100 : 1
+      const lastPrice = qty ? marketValue / qty : num(inst.closePrice) * mult
       const dayPL = num(p.currentDayProfitLoss)
       const prevClose = qty ? (marketValue - dayPL) / qty : lastPrice
       positions.push({
@@ -202,10 +208,11 @@ export async function fetchPortfolio(token: string) {
         symbol: String(inst.symbol ?? 'UNKNOWN'),
         name: String(inst.description ?? inst.symbol ?? ''),
         shares: qty,
-        avgCost: num(p.averagePrice),
+        avgCost: num(p.averagePrice) * mult,
         lastPrice,
         prevClose,
         dividendsReceived: 0,
+        isOption,
       })
     }
 

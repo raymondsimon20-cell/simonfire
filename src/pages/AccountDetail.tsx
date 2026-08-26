@@ -22,7 +22,7 @@ import {
   Calendar,
 } from 'lucide-react'
 import { useStore } from '../lib/store'
-import { portfolioSummary, positionMetrics, monthClose, availableMonths } from '../lib/calc'
+import { portfolioSummary, positionMetrics, realizedPL, monthClose, availableMonths } from '../lib/calc'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { usd, pct, num, intfmt, relTime, monthLabel, posNeg } from '../lib/format'
 import { Badge } from '../components/ui'
@@ -208,7 +208,7 @@ export default function AccountDetail() {
       </div>
 
       {tab === 'positions' && (
-        <PositionsTab positions={acctPositions} onSelect={setSelectedPos} />
+        <PositionsTab positions={acctPositions} transactions={acctTxns} onSelect={setSelectedPos} />
       )}
       {tab === 'transactions' && (
         <TransactionsTab transactions={acctTxns} onSelect={setSelectedTxn} />
@@ -263,9 +263,11 @@ function Kpi({
 
 function PositionsTab({
   positions,
+  transactions,
   onSelect,
 }: {
   positions: Position[]
+  transactions: Transaction[]
   onSelect: (p: Position) => void
 }) {
   const rows = useMemo(() => {
@@ -282,10 +284,10 @@ function PositionsTab({
       value: m.reduce((s, x) => s + x.value, 0),
       dayChange: m.reduce((s, x) => s + x.dayChange, 0),
       totalGain: m.reduce((s, x) => s + x.totalGain, 0),
-      totalReturn: m.reduce((s, x) => s + x.totalReturn, 0),
+      totalReturn: m.reduce((s, x) => s + x.totalReturn, 0) + realizedPL(transactions),
       cost: m.reduce((s, x) => s + x.costBasis, 0),
     }
-  }, [positions])
+  }, [positions, transactions])
 
   return (
     <div className="card mt-4 overflow-x-auto p-0">

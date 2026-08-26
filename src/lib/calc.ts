@@ -12,6 +12,11 @@ export interface PosMetrics {
   totalReturnPct: number
 }
 
+// Realized P/L booked on Sell transactions (shared so every "Total Return" agrees).
+export function realizedPL(txns: Transaction[]): number {
+  return txns.filter((t) => t.type === 'Sell').reduce((s, t) => s + (t.pl ?? 0), 0)
+}
+
 export function positionMetrics(p: Position): PosMetrics {
   const value = p.shares * p.lastPrice
   const costBasis = p.shares * p.avgCost
@@ -74,11 +79,9 @@ export function portfolioSummary(
     gain += m.totalGain
     ret += m.totalReturn
   }
-  // Total Return = unrealized gain + dividends on current holdings, consistent
-  // with the Positions "Portfolio Total" row and the per-account detail page.
-  // (Realized P/L from fully-closed positions is surfaced in Month Close, not here,
-  // so the same number shows everywhere rather than drifting between views.)
-  void transactions
+  // Total Return = unrealized gain + dividends on holdings + realized P/L from
+  // sells. Every view uses realizedPL() so the same number shows everywhere.
+  ret += realizedPL(transactions)
 
   const gross = value + availableCash
   const net = gross - marginUsed

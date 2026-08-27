@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react'
-import { Search, ArrowUpRight, ArrowDownRight, RefreshCcw, ArrowLeftRight, ChevronDown, Plus, X, Tags, Trash2 } from 'lucide-react'
+import { Search, ArrowUpRight, ArrowDownRight, RefreshCcw, ArrowLeftRight, ChevronDown, Plus, X, Tags, Trash2, ListChecks, Check } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
 import { ledgerKpis, groupByMonth } from '../lib/calc'
 import { usd, num, shortDate, monthLabel } from '../lib/format'
@@ -43,6 +43,7 @@ export default function Ledger() {
       <PageHeader title="Ledger" subtitle="Complete transaction ledger" />
 
       <RulesPanel presetContains={search} matchCount={filtered.length} />
+      <CategoryCleanup />
 
       <div className="card mb-4 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-sm text-muted">
@@ -126,6 +127,122 @@ export default function Ledger() {
       </div>
 
       <TransactionDrawer txn={selected} onClose={() => setSelected(null)} />
+    </div>
+  )
+}
+
+// Collapse a description to a stable pattern by dropping account numbers, masks,
+// and long digit runs, so "OVERDRAFT TO INVESTOR CHECKING 3142" and "…3143"
+// group together.
+function normalizePattern(desc: string) {
+  return desc
+    .toUpperCase()
+    .replace(/\b[\dX*#]{2,}\b/g, '') // account numbers, masks, long digit runs
+    .replace(/[#*]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+const CLEANUP_CATS: TxnType[] = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee']
+
+// Surfaces every transaction still sitting in the catch-all "Other" category,
+// grouped by description pattern, and lets you categorize each group in one
+// click — which creates a tag rule so it also sticks for future syncs.
+function CategoryCleanup() {
+  const { data, addRule } = useStore()
+  const [open, setOpen] = useState(false)
+  const [edits, setEdits] = useState<Record<string, { contains: string; type: string }>>({})
+
+  const groups = useMemo(() => {
+    const m = new Map<string, { pattern: string; count: number; total: number }>()
+    for (const t of data.transactions) {
+      if (t.type !== 'Other') continue
+      const key = normalizePattern(t.description) || t.description.toUpperCase()
+      const g = m.get(key) ?? { pattern: key, count: 0, total: 0 }
+      g.count++
+      g.total += t.amount
+      m.set(key, g)
+    }
+    return [...m.values()].sort((a, b) => b.count - a.count)
+  }, [data.transactions])
+
+  const totalOther = groups.reduce((s, g) => s + g.count, 0)
+
+  const setEdit = (pattern: string, patch: Partial<{ contains: string; type: string }>) =>
+    setEdits((prev) => {
+      const base = prev[pattern] ?? { contains: pattern, type: '' }
+      return { ...prev, [pattern]: { ...base, ...patch } }
+    })
+
+  const apply = (pattern: string) => {
+    const e = edits[pattern] ?? { contains: pattern, type: '' }
+    const contains = (e.contains || pattern).trim()
+    if (!contains || !e.type) return
+    addRule({ contains, tag: '', setType: e.type as TxnType, enabled: true })
+    setEdits((prev) => {
+      const n = { ...prev }
+      delete n[pattern]
+      return n
+    })
+  }
+
+  return (
+    <div className="card mb-4 p-0">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 px-5 py-3.5 text-left">
+        <ListChecks size={17} className={totalOther > 0 ? 'text-[#f0a94a]' : 'text-brand'} />
+        <span className="font-semibold">Clean Up Categories</span>
+        <span className={clsx('rounded-md px-1.5 py-0.5 text-xs', totalOther > 0 ? 'bg-[#2a2010] text-[#f0a94a]' : 'bg-surface-2 text-faint')}>
+          {totalOther}
+        </span>
+        <span className="text-xs text-faint">
+          {totalOther > 0 ? `uncategorized across ${groups.length} pattern${groups.length === 1 ? '' : 's'}` : 'everything categorized'}
+        </span>
+        <ChevronDown size={16} className={clsx('ml-auto text-faint transition-transform', !open && '-rotate-90')} />
+      </button>
+
+      {open && (
+        <div className="border-t border-border-soft p-5">
+          {groups.length === 0 ? (
+            <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted">
+              <Check size={16} className="text-brand" /> Nothing sitting in “Other” — all transactions are categorized.
+            </div>
+          ) : (
+            <>
+              <p className="mb-4 text-xs text-faint">
+                Each row is a group of “Other” transactions sharing a description. Pick a category and hit Apply — it re-tags them all now and creates a rule so future syncs stay clean. Tweak the match text if it's too broad or narrow.
+              </p>
+              <div className="space-y-2">
+                {groups.map((g) => {
+                  const e = edits[g.pattern] ?? { contains: g.pattern, type: '' }
+                  return (
+                    <div key={g.pattern} className="flex flex-wrap items-center gap-3 rounded-lg border border-border-soft bg-surface-2/40 px-3 py-2.5 text-sm">
+                      <span className="rounded-md bg-surface px-2 py-0.5 text-xs text-muted">{g.count}×</span>
+                      <span className={clsx('num text-xs', g.total >= 0 ? 'text-pos' : 'text-neg')}>{usd(g.total, { sign: true })}</span>
+                      <input
+                        value={e.contains}
+                        onChange={(ev) => setEdit(g.pattern, { contains: ev.target.value })}
+                        className="min-w-[220px] flex-1 rounded-lg border border-border bg-surface px-2.5 py-1.5 font-mono text-xs text-ink outline-none focus:border-brand"
+                      />
+                      <span className="text-faint">→</span>
+                      <select
+                        value={e.type}
+                        onChange={(ev) => setEdit(g.pattern, { type: ev.target.value })}
+                        className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-ink outline-none"
+                      >
+                        <option value="">Set category…</option>
+                        {CLEANUP_CATS.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                      <Button variant="primary" onClick={() => apply(g.pattern)}>Apply</Button>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }

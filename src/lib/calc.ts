@@ -530,6 +530,7 @@ export function ledgerKpis(txns: Transaction[]): LedgerKpis {
   let capitalDeployed = 0
   let capitalCount = 0
   for (const t of txns) {
+    if (t.type === 'Transfer') continue // internal transfer — not real cash movement
     if (t.type === 'Buy') {
       capitalDeployed += -t.amount
       capitalCount++
@@ -576,6 +577,7 @@ export function groupByMonth(txns: Transaction[]): LedgerMonth[] {
     let expenses = 0
     let deployed = 0
     for (const t of rows) {
+      if (t.type === 'Transfer') continue // internal transfer — excluded from rollups
       if (t.type === 'Buy') deployed += -t.amount
       else if (t.amount > 0) inflows += t.amount
       else if (t.amount < 0) expenses += -t.amount

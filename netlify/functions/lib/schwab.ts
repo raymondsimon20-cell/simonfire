@@ -528,6 +528,13 @@ function mapTxn(accountId: string, t: any) {
   const looksBill = /\b(PAYMENT|PMT|BILLPAY|BILL PAY|BILL|CARD|CREDIT CARD|LOAN|MORTGAGE|AUTOPAY|BEST EGG|ACH DEBIT)\b/.test(desc)
   if (amount < 0 && (type === 'Withdrawal' || type === 'Other') && looksBill) type = 'Bill Payment'
 
+  // Internal transfer between the cash (Type 1) and margin (Type 2) sides of the
+  // same account — the two legs net to zero and are NOT real money in/out, so they
+  // must stay out of contributions/withdrawals (which would distort returns).
+  const looksInternalXfer =
+    /\bTRF FUNDS\b|\bTRANSFER OF FUNDS\b|\bJOURNAL/.test(desc) && /\bTYPE ?[12]\b/.test(desc)
+  if (looksInternalXfer) type = 'Transfer'
+
   return {
     id: 'txn_' + Math.random().toString(36).slice(2, 9),
     accountId,

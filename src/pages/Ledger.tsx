@@ -8,7 +8,7 @@ import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Transaction, TxnType } from '../lib/types'
 import clsx from 'clsx'
 
-const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Fee', 'Buy', 'Sell', 'Other']
+const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Buy', 'Sell', 'Other']
 
 export default function Ledger() {
   const { transactions, accounts } = useScoped()

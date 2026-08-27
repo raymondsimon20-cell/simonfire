@@ -52,6 +52,7 @@ const TYPE_OPTIONS: TxnType[] = [
   'Contribution',
   'Withdrawal',
   'Bill Payment',
+  'Transfer',
   'Fee',
   'Other',
 ]

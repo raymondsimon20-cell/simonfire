@@ -52,6 +52,7 @@ export type TxnType =
   | 'Contribution'
   | 'Withdrawal'
   | 'Bill Payment'
+  | 'Transfer'
   | 'Fee'
   | 'Other'
 

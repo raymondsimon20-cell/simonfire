@@ -53,7 +53,6 @@ const NAV = [
   { to: '/month-close', label: 'Month Close' },
   { to: '/ledger', label: 'Ledger' },
   { to: '/allocation', label: 'Allocation' },
-  { to: '/rebalance', label: 'Rebalance' },
   { to: '/connections', label: 'Connections' },
 ]
 

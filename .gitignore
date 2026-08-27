@@ -27,3 +27,5 @@ dist-single
 
 .env
 .env.local
+
+_to_delete/

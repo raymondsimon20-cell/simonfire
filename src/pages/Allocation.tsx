@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
-import { Target, Wand2, Eraser, Percent, Calculator } from 'lucide-react'
+import { Target, Wand2, Eraser, Percent, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
 import { bucketOf, bucketStats, BUCKETS, BUCKET_COLOR, type Bucket } from '../lib/buckets'
 import { normTicker } from '../lib/plan'
+import { buildInsights, SIGNAL_STYLE, ACTION_STYLE, type HoldingInsight } from '../lib/insights'
 import { usd, pct, intfmt } from '../lib/format'
 import { PageHeader, Button } from '../components/ui'
 import clsx from 'clsx'
@@ -20,6 +21,11 @@ export default function Allocation() {
 
   const stats = useMemo(() => bucketStats(positions, transactions), [positions, transactions])
   const { buckets, total, blendedYield } = stats
+
+  const insights = useMemo(
+    () => buildInsights(positions, data.insights?.bySymbol),
+    [positions, data.insights],
+  )
 
   // Unique tickers per bucket (dedupe symbols across accounts).
   const tickersByBucket = useMemo(() => {
@@ -265,7 +271,168 @@ export default function Allocation() {
           Amounts move your portfolio toward its target allocation and are split evenly across each bucket's holdings. This is a plan — place the actual buys in your brokerage.
         </p>
       </div>
+
+      {/* Rebalance Insights (50/100/200 SMA) */}
+      <RebalanceInsights insights={insights} accName={(id) => data.accounts.find((a) => a.id === id)?.name ?? id} hasData={!!data.insights} />
     </div>
+  )
+}
+
+function RebalanceInsights({
+  insights,
+  accName,
+  hasData,
+}: {
+  insights: HoldingInsight[]
+  accName: (id: string) => string
+  hasData: boolean
+}) {
+  const [placed, setPlaced] = useState<Set<string>>(new Set())
+  const [copied, setCopied] = useState<string | null>(null)
+  const togglePlaced = (k: string) =>
+    setPlaced((prev) => {
+      const n = new Set(prev)
+      n.has(k) ? n.delete(k) : n.add(k)
+      return n
+    })
+  const copy = async (k: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(k)
+      setTimeout(() => setCopied((c) => (c === k ? null : c)), 1500)
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+
+  const trims = insights.filter((h) => h.action === 'Trim')
+  const counts = {
+    strong: insights.filter((h) => h.signal === 'strong').length,
+    weak: insights.filter((h) => h.signal === 'weak' || h.signal === 'caution').length,
+  }
+
+  return (
+    <div className="mt-4 card p-5">
+      <div className="mb-1 flex items-center gap-2">
+        <Activity size={18} className="text-brand" />
+        <h3 className="text-lg font-semibold">Rebalance Insights</h3>
+        <span className="ml-2 rounded-md bg-surface-2 px-2 py-0.5 text-xs text-faint">50 / 100 / 200-day SMA</span>
+      </div>
+      <p className="mb-4 text-xs text-faint">
+        Each holding scored against its moving averages. Price above the 200-day with the averages stacked (50 &gt; 100 &gt; 200) signals a healthy uptrend; below the 200-day and stacked the other way flags weakness. Weakest first.
+      </p>
+
+      {!hasData && (
+        <div className="mb-4 rounded-lg border border-border-soft bg-surface-2/40 p-3 text-xs text-faint">
+          Moving averages are built from Schwab price history on sync. Connect and sync a live account to populate signals.
+        </div>
+      )}
+
+      {insights.length === 0 ? (
+        <div className="py-8 text-center text-sm text-muted">No holdings to analyze.</div>
+      ) : (
+        <>
+          <div className="mb-4 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-md bg-[#123024] px-2 py-1 font-medium text-[#3fd88a]">{counts.strong} in strong uptrend</span>
+            <span className="rounded-md bg-[#33161d] px-2 py-1 font-medium text-[#f2607a]">{counts.weak} weak / caution</span>
+            <span className="rounded-md bg-surface-2 px-2 py-1 font-medium text-muted">{trims.length} trim candidate{trims.length === 1 ? '' : 's'}</span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead>
+                <tr className="border-y border-border-soft text-left text-xs text-muted">
+                  <th className="px-4 py-2.5 font-medium">Holding</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Price</th>
+                  <th className="px-3 py-2.5 text-right font-medium">vs 50d</th>
+                  <th className="px-3 py-2.5 text-right font-medium">vs 100d</th>
+                  <th className="px-3 py-2.5 text-right font-medium">vs 200d</th>
+                  <th className="px-3 py-2.5 text-center font-medium">Signal</th>
+                  <th className="px-4 py-2.5 text-center font-medium">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {insights.map((h) => (
+                  <tr key={h.accountId + h.symbol} className="border-b border-border-soft last:border-0 hover:bg-surface-2/40">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">{h.symbol}</span>
+                        <span className="text-xs text-faint">{accName(h.accountId)}</span>
+                      </div>
+                      <div className="max-w-[220px] truncate text-xs text-faint">{h.note || h.name}</div>
+                    </td>
+                    <td className="num px-3 py-3 text-right">{usd(h.price)}</td>
+                    <VsCell v={h.vs50} />
+                    <VsCell v={h.vs100} />
+                    <VsCell v={h.vs200} />
+                    <td className="px-3 py-3 text-center">
+                      <span className={clsx('rounded-md px-2 py-0.5 text-[11px] font-medium', SIGNAL_STYLE[h.signal].cls)}>
+                        {SIGNAL_STYLE[h.signal].label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={clsx('rounded-md border px-2 py-0.5 text-[11px] font-semibold', ACTION_STYLE[h.action])}>
+                        {h.action}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Suggested sell tickets for trim candidates */}
+          {trims.length > 0 && (
+            <div className="mt-5 rounded-xl border border-[#3a2a12] bg-[#241a0c]/60 p-4">
+              <div className="mb-1 flex items-center gap-2">
+                <ClipboardList size={16} className="text-[#f0a94a]" />
+                <h4 className="font-semibold text-[#e7c88f]">Suggested Sell Tickets</h4>
+                <span className="text-xs text-faint">{placed.size}/{trims.length} placed</span>
+              </div>
+              <p className="mb-3 text-xs text-[#e7c88f]/80">
+                Holdings below their 200-day trend. Review each, place it in your brokerage, and check it off. <span className="font-semibold">This app never places orders for you.</span>
+              </p>
+              <div className="space-y-2">
+                {trims.map((h) => {
+                  const k = h.accountId + h.symbol
+                  const ticket = `SELL ${h.shares} ${h.symbol} @ market (${accName(h.accountId)}) ≈ ${usd(h.value)}`
+                  return (
+                    <div key={k} className="flex flex-wrap items-center gap-3 rounded-lg border border-border-soft bg-surface px-3 py-2.5 text-sm">
+                      <input type="checkbox" checked={placed.has(k)} onChange={() => togglePlaced(k)} className="h-4 w-4 accent-[#3fd88a]" />
+                      <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-[#33161d] text-[#f2607a]">SELL</span>
+                      <span className="num font-semibold">{h.shares}</span>
+                      <span className="font-semibold">{h.symbol}</span>
+                      <span className="text-xs text-faint">@ market · {accName(h.accountId)}</span>
+                      <TrendingDown size={13} className="text-[#f2607a]" />
+                      <span className={clsx('num ml-auto', placed.has(k) && 'text-faint line-through')}>≈ {usd(h.value)}</span>
+                      <button
+                        onClick={() => copy(k, ticket)}
+                        className="flex items-center gap-1 rounded-md border border-border bg-surface-2 px-2 py-1 text-[11px] font-medium text-muted hover:text-ink"
+                      >
+                        {copied === k ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <p className="mt-4 text-xs text-faint">
+            Signals are technical (trend-following) and informational — not investment advice. Moving averages lag price and can whipsaw in choppy markets. You decide and place every trade.
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+function VsCell({ v }: { v: number | null }) {
+  if (v == null) return <td className="num px-3 py-3 text-right text-faint">—</td>
+  return (
+    <td className={clsx('num px-3 py-3 text-right', v >= 0 ? 'text-pos' : 'text-neg')}>
+      {v >= 0 ? '+' : ''}{(v * 100).toFixed(1)}%
+    </td>
   )
 }
 

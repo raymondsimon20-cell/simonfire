@@ -106,6 +106,22 @@ export interface AppData {
   tagRules?: TagRule[]
   // Daily portfolio value series for time-weighted return (built at sync time).
   twr?: TwrSeries
+  // Moving-average (50/100/200 SMA) snapshot per holding, for rebalance insights.
+  insights?: Insights
+}
+
+export interface SmaSnapshot {
+  symbol: string
+  price: number
+  sma50: number | null
+  sma100: number | null
+  sma200: number | null
+  history: number // number of daily closes available (200 needed for SMA-200)
+}
+
+export interface Insights {
+  bySymbol: Record<string, SmaSnapshot>
+  generatedAt: string
 }
 
 export interface TwrPoint {

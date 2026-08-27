@@ -323,7 +323,7 @@ async function buildTwrSeries(
   }
 
   const all = dates.map((d) => ({ date: d, value: combined.get(d) ?? 0 }))
-  return {
+  const twr = {
     byAccount,
     all,
     generatedAt: new Date().toISOString(),
@@ -331,6 +331,35 @@ async function buildTwrSeries(
       'Time-weighted return covers your equity/ETF holdings, their dividends, and cash. ' +
       'Option premium is neutralised (historical option prices are unavailable), so option P/L is not marked to market here.',
   }
+
+  // ---- Moving-average insights for current holdings (reuse fetched closes) ----
+  // SMA-N = mean of the most recent N daily closes (null if fewer than N exist).
+  const lastPxBySym = new Map<string, number>()
+  for (const p of positions)
+    if (!p.isOption && p.symbol && p.shares) lastPxBySym.set(p.symbol, p.lastPrice)
+  const smaOf = (closes: number[], n: number): number | null => {
+    if (closes.length < n) return null
+    const slice = closes.slice(closes.length - n)
+    return slice.reduce((s, c) => s + c, 0) / n
+  }
+  const insightsBySymbol: Record<string, any> = {}
+  for (const [sym, px] of lastPxBySym) {
+    const m = closeBySym.get(sym)
+    if (!m || !m.size) continue
+    const closes = (sortedDates.get(sym) ?? []).map((d) => m.get(d)!).filter((v) => typeof v === 'number')
+    if (!closes.length) continue
+    insightsBySymbol[sym] = {
+      symbol: sym,
+      price: px || closes[closes.length - 1],
+      sma50: smaOf(closes, 50),
+      sma100: smaOf(closes, 100),
+      sma200: smaOf(closes, 200),
+      history: closes.length,
+    }
+  }
+  const insights = { bySymbol: insightsBySymbol, generatedAt: new Date().toISOString() }
+
+  return { twr, insights }
 }
 
 export async function fetchPortfolio(token: string) {
@@ -461,16 +490,19 @@ export async function fetchPortfolio(token: string) {
 
   transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
 
-  // Build the daily value series for time-weighted return. Never let a pricing
-  // hiccup break the whole sync — TWR is a bonus metric.
+  // Build the daily value series (TWR) + moving-average insights. Never let a
+  // pricing hiccup break the whole sync — these are bonus analytics.
   let twr: any = undefined
+  let insights: any = undefined
   try {
-    twr = await buildTwrSeries(accounts, positions, transactions, token, start, end)
+    const analytics = await buildTwrSeries(accounts, positions, transactions, token, start, end)
+    twr = analytics.twr
+    insights = analytics.insights
   } catch {
     twr = undefined
   }
 
-  return { accounts, positions, transactions, broker: 'Schwab', twr }
+  return { accounts, positions, transactions, broker: 'Schwab', twr, insights }
 }
 
 // Map a Schwab transaction to the app's model.
@@ -525,7 +557,7 @@ function mapTxn(accountId: string, t: any) {
 
   // A disbursement to a third party (a biller, loan, or card) is a Bill Payment,
   // not a cash withdrawal to yourself. Distinguish by the payee in the description.
-  const looksBill = /\b(PAYMENT|PMT|BILLPAY|BILL PAY|BILL|CARD|CREDIT CARD|LOAN|MORTGAGE|AUTOPAY|BEST EGG|ACH DEBIT)\b/.test(desc)
+  const looksBill = /\b(PAYMENT|PMT|BILLPAY|BILL PAY|BILL|CARD|CREDIT CARD|LOAN|MORTGAGE|AUTOPAY|BEST EGG|ACH DEBIT|OVERDRAFT|INVESTOR CHECKING)\b/.test(desc)
   if (amount < 0 && (type === 'Withdrawal' || type === 'Other') && looksBill) type = 'Bill Payment'
 
   // Internal transfer between the cash (Type 1) and margin (Type 2) sides of the

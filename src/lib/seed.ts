@@ -473,6 +473,47 @@ function buildSampleTwr(): TwrSeries {
   }
 }
 
+// Synthesize plausible 50/100/200-day SMA snapshots so the sample dataset shows
+// a spread of trend signals (uptrend / caution / downtrend) on the insights panel.
+function buildSampleInsights() {
+  const rng = mulberry32(1234)
+  const bySymbol: Record<string, { symbol: string; price: number; sma50: number | null; sma100: number | null; sma200: number | null; history: number }> = {}
+  const seen = new Set<string>()
+  for (const p of positions) {
+    if (p.isOption || !p.symbol || seen.has(p.symbol)) continue
+    seen.add(p.symbol)
+    const price = p.lastPrice
+    const t = rng()
+    let s50: number, s100: number, s200: number
+    if (t < 0.4) {
+      // uptrend: price above SMAs, stacked 50>100>200
+      s50 = price * (1 - rng() * 0.05)
+      s100 = s50 * (1 - rng() * 0.05)
+      s200 = s100 * (1 - rng() * 0.06)
+    } else if (t < 0.68) {
+      // mixed / caution: straddling the averages
+      s50 = price * (1 + (rng() - 0.5) * 0.06)
+      s200 = price * (1 + (rng() - 0.2) * 0.08)
+      s100 = (s50 + s200) / 2
+    } else {
+      // downtrend: price below SMAs, stacked 50<100<200
+      s50 = price * (1 + rng() * 0.05)
+      s100 = s50 * (1 + rng() * 0.05)
+      s200 = s100 * (1 + rng() * 0.06)
+    }
+    const history = Math.round(60 + rng() * 260) // some symbols lack 200d history
+    bySymbol[p.symbol] = {
+      symbol: p.symbol,
+      price,
+      sma50: history >= 50 ? +s50.toFixed(2) : null,
+      sma100: history >= 100 ? +s100.toFixed(2) : null,
+      sma200: history >= 200 ? +s200.toFixed(2) : null,
+      history,
+    }
+  }
+  return { bySymbol, generatedAt: isoDT(today) }
+}
+
 export function buildSeed(): AppData {
   return {
     version: 1,
@@ -486,6 +527,7 @@ export function buildSeed(): AppData {
     soldSymbols: [],
     tagRules: [],
     twr: buildSampleTwr(),
+    insights: buildSampleInsights(),
   }
 }
 

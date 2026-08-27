@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { Account, AppData, Connection, Position, TagRule, Transaction, TwrSeries } from './types'
+import type { Account, AppData, Connection, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 
@@ -50,8 +50,12 @@ function load(): AppData {
         if (!parsed.keepList) parsed.keepList = DEFAULT_KEEP
         if (!parsed.soldSymbols) parsed.soldSymbols = []
         if (!parsed.tagRules) parsed.tagRules = []
-        // Backfill the sample value series for datasets stored before TWR existed.
-        if (!parsed.twr && parsed.source === 'sample') parsed.twr = buildSeed().twr
+        // Backfill sample analytics for datasets stored before these existed.
+        if (parsed.source === 'sample' && (!parsed.twr || !parsed.insights)) {
+          const s = buildSeed()
+          if (!parsed.twr) parsed.twr = s.twr
+          if (!parsed.insights) parsed.insights = s.insights
+        }
         applyRulesTo(parsed)
         return parsed
       }
@@ -111,6 +115,7 @@ export interface ImportPayload {
   transactions: Transaction[]
   broker?: string
   twr?: TwrSeries
+  insights?: Insights
 }
 
 const Ctx = createContext<StoreCtx | null>(null)
@@ -269,6 +274,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (sold.size) d.positions = d.positions.filter((p) => !sold.has(soldKey(p.accountId, p.symbol)))
         // Daily value series for time-weighted return (from the live sync).
         if (result.twr) d.twr = result.twr
+        if (result.insights) d.insights = result.insights
         // Auto-tag/re-categorize the freshly synced transactions.
         applyRulesTo(d)
         // Reflect the import as a connection so the Connections page shows it.

@@ -403,7 +403,11 @@ export async function fetchPortfolio(token: string) {
     const isMargin = String(sa.type ?? '').toUpperCase() === 'MARGIN'
     const bal = sa.currentBalances ?? {}
     const cash = num(bal.cashBalance ?? bal.availableFunds)
-    const marginBalance = Math.max(0, -num(bal.marginBalance)) // borrowed shown as positive magnitude
+    // Schwab balance payloads have represented margin debt with either sign
+    // depending on the account/balance view. The domain model always stores
+    // outstanding debt as a positive magnitude so current usage is never
+    // accidentally treated as zero when calculating remaining capacity.
+    const marginBalance = Math.abs(num(bal.marginBalance))
     const mask = number.replace(/\D/g, '').slice(-4)
     const accId = 'acc_' + (mask || Math.random().toString(36).slice(2, 8))
     // Extra balance fields Schwab reports — power the account-detail KPIs.

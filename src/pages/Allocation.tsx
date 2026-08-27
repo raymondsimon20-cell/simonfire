@@ -253,7 +253,7 @@ export default function Allocation() {
               <CircleAlert size={16} className="mt-0.5 shrink-0 text-[#f0a94a]" />
               <div>
                 <div className="text-sm font-semibold">50% Margin Limit by Account</div>
-                <div className="mt-0.5 text-xs text-faint">Maximum order spend uses each account’s cash first, then margin up to 50% usage, capped by Schwab buying power when available.</div>
+                <div className="mt-0.5 text-xs text-faint">Maximum safe spend is the remaining capacity after current margin debt: available cash plus only the additional borrowing that keeps this account at or below 50%, capped by Schwab buying power.</div>
               </div>
             </div>
             <div className="overflow-x-auto">

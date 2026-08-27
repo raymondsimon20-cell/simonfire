@@ -14,6 +14,15 @@ assert.equal(standard.maxOrderSpend, 50)
 assert.equal(standard.projectedUsage(10), 0.3) // cash converted to securities
 assert.equal(standard.projectedUsage(50), 0.5) // $40 borrowed reaches the ceiling
 
+// Existing usage must reduce the remaining maximum. With the same $70 equity,
+// increasing current debt from $30 to $50 leaves only $20 of cash-funded spend
+// plus $10 of additional borrowing before reaching 50% usage.
+const higherCurrentUsage = marginCapacity(account({ equity: 70, marginBalance: 50 }), 110)
+assert.ok(higherCurrentUsage)
+assert.equal(higherCurrentUsage.currentUsage, 50 / 120)
+assert.equal(higherCurrentUsage.maxOrderSpend, 30)
+assert.equal(higherCurrentUsage.projectedUsage(30), 0.5)
+
 const brokerCapped = marginCapacity(account({ equity: 70, buyingPower: 25 }), 90)
 assert.equal(brokerCapped?.maxOrderSpend, 25)
 assert.equal(brokerCapped?.basis, 'buying power and 50% ceiling')

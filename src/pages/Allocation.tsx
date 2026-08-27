@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
-import { Target, Wand2, Eraser, Percent, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList } from 'lucide-react'
+import { Target, Wand2, Eraser, Percent, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList, ShieldCheck, LoaderCircle } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
 import { bucketOf, bucketStats, BUCKETS, BUCKET_COLOR, type Bucket } from '../lib/buckets'
 import { normTicker } from '../lib/plan'
 import { buildInsights, SIGNAL_STYLE, ACTION_STYLE, type HoldingInsight } from '../lib/insights'
 import { usd, pct, intfmt } from '../lib/format'
 import { PageHeader, Button } from '../components/ui'
+import { Modal } from '../components/Modal'
+import { schwabOrderStatus, schwabPlaceOrder, schwabPreviewOrder, type EquityOrder } from '../lib/api'
 import clsx from 'clsx'
 
 const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<string, number> => {
@@ -300,6 +302,7 @@ export default function Allocation() {
         accounts={data.accounts}
         orderAccount={orderAccount}
         setOrderAccount={setOrderAccount}
+        live={data.source === 'live'}
       />
 
       {/* Rebalance Insights (50/100/200 SMA) */}
@@ -314,21 +317,35 @@ function OrderQueue({
   accounts,
   orderAccount,
   setOrderAccount,
+  live,
 }: {
   items: { symbol: string; name: string; bucket: Bucket; price: number; shares: number; spend: number }[]
   wholeShares: boolean
   accounts: { id: string; name: string; mask: string }[]
   orderAccount: string
   setOrderAccount: (id: string) => void
+  live: boolean
 }) {
   const [placed, setPlaced] = useState<Set<string>>(new Set())
   const [copied, setCopied] = useState<string | null>(null)
+  const [review, setReview] = useState<{
+    key: string
+    item: (typeof items)[number]
+    requestId: string
+    order: EquityOrder
+    preview?: unknown
+    orderId?: string
+    status?: string
+    error?: string
+  } | null>(null)
+  const [busy, setBusy] = useState(false)
   const accName = accounts.find((a) => a.id === orderAccount)?.name ?? 'your account'
 
   const togglePlaced = (k: string) =>
     setPlaced((prev) => {
       const n = new Set(prev)
-      n.has(k) ? n.delete(k) : n.add(k)
+      if (n.has(k)) n.delete(k)
+      else n.add(k)
       return n
     })
   const doCopy = async (k: string, text: string) => {
@@ -345,6 +362,54 @@ function OrderQueue({
   const copyAll = () => doCopy('__all__', items.map(line).join('\n'))
 
   const totalSpend = items.reduce((s, it) => s + it.spend, 0)
+
+  const readableError = (error: unknown) => {
+    if (typeof error === 'string') return error.replaceAll('_', ' ')
+    try { return JSON.stringify(error) } catch { return 'Order request failed' }
+  }
+  const buildOrder = (it: (typeof items)[number], orderType: 'MARKET' | 'LIMIT' = 'LIMIT'): EquityOrder => ({
+    session: 'NORMAL',
+    duration: 'DAY',
+    orderType,
+    ...(orderType === 'LIMIT' ? { price: it.price.toFixed(2) } : {}),
+    orderStrategyType: 'SINGLE',
+    orderLegCollection: [{
+      instruction: 'BUY',
+      quantity: it.shares,
+      instrument: { symbol: it.symbol.toUpperCase(), assetType: 'EQUITY' },
+    }],
+  })
+  const openOrder = (key: string, item: (typeof items)[number]) =>
+    setReview({ key, item, requestId: crypto.randomUUID(), order: buildOrder(item) })
+  const previewOrder = async () => {
+    if (!review) return
+    const requestId = review.requestId
+    setBusy(true)
+    const result = await schwabPreviewOrder(orderAccount, requestId, review.order)
+    setBusy(false)
+    setReview((current) => current?.requestId === requestId
+      ? { ...current, preview: result.ok ? result.preview ?? {} : undefined, error: result.ok ? undefined : readableError(result.error) }
+      : current)
+  }
+  const placeOrder = async () => {
+    if (!review || review.preview === undefined) return
+    setBusy(true)
+    const result = await schwabPlaceOrder(orderAccount, review.requestId, review.order)
+    if (!result.ok) {
+      setBusy(false)
+      setReview((current) => current ? { ...current, error: readableError(result.error) } : current)
+      return
+    }
+    const orderId = result.orderId!
+    setPlaced((prev) => new Set(prev).add(review.key))
+    setReview((current) => current ? { ...current, orderId, status: result.status ?? 'ACCEPTED', error: undefined } : current)
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+    const status = await schwabOrderStatus(orderAccount, orderId)
+    setBusy(false)
+    setReview((current) => current?.orderId === orderId
+      ? { ...current, status: status.ok ? status.status ?? 'UNKNOWN' : current.status, error: status.ok ? undefined : `Status check: ${readableError(status.error)}` }
+      : current)
+  }
 
   return (
     <div className="mt-4 card p-5">
@@ -369,8 +434,14 @@ function OrderQueue({
         </div>
       </div>
       <p className="mb-3 text-xs text-faint">
-        Buys from the calculator above, queued for review. Place each in your brokerage and check it off. <span className="font-semibold">This app never submits orders for you.</span>
+        Buys from the calculator above, queued for review. Each live order must be previewed and confirmed individually. Market orders can fill at a different price than shown.
       </p>
+
+      {!live && (
+        <div className="mb-3 rounded-lg border border-[#3a2a12] bg-[#241a0c]/60 p-3 text-xs text-[#e7c88f]">
+          Live ordering is available only after loading a live Schwab sync. Sample and imported accounts stay review-only.
+        </div>
+      )}
 
       {items.length === 0 ? (
         <div className="py-8 text-center text-sm text-muted">
@@ -395,11 +466,118 @@ function OrderQueue({
                 >
                   {copied === k ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
                 </button>
+                <Button
+                  variant="primary"
+                  disabled={!live || !wholeShares || placed.has(k) || !orderAccount}
+                  onClick={() => openOrder(k, it)}
+                  className="py-1 text-[11px]"
+                >
+                  <ShieldCheck size={12} /> Preview
+                </Button>
               </div>
             )
           })}
         </div>
       )}
+
+
+      <Modal
+        open={!!review}
+        onClose={() => !busy && setReview(null)}
+        title={review?.orderId ? 'Order submitted' : 'Review Schwab order'}
+        subtitle="One confirmation submits one order. Review every field before continuing."
+        footer={review && !review.orderId ? (
+          <>
+            <Button onClick={() => setReview(null)} disabled={busy}>Cancel</Button>
+            <Button
+              variant="primary"
+              onClick={review.preview === undefined ? previewOrder : placeOrder}
+              disabled={busy}
+            >
+              {busy
+                ? <><LoaderCircle size={14} className="animate-spin" /> Working…</>
+                : review.preview === undefined ? 'Preview with Schwab' : 'Confirm & place order'}
+            </Button>
+          </>
+        ) : review?.orderId ? <Button onClick={() => setReview(null)} disabled={busy}>Close</Button> : undefined}
+      >
+        {review && (
+          <div className="space-y-4 text-sm">
+            <div className="rounded-xl border border-border-soft bg-surface-2/50 p-4">
+              <div className="flex items-center justify-between"><span className="text-muted">Account</span><span>{accName}</span></div>
+              <div className="mt-2 flex items-center justify-between"><span className="text-muted">Action</span><span className="font-semibold text-pos">BUY</span></div>
+              <div className="mt-2 flex items-center justify-between"><span className="text-muted">Security</span><span className="font-semibold">{review.item.symbol}</span></div>
+              <div className="mt-2 flex items-center justify-between"><span className="text-muted">Quantity</span><span className="num font-semibold">{review.item.shares} whole shares</span></div>
+              <div className="mt-2 flex items-center justify-between gap-4">
+                <span className="text-muted">Order type</span>
+                <select
+                  value={review.order.orderType}
+                  disabled={busy || review.preview !== undefined}
+                  onChange={(e) => {
+                    const orderType = e.target.value as 'MARKET' | 'LIMIT'
+                    setReview((current) => current ? {
+                      ...current,
+                      requestId: crypto.randomUUID(),
+                      order: buildOrder(current.item, orderType),
+                      preview: undefined,
+                      error: undefined,
+                    } : current)
+                  }}
+                  className="rounded-lg border border-border bg-surface px-2 py-1 text-ink disabled:opacity-60"
+                >
+                  <option value="LIMIT">Limit (recommended)</option>
+                  <option value="MARKET">Market</option>
+                </select>
+              </div>
+              {review.order.orderType === 'LIMIT' && (
+                <div className="mt-2 flex items-center justify-between gap-4">
+                  <span className="text-muted">Limit price</span>
+                  <div className="flex items-center rounded-lg border border-border bg-surface px-2">
+                    <span className="text-faint">$</span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      max="1000000"
+                      step="0.01"
+                      value={review.order.price ?? ''}
+                      disabled={busy || review.preview !== undefined}
+                      onChange={(e) => setReview((current) => current ? {
+                        ...current,
+                        requestId: crypto.randomUUID(),
+                        order: { ...current.order, price: e.target.value },
+                        preview: undefined,
+                        error: undefined,
+                      } : current)}
+                      className="num w-24 bg-transparent py-1 text-right outline-none disabled:opacity-60"
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="mt-2 flex items-center justify-between"><span className="text-muted">Timing</span><span>Day · Regular session</span></div>
+              <div className="mt-2 flex items-center justify-between"><span className="text-muted">Calculator estimate</span><span className="num">≈ {usd(review.item.spend)}</span></div>
+            </div>
+            {busy && !review.preview && <div className="flex items-center gap-2 text-muted"><LoaderCircle size={15} className="animate-spin" /> Requesting Schwab preview…</div>}
+            {review.preview !== undefined && !review.orderId && (
+              <div className="rounded-lg border border-[#17472f] bg-[#123024]/70 p-3">
+                <div className="font-semibold text-pos">Schwab preview passed</div>
+                <p className="mt-1 text-xs text-muted">Schwab accepted this payload for preview. Confirming below sends the live order.</p>
+                {Object.keys(review.preview as object).length > 0 && (
+                  <details className="mt-2 text-xs text-muted"><summary className="cursor-pointer">Preview details</summary><pre className="mt-2 overflow-x-auto whitespace-pre-wrap">{JSON.stringify(review.preview, null, 2)}</pre></details>
+                )}
+              </div>
+            )}
+            {review.orderId && (
+              <div className="rounded-lg border border-[#17472f] bg-[#123024]/70 p-3">
+                <div className="font-semibold text-pos">Accepted by Schwab</div>
+                <div className="mt-1 text-xs">Order ID: <span className="num">{review.orderId}</span> · Status: <span className="font-semibold">{review.status}</span></div>
+                {busy && <div className="mt-2 flex items-center gap-2 text-xs text-muted"><LoaderCircle size={13} className="animate-spin" /> Checking order status…</div>}
+              </div>
+            )}
+            {review.error && <div className="rounded-lg border border-[#5a2631] bg-[#33161d] p-3 text-sm text-[#f2607a]">{review.error}</div>}
+            {!wholeShares && <div className="text-xs text-[#f0a94a]">Switch the calculator to whole shares before previewing an order.</div>}
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
@@ -418,7 +596,8 @@ function RebalanceInsights({
   const togglePlaced = (k: string) =>
     setPlaced((prev) => {
       const n = new Set(prev)
-      n.has(k) ? n.delete(k) : n.add(k)
+      if (n.has(k)) n.delete(k)
+      else n.add(k)
       return n
     })
   const copy = async (k: string, text: string) => {

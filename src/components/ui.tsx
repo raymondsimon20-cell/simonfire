@@ -117,22 +117,26 @@ export function Button({
   onClick,
   className,
   type = 'button',
+  disabled = false,
 }: {
   children: ReactNode
   variant?: 'primary' | 'ghost'
   onClick?: () => void
   className?: string
   type?: 'button' | 'submit'
+  disabled?: boolean
 }) {
   return (
     <button
       type={type}
       onClick={onClick}
+      disabled={disabled}
       className={clsx(
         'inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors',
         variant === 'primary'
           ? 'bg-brand text-white hover:bg-[#2f74e6]'
           : 'border border-border bg-surface-2 text-ink hover:bg-[#1c2740]',
+        'disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
     >

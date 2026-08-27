@@ -136,6 +136,25 @@ async function api(path: string, token: string): Promise<any> {
   return res.json()
 }
 
+// Resolve the app's stable account id (acc_ followed by the last four digits)
+// to Schwab's encrypted account hash. Never expose or accept the hash in the UI.
+// If two accounts share the same last four digits, fail closed.
+export async function accountHash(accountId: string, token: string): Promise<string> {
+  const match = /^acc_(\d{4})$/.exec(String(accountId))
+  if (!match) throw new Error('INVALID_ACCOUNT')
+
+  const hashList: any[] = await api('/accounts/accountNumbers', token)
+  const matches = hashList.filter(
+    (entry) => String(entry.accountNumber ?? '').replace(/\D/g, '').slice(-4) === match[1],
+  )
+  if (matches.length === 0) throw new Error('ACCOUNT_NOT_FOUND')
+  if (matches.length > 1) throw new Error('AMBIGUOUS_ACCOUNT')
+
+  const hash = String(matches[0].hashValue ?? '')
+  if (!hash) throw new Error('ACCOUNT_NOT_FOUND')
+  return hash
+}
+
 // ---- Data fetch + mapping to the app's model ----
 const num = (v: any): number => (typeof v === 'number' ? v : parseFloat(v)) || 0
 

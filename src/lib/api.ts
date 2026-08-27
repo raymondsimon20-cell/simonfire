@@ -56,3 +56,47 @@ export async function schwabDisconnect(): Promise<void> {
     /* ignore */
   }
 }
+
+export interface EquityOrder {
+  session: 'NORMAL'
+  duration: 'DAY'
+  orderType: 'MARKET' | 'LIMIT'
+  price?: string
+  orderStrategyType: 'SINGLE'
+  orderLegCollection: [{
+    instruction: 'BUY'
+    quantity: number
+    instrument: { symbol: string; assetType: 'EQUITY' }
+  }]
+}
+
+export interface SchwabOrderResult {
+  ok: boolean
+  error?: unknown
+  preview?: unknown
+  orderId?: string
+  status?: string
+}
+
+async function orderRequest(body: Record<string, unknown>): Promise<SchwabOrderResult> {
+  try {
+    const r = await fetch(`${FN}/schwab-order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-SimonFIRE-Order-Request': '1' },
+      body: JSON.stringify(body),
+    })
+    const data = await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }))
+    return data as SchwabOrderResult
+  } catch {
+    return { ok: false, error: 'unreachable' }
+  }
+}
+
+export const schwabPreviewOrder = (accountId: string, requestId: string, order: EquityOrder) =>
+  orderRequest({ action: 'preview', accountId, requestId, order })
+
+export const schwabPlaceOrder = (accountId: string, requestId: string, order: EquityOrder) =>
+  orderRequest({ action: 'place', accountId, requestId, order, confirm: true })
+
+export const schwabOrderStatus = (accountId: string, orderId: string) =>
+  orderRequest({ action: 'status', accountId, orderId })

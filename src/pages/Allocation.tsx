@@ -69,6 +69,7 @@ export default function Allocation() {
   // ---- Rebalance calculator ----
   const [contribution, setContribution] = useState(2000)
   const [wholeShares, setWholeShares] = useState(true)
+  const [orderAccount, setOrderAccount] = useState<string>(() => data.accounts[0]?.id ?? '')
 
   const plan = useMemo(() => {
     const newTotal = total + contribution
@@ -90,6 +91,26 @@ export default function Allocation() {
     }
     return addByBucket
   }, [total, contribution, target, buckets])
+
+  // Flatten the plan into a reviewable BUY order queue (one row per ticker).
+  const orderQueue = useMemo(() => {
+    const items: { symbol: string; name: string; bucket: Bucket; price: number; shares: number; spend: number }[] = []
+    for (const b of BUCKETS) {
+      const add = plan[b]
+      if (add <= 0.5) continue
+      const tickers = tickersByBucket[b]
+      if (!tickers.length) continue
+      const per = add / tickers.length
+      for (const t of tickers) {
+        const rawShares = t.price ? per / t.price : 0
+        const shares = wholeShares ? Math.floor(rawShares) : +rawShares.toFixed(3)
+        const spend = wholeShares ? shares * t.price : per
+        if (shares <= 0 || spend <= 0.5) continue
+        items.push({ symbol: t.symbol, name: t.name, bucket: b, price: t.price, shares, spend })
+      }
+    }
+    return items
+  }, [plan, tickersByBucket, wholeShares])
 
   return (
     <div>
@@ -272,8 +293,113 @@ export default function Allocation() {
         </p>
       </div>
 
+      {/* Order Queue — review & place */}
+      <OrderQueue
+        items={orderQueue}
+        wholeShares={wholeShares}
+        accounts={data.accounts}
+        orderAccount={orderAccount}
+        setOrderAccount={setOrderAccount}
+      />
+
       {/* Rebalance Insights (50/100/200 SMA) */}
       <RebalanceInsights insights={insights} accName={(id) => data.accounts.find((a) => a.id === id)?.name ?? id} hasData={!!data.insights} />
+    </div>
+  )
+}
+
+function OrderQueue({
+  items,
+  wholeShares,
+  accounts,
+  orderAccount,
+  setOrderAccount,
+}: {
+  items: { symbol: string; name: string; bucket: Bucket; price: number; shares: number; spend: number }[]
+  wholeShares: boolean
+  accounts: { id: string; name: string; mask: string }[]
+  orderAccount: string
+  setOrderAccount: (id: string) => void
+}) {
+  const [placed, setPlaced] = useState<Set<string>>(new Set())
+  const [copied, setCopied] = useState<string | null>(null)
+  const accName = accounts.find((a) => a.id === orderAccount)?.name ?? 'your account'
+
+  const togglePlaced = (k: string) =>
+    setPlaced((prev) => {
+      const n = new Set(prev)
+      n.has(k) ? n.delete(k) : n.add(k)
+      return n
+    })
+  const doCopy = async (k: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(k)
+      setTimeout(() => setCopied((c) => (c === k ? null : c)), 1500)
+    } catch {
+      /* clipboard unavailable */
+    }
+  }
+  const line = (it: (typeof items)[number]) =>
+    `BUY ${wholeShares ? it.shares : `~${it.shares}`} ${it.symbol} @ market (${accName}) ≈ ${usd(it.spend)}`
+  const copyAll = () => doCopy('__all__', items.map(line).join('\n'))
+
+  const totalSpend = items.reduce((s, it) => s + it.spend, 0)
+
+  return (
+    <div className="mt-4 card p-5">
+      <div className="mb-1 flex flex-wrap items-center gap-2">
+        <ClipboardList size={18} className="text-brand" />
+        <h3 className="text-lg font-semibold">Order Queue</h3>
+        <span className="text-xs text-faint">{placed.size}/{items.length} placed · ≈ {usd(totalSpend)}</span>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-muted">Account</span>
+          <select
+            value={orderAccount}
+            onChange={(e) => setOrderAccount(e.target.value)}
+            className="rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink outline-none"
+          >
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>{a.name} ····{a.mask}</option>
+            ))}
+          </select>
+          <Button onClick={copyAll}>
+            {copied === '__all__' ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy all</>}
+          </Button>
+        </div>
+      </div>
+      <p className="mb-3 text-xs text-faint">
+        Buys from the calculator above, queued for review. Place each in your brokerage and check it off. <span className="font-semibold">This app never submits orders for you.</span>
+      </p>
+
+      {items.length === 0 ? (
+        <div className="py-8 text-center text-sm text-muted">
+          Nothing to buy at this contribution — you're at or above target everywhere. Raise the contribution above to generate orders.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {items.map((it) => {
+            const k = it.symbol + it.bucket
+            return (
+              <div key={k} className="flex flex-wrap items-center gap-3 rounded-lg border border-border-soft bg-surface-2/40 px-3 py-2.5 text-sm">
+                <input type="checkbox" checked={placed.has(k)} onChange={() => togglePlaced(k)} className="h-4 w-4 accent-[#3fd88a]" />
+                <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-[#123024] text-[#3fd88a]">BUY</span>
+                <span className="num font-semibold">{wholeShares ? it.shares : `~${it.shares}`}</span>
+                <span className="font-semibold">{it.symbol}</span>
+                <span className="text-xs text-faint">@ market · {usd(it.price)}</span>
+                <span className="rounded-md px-1.5 py-0.5 text-[10px]" style={{ background: BUCKET_COLOR[it.bucket] + '22', color: BUCKET_COLOR[it.bucket] }}>{it.bucket}</span>
+                <span className={clsx('num ml-auto', placed.has(k) && 'text-faint line-through')}>≈ {usd(it.spend)}</span>
+                <button
+                  onClick={() => doCopy(k, line(it))}
+                  className="flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-[11px] font-medium text-muted hover:text-ink"
+                >
+                  {copied === k ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

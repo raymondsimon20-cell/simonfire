@@ -252,8 +252,8 @@ export default function Allocation() {
             <div className="flex items-start gap-2 bg-surface-2/60 px-4 py-3">
               <CircleAlert size={16} className="mt-0.5 shrink-0 text-[#f0a94a]" />
               <div>
-                <div className="text-sm font-semibold">50% Margin Limit by Account</div>
-                <div className="mt-0.5 text-xs text-faint">Maximum safe spend is the remaining capacity after current margin debt: available cash plus only the additional borrowing that keeps this account at or below 50%, capped by Schwab buying power.</div>
+                <div className="text-sm font-semibold">50% Minimum Equity by Account</div>
+                <div className="mt-0.5 text-xs text-faint">Equity % matches Schwab’s view. Maximum safe spend accounts for current margin debt and keeps account equity at or above 50%, capped by Schwab buying power.</div>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -261,7 +261,7 @@ export default function Allocation() {
                 <thead>
                   <tr className="border-t border-border-soft text-left text-xs text-muted">
                     <th className="px-4 py-2 font-medium">Account</th>
-                    <th className="px-3 py-2 text-right font-medium">Current Usage</th>
+                    <th className="px-3 py-2 text-right font-medium">Current Equity %</th>
                     <th className="px-3 py-2 text-right font-medium">Maximum Safe Spend</th>
                     <th className="px-3 py-2 text-right font-medium">After This Plan</th>
                     <th className="px-4 py-2 text-right font-medium">Use</th>
@@ -271,7 +271,7 @@ export default function Allocation() {
                   {capacities.map(({ account, capacity: accountCapacity }) => {
                     const selected = account.id === orderAccount
                     const over = contribution > accountCapacity.maxOrderSpend + 0.005
-                    const after = accountCapacity.projectedUsage(contribution)
+                    const afterEquity = 1 - accountCapacity.projectedUsage(contribution)
                     return (
                       <tr key={account.id} className={clsx('border-t border-border-soft', selected && 'bg-[#10233f]/60')}>
                         <td className="px-4 py-3">
@@ -283,13 +283,13 @@ export default function Allocation() {
                           <div className="mt-0.5 text-[11px] text-faint">{accountCapacity.basis}</div>
                         </td>
                         <td className={clsx('num px-3 py-3 text-right', accountCapacity.alreadyOverLimit ? 'text-neg' : 'text-muted')}>
-                          {account.isMargin ? pct(accountCapacity.currentUsage * 100) : 'Cash only'}
+                          {account.isMargin ? pct((1 - accountCapacity.currentUsage) * 100) : '100.00%'}
                         </td>
                         <td className="num px-3 py-3 text-right font-semibold">{usd(accountCapacity.maxOrderSpend)}</td>
                         <td className={clsx('num px-3 py-3 text-right font-semibold', over || accountCapacity.alreadyOverLimit ? 'text-neg' : 'text-pos')}>
                           {accountCapacity.alreadyOverLimit
-                            ? 'Already > 50%'
-                            : account.isMargin ? pct(after * 100) : over ? `Over by ${usd(contribution - accountCapacity.maxOrderSpend)}` : 'Within cash'}
+                            ? 'Below 50%'
+                            : account.isMargin ? pct(afterEquity * 100) : over ? `Over by ${usd(contribution - accountCapacity.maxOrderSpend)}` : '100.00%'}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-2">
@@ -315,7 +315,7 @@ export default function Allocation() {
             {capacity && (contributionOverCapacity || capacity.alreadyOverLimit) && (
               <div className="border-t border-[#5a2631] bg-[#33161d] px-4 py-2.5 text-xs font-semibold text-[#f2607a]">
                 {capacity.alreadyOverLimit
-                  ? `${selectedOrderAccount?.name} is already above 50% margin usage; no additional order spend is permitted by this guardrail.`
+                  ? `${selectedOrderAccount?.name} is already below 50% equity; no additional order spend is permitted by this guardrail.`
                   : `${selectedOrderAccount?.name} exceeds its safe maximum by ${usd(contribution - capacity.maxOrderSpend)}.`}
               </div>
             )}
@@ -870,7 +870,7 @@ function OrderQueue({
                   ? 'border-[#5a2631] bg-[#33161d] text-[#f2607a]'
                   : 'border-[#17472f] bg-[#123024]/60 text-[#8fe3b5]',
               )}>
-                50% margin ceiling: {usd(batchCapacity.maxOrderSpend)} maximum order spend · projected usage after this batch: {pct(batchCapacity.projectedUsage(batchExposure) * 100)}
+                50% minimum equity: {usd(batchCapacity.maxOrderSpend)} maximum order spend · projected equity after this batch: {pct((1 - batchCapacity.projectedUsage(batchExposure)) * 100)}
                 {batchOverCapacity && <span className="ml-2 font-semibold">Over by {usd(batchExposure - batchCapacity.maxOrderSpend)}. Submission is disabled.</span>}
               </div>
             )}

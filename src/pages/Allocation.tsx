@@ -74,11 +74,13 @@ export default function Allocation() {
   const [wholeShares, setWholeShares] = useState(true)
   const [orderAccount, setOrderAccount] = useState<string>(() => data.accounts[0]?.id ?? '')
   const selectedOrderAccount = data.accounts.find((account) => account.id === orderAccount)
-  const selectedAccountPositionValue = data.positions
-    .filter((position) => position.accountId === orderAccount)
-    .reduce((sum, position) => sum + position.shares * position.lastPrice, 0)
-  const capacity = marginCapacity(selectedOrderAccount, selectedAccountPositionValue)
-  const projectedMarginUsage = capacity?.projectedUsage(contribution) ?? 0
+  const capacities = useMemo(() => data.accounts.map((account) => {
+    const positionValue = data.positions
+      .filter((position) => position.accountId === account.id)
+      .reduce((sum, position) => sum + position.shares * position.lastPrice, 0)
+    return { account, capacity: marginCapacity(account, positionValue)! }
+  }), [data.accounts, data.positions])
+  const capacity = capacities.find(({ account }) => account.id === orderAccount)?.capacity ?? null
   const contributionOverCapacity = !!capacity && contribution > capacity.maxOrderSpend + 0.005
 
   const plan = useMemo(() => {
@@ -245,35 +247,77 @@ export default function Allocation() {
           </div>
         </div>
 
-        {capacity && (
-          <div className={clsx(
-            'mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border p-3 text-xs',
-            contributionOverCapacity || capacity.alreadyOverLimit
-              ? 'border-[#5a2631] bg-[#33161d] text-[#f2607a]'
-              : 'border-[#17472f] bg-[#123024]/60 text-[#8fe3b5]',
-          )}>
-            <CircleAlert size={15} className="shrink-0" />
-            {capacity.alreadyOverLimit ? (
-              <span><strong>{selectedOrderAccount?.name}</strong> is already above 50% margin usage. No additional order spend is within this ceiling.</span>
-            ) : (
-              <>
-                <span>
-                  <strong>Maximum order spend at ≤50% margin:</strong> {usd(capacity.maxOrderSpend)}
-                  {' '}for {selectedOrderAccount?.name} ({capacity.basis}).
-                </span>
-                <span>
-                  Current usage: {pct(capacity.currentUsage * 100)} · After this plan: {pct(projectedMarginUsage * 100)}
-                </span>
-                {contributionOverCapacity && (
-                  <span className="font-semibold">Reduce the plan by {usd(contribution - capacity.maxOrderSpend)}.</span>
-                )}
-                <Button
-                  onClick={() => setContribution(Math.floor(capacity.maxOrderSpend * 100) / 100)}
-                  className="ml-auto py-1 text-[11px]"
-                >
-                  Use maximum
-                </Button>
-              </>
+        {capacities.length > 0 && (
+          <div className="mb-5 overflow-hidden rounded-xl border border-border-soft">
+            <div className="flex items-start gap-2 bg-surface-2/60 px-4 py-3">
+              <CircleAlert size={16} className="mt-0.5 shrink-0 text-[#f0a94a]" />
+              <div>
+                <div className="text-sm font-semibold">50% Margin Limit by Account</div>
+                <div className="mt-0.5 text-xs text-faint">Maximum order spend uses each account’s cash first, then margin up to 50% usage, capped by Schwab buying power when available.</div>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead>
+                  <tr className="border-t border-border-soft text-left text-xs text-muted">
+                    <th className="px-4 py-2 font-medium">Account</th>
+                    <th className="px-3 py-2 text-right font-medium">Current Usage</th>
+                    <th className="px-3 py-2 text-right font-medium">Maximum Safe Spend</th>
+                    <th className="px-3 py-2 text-right font-medium">After This Plan</th>
+                    <th className="px-4 py-2 text-right font-medium">Use</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {capacities.map(({ account, capacity: accountCapacity }) => {
+                    const selected = account.id === orderAccount
+                    const over = contribution > accountCapacity.maxOrderSpend + 0.005
+                    const after = accountCapacity.projectedUsage(contribution)
+                    return (
+                      <tr key={account.id} className={clsx('border-t border-border-soft', selected && 'bg-[#10233f]/60')}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{account.name}</span>
+                            {!account.name.includes(account.mask) && <span className="text-xs text-faint">····{account.mask}</span>}
+                            {selected && <span className="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#7eb0ff]">ORDER ACCOUNT</span>}
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-faint">{accountCapacity.basis}</div>
+                        </td>
+                        <td className={clsx('num px-3 py-3 text-right', accountCapacity.alreadyOverLimit ? 'text-neg' : 'text-muted')}>
+                          {account.isMargin ? pct(accountCapacity.currentUsage * 100) : 'Cash only'}
+                        </td>
+                        <td className="num px-3 py-3 text-right font-semibold">{usd(accountCapacity.maxOrderSpend)}</td>
+                        <td className={clsx('num px-3 py-3 text-right font-semibold', over || accountCapacity.alreadyOverLimit ? 'text-neg' : 'text-pos')}>
+                          {accountCapacity.alreadyOverLimit
+                            ? 'Already > 50%'
+                            : account.isMargin ? pct(after * 100) : over ? `Over by ${usd(contribution - accountCapacity.maxOrderSpend)}` : 'Within cash'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex justify-end gap-2">
+                            <Button onClick={() => setOrderAccount(account.id)} className="py-1 text-[11px]" disabled={selected}>Use account</Button>
+                            <Button
+                              onClick={() => {
+                                setOrderAccount(account.id)
+                                setContribution(Math.floor(accountCapacity.maxOrderSpend * 100) / 100)
+                              }}
+                              className="py-1 text-[11px]"
+                              disabled={accountCapacity.alreadyOverLimit}
+                            >
+                              Use max
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {capacity && (contributionOverCapacity || capacity.alreadyOverLimit) && (
+              <div className="border-t border-[#5a2631] bg-[#33161d] px-4 py-2.5 text-xs font-semibold text-[#f2607a]">
+                {capacity.alreadyOverLimit
+                  ? `${selectedOrderAccount?.name} is already above 50% margin usage; no additional order spend is permitted by this guardrail.`
+                  : `${selectedOrderAccount?.name} exceeds its safe maximum by ${usd(contribution - capacity.maxOrderSpend)}.`}
+              </div>
             )}
           </div>
         )}

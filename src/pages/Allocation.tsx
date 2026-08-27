@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
-import { Target, Wand2, Eraser, Percent, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList, ShieldCheck, LoaderCircle } from 'lucide-react'
+import { Target, Wand2, Eraser, Percent, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList, ShieldCheck, LoaderCircle, ListChecks, CircleAlert } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
 import { bucketOf, bucketStats, BUCKETS, BUCKET_COLOR, type Bucket } from '../lib/buckets'
 import { normTicker } from '../lib/plan'
@@ -9,6 +9,7 @@ import { usd, pct, intfmt } from '../lib/format'
 import { PageHeader, Button } from '../components/ui'
 import { Modal } from '../components/Modal'
 import { schwabOrderStatus, schwabPlaceOrder, schwabPreviewOrder, type EquityOrder } from '../lib/api'
+import { marginCapacity, type MarginCapacity } from '../lib/margin'
 import clsx from 'clsx'
 
 const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<string, number> => {
@@ -72,6 +73,13 @@ export default function Allocation() {
   const [contribution, setContribution] = useState(2000)
   const [wholeShares, setWholeShares] = useState(true)
   const [orderAccount, setOrderAccount] = useState<string>(() => data.accounts[0]?.id ?? '')
+  const selectedOrderAccount = data.accounts.find((account) => account.id === orderAccount)
+  const selectedAccountPositionValue = data.positions
+    .filter((position) => position.accountId === orderAccount)
+    .reduce((sum, position) => sum + position.shares * position.lastPrice, 0)
+  const capacity = marginCapacity(selectedOrderAccount, selectedAccountPositionValue)
+  const projectedMarginUsage = capacity?.projectedUsage(contribution) ?? 0
+  const contributionOverCapacity = !!capacity && contribution > capacity.maxOrderSpend + 0.005
 
   const plan = useMemo(() => {
     const newTotal = total + contribution
@@ -237,6 +245,39 @@ export default function Allocation() {
           </div>
         </div>
 
+        {capacity && (
+          <div className={clsx(
+            'mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border p-3 text-xs',
+            contributionOverCapacity || capacity.alreadyOverLimit
+              ? 'border-[#5a2631] bg-[#33161d] text-[#f2607a]'
+              : 'border-[#17472f] bg-[#123024]/60 text-[#8fe3b5]',
+          )}>
+            <CircleAlert size={15} className="shrink-0" />
+            {capacity.alreadyOverLimit ? (
+              <span><strong>{selectedOrderAccount?.name}</strong> is already above 50% margin usage. No additional order spend is within this ceiling.</span>
+            ) : (
+              <>
+                <span>
+                  <strong>Maximum order spend at ≤50% margin:</strong> {usd(capacity.maxOrderSpend)}
+                  {' '}for {selectedOrderAccount?.name} ({capacity.basis}).
+                </span>
+                <span>
+                  Current usage: {pct(capacity.currentUsage * 100)} · After this plan: {pct(projectedMarginUsage * 100)}
+                </span>
+                {contributionOverCapacity && (
+                  <span className="font-semibold">Reduce the plan by {usd(contribution - capacity.maxOrderSpend)}.</span>
+                )}
+                <Button
+                  onClick={() => setContribution(Math.floor(capacity.maxOrderSpend * 100) / 100)}
+                  className="ml-auto py-1 text-[11px]"
+                >
+                  Use maximum
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="space-y-4">
           {BUCKETS.map((b) => {
             const add = plan[b]
@@ -303,6 +344,7 @@ export default function Allocation() {
         orderAccount={orderAccount}
         setOrderAccount={setOrderAccount}
         live={data.source === 'live'}
+        capacity={capacity}
       />
 
       {/* Rebalance Insights (50/100/200 SMA) */}
@@ -318,15 +360,18 @@ function OrderQueue({
   orderAccount,
   setOrderAccount,
   live,
+  capacity,
 }: {
   items: { symbol: string; name: string; bucket: Bucket; price: number; shares: number; spend: number }[]
   wholeShares: boolean
-  accounts: { id: string; name: string; mask: string }[]
+  accounts: { id: string; name: string; mask: string; cash: number; buyingPower?: number }[]
   orderAccount: string
   setOrderAccount: (id: string) => void
   live: boolean
+  capacity: MarginCapacity | null
 }) {
   const [placed, setPlaced] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [copied, setCopied] = useState<string | null>(null)
   const [review, setReview] = useState<{
     key: string
@@ -339,13 +384,30 @@ function OrderQueue({
     error?: string
   } | null>(null)
   const [busy, setBusy] = useState(false)
+  type BatchRow = {
+    key: string
+    item: (typeof items)[number]
+    requestId: string
+    order: EquityOrder
+    state: 'pending' | 'previewing' | 'ready' | 'submitting' | 'accepted' | 'failed' | 'not_attempted'
+    preview?: unknown
+    orderId?: string
+    status?: string
+    error?: string
+  }
+  const [batch, setBatch] = useState<{
+    accountId: string
+    accountName: string
+    rows: BatchRow[]
+    stage: 'edit' | 'review' | 'submitting' | 'complete'
+  } | null>(null)
   const accName = accounts.find((a) => a.id === orderAccount)?.name ?? 'your account'
 
-  const togglePlaced = (k: string) =>
-    setPlaced((prev) => {
+  const toggleSelected = (k: string) =>
+    setSelected((prev) => {
       const n = new Set(prev)
       if (n.has(k)) n.delete(k)
-      else n.add(k)
+      else if (n.size < 40) n.add(k)
       return n
     })
   const doCopy = async (k: string, text: string) => {
@@ -411,6 +473,121 @@ function OrderQueue({
       : current)
   }
 
+  const eligibleItems = items.filter((it) => !placed.has(it.symbol + it.bucket))
+  const selectedItems = eligibleItems.filter((it) => selected.has(it.symbol + it.bucket))
+  const selectAll = () => {
+    const eligible = eligibleItems.slice(0, 40).map((it) => it.symbol + it.bucket)
+    setSelected((current) => current.size === eligible.length && eligible.every((key) => current.has(key))
+      ? new Set()
+      : new Set(eligible))
+  }
+  const openBulk = () => {
+    if (!selectedItems.length) return
+    setBatch({
+      accountId: orderAccount,
+      accountName: accName,
+      stage: 'edit',
+      rows: selectedItems.map((item) => ({
+        key: item.symbol + item.bucket,
+        item,
+        requestId: crypto.randomUUID(),
+        order: buildOrder(item, 'LIMIT'),
+        state: 'pending',
+      })),
+    })
+  }
+  const setBatchRow = (key: string, update: Partial<BatchRow>) =>
+    setBatch((current) => current ? {
+      ...current,
+      rows: current.rows.map((row) => row.key === key ? { ...row, ...update } : row),
+    } : current)
+  const previewBulk = async () => {
+    if (!batch) return
+    const rows: BatchRow[] = batch.rows.map((row) => ({
+      ...row,
+      requestId: crypto.randomUUID(),
+      state: 'pending',
+      preview: undefined,
+      error: undefined,
+    }))
+    setBatch({ ...batch, rows, stage: 'edit' })
+    setBusy(true)
+    for (const row of rows) {
+      setBatchRow(row.key, { state: 'previewing' })
+      const result = await schwabPreviewOrder(batch.accountId, row.requestId, row.order)
+      if (result.ok) {
+        row.state = 'ready'
+        row.preview = result.preview ?? {}
+        setBatchRow(row.key, { state: 'ready', preview: row.preview, error: undefined })
+      } else {
+        row.state = 'failed'
+        row.error = readableError(result.error)
+        setBatchRow(row.key, { state: 'failed', error: row.error })
+      }
+    }
+    setBusy(false)
+    setBatch((current) => current ? { ...current, stage: 'review' } : current)
+  }
+  const submitBulk = async () => {
+    if (!batch || batch.rows.some((row) => row.state !== 'ready')) return
+    const rows = batch.rows.map((row) => ({ ...row }))
+    setBusy(true)
+    setBatch({ ...batch, rows, stage: 'submitting' })
+    const accepted: BatchRow[] = []
+    let stopped = false
+    for (const row of rows) {
+      if (stopped) {
+        row.state = 'not_attempted'
+        setBatchRow(row.key, { state: 'not_attempted' })
+        continue
+      }
+      row.state = 'submitting'
+      setBatchRow(row.key, { state: 'submitting' })
+      const result = await schwabPlaceOrder(batch.accountId, row.requestId, row.order)
+      if (!result.ok || !result.orderId) {
+        row.state = 'failed'
+        row.error = readableError(result.error)
+        setBatchRow(row.key, { state: 'failed', error: row.error })
+        stopped = true
+        continue
+      }
+      row.state = 'accepted'
+      row.orderId = result.orderId
+      row.status = result.status ?? 'ACCEPTED'
+      accepted.push(row)
+      setPlaced((current) => new Set(current).add(row.key))
+      setSelected((current) => {
+        const next = new Set(current)
+        next.delete(row.key)
+        return next
+      })
+      setBatchRow(row.key, { state: 'accepted', orderId: row.orderId, status: row.status })
+    }
+    if (accepted.length) {
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      for (const row of accepted) {
+        const result = await schwabOrderStatus(batch.accountId, row.orderId!)
+        row.status = result.ok ? result.status ?? 'UNKNOWN' : row.status
+        setBatchRow(row.key, {
+          status: row.status,
+          error: result.ok ? undefined : `Status check: ${readableError(result.error)}`,
+        })
+      }
+    }
+    setBusy(false)
+    setBatch((current) => current ? { ...current, stage: 'complete' } : current)
+  }
+
+  const batchExposure = batch?.rows.reduce(
+    (sum, row) => sum + row.item.shares * Number(row.order.price ?? row.item.price),
+    0,
+  ) ?? 0
+  const batchAccount = accounts.find((account) => account.id === batch?.accountId)
+  const batchFunding = batchAccount?.buyingPower ?? batchAccount?.cash ?? 0
+  const batchCapacity = batch?.accountId === orderAccount ? capacity : null
+  const batchOverCapacity = !!batchCapacity && batchExposure > batchCapacity.maxOrderSpend + 0.005
+  const allBatchReady = !!batch?.rows.length && batch.rows.every((row) => row.state === 'ready')
+
   return (
     <div className="mt-4 card p-5">
       <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -434,8 +611,31 @@ function OrderQueue({
         </div>
       </div>
       <p className="mb-3 text-xs text-faint">
-        Buys from the calculator above, queued for review. Each live order must be previewed and confirmed individually. Market orders can fill at a different price than shown.
+        Buys from the calculator above, queued for review. Individual orders may be limit or market; bulk submission is limit-only and stops on the first failure.
       </p>
+
+      {items.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border-soft bg-surface-2/40 p-2.5 text-xs">
+          <label className="flex cursor-pointer items-center gap-2 text-muted">
+            <input
+              type="checkbox"
+              checked={eligibleItems.length > 0 && selected.size === Math.min(eligibleItems.length, 40)}
+              onChange={selectAll}
+              className="h-4 w-4 accent-[#4d8dff]"
+            />
+            Select {eligibleItems.length > 40 ? 'first 40' : 'all'}
+          </label>
+          <span className="text-faint">{selectedItems.length} selected · max 40</span>
+          <Button
+            variant="primary"
+            disabled={!live || !wholeShares || !orderAccount || selectedItems.length === 0}
+            onClick={openBulk}
+            className="ml-auto py-1.5 text-xs"
+          >
+            <ListChecks size={14} /> Bulk review
+          </Button>
+        </div>
+      )}
 
       {!live && (
         <div className="mb-3 rounded-lg border border-[#3a2a12] bg-[#241a0c]/60 p-3 text-xs text-[#e7c88f]">
@@ -453,7 +653,14 @@ function OrderQueue({
             const k = it.symbol + it.bucket
             return (
               <div key={k} className="flex flex-wrap items-center gap-3 rounded-lg border border-border-soft bg-surface-2/40 px-3 py-2.5 text-sm">
-                <input type="checkbox" checked={placed.has(k)} onChange={() => togglePlaced(k)} className="h-4 w-4 accent-[#3fd88a]" />
+                <input
+                  type="checkbox"
+                  title="Select for bulk review"
+                  checked={selected.has(k)}
+                  disabled={placed.has(k)}
+                  onChange={() => toggleSelected(k)}
+                  className="h-4 w-4 accent-[#4d8dff] disabled:opacity-40"
+                />
                 <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-[#123024] text-[#3fd88a]">BUY</span>
                 <span className="num font-semibold">{wholeShares ? it.shares : `~${it.shares}`}</span>
                 <span className="font-semibold">{it.symbol}</span>
@@ -575,6 +782,112 @@ function OrderQueue({
             )}
             {review.error && <div className="rounded-lg border border-[#5a2631] bg-[#33161d] p-3 text-sm text-[#f2607a]">{review.error}</div>}
             {!wholeShares && <div className="text-xs text-[#f0a94a]">Switch the calculator to whole shares before previewing an order.</div>}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!batch}
+        onClose={() => !busy && setBatch(null)}
+        title={batch?.stage === 'complete' ? 'Bulk order results' : 'Bulk Schwab review'}
+        subtitle="Limit orders are previewed and submitted one at a time. Submission stops on the first failure."
+        width="max-w-3xl"
+        footer={batch ? (
+          <>
+            <Button onClick={() => setBatch(null)} disabled={busy}>{batch.stage === 'complete' ? 'Close' : 'Cancel'}</Button>
+            {batch.stage !== 'complete' && batch.stage !== 'submitting' && (
+              <Button
+                variant="primary"
+                disabled={busy || (batch.stage === 'review' && (!allBatchReady || batchOverCapacity))}
+                onClick={batch.stage === 'review' && allBatchReady ? submitBulk : previewBulk}
+              >
+                {busy
+                  ? <><LoaderCircle size={14} className="animate-spin" /> Working…</>
+                  : batch.stage === 'review' && allBatchReady
+                    ? `Confirm & submit ${batch.rows.length} orders`
+                    : `Preview ${batch.rows.length} orders`}
+              </Button>
+            )}
+          </>
+        ) : undefined}
+      >
+        {batch && (
+          <div className="space-y-4 text-sm">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-lg bg-surface-2 p-3"><div className="text-xs text-faint">ACCOUNT</div><div className="mt-1 font-semibold">{batch.accountName}</div></div>
+              <div className="rounded-lg bg-surface-2 p-3"><div className="text-xs text-faint">ORDERS</div><div className="num mt-1 font-semibold">{batch.rows.length}</div></div>
+              <div className="rounded-lg bg-surface-2 p-3"><div className="text-xs text-faint">LIMIT EXPOSURE</div><div className="num mt-1 font-semibold">{usd(batchExposure)}</div></div>
+              <div className="rounded-lg bg-surface-2 p-3"><div className="text-xs text-faint">{batchAccount?.buyingPower != null ? 'BUYING POWER' : 'CASH'}</div><div className="num mt-1 font-semibold">{usd(batchFunding)}</div></div>
+            </div>
+            {batchCapacity && (
+              <div className={clsx(
+                'rounded-lg border p-3 text-xs',
+                batchOverCapacity
+                  ? 'border-[#5a2631] bg-[#33161d] text-[#f2607a]'
+                  : 'border-[#17472f] bg-[#123024]/60 text-[#8fe3b5]',
+              )}>
+                50% margin ceiling: {usd(batchCapacity.maxOrderSpend)} maximum order spend · projected usage after this batch: {pct(batchCapacity.projectedUsage(batchExposure) * 100)}
+                {batchOverCapacity && <span className="ml-2 font-semibold">Over by {usd(batchExposure - batchCapacity.maxOrderSpend)}. Submission is disabled.</span>}
+              </div>
+            )}
+            {batchExposure > batchFunding && (
+              <div className="flex items-start gap-2 rounded-lg border border-[#5a3a16] bg-[#38240f] p-3 text-xs text-[#f0a94a]">
+                <CircleAlert size={15} className="mt-0.5 shrink-0" /> Limit exposure exceeds the account’s reported {batchAccount?.buyingPower != null ? 'buying power' : 'cash'} by {usd(batchExposure - batchFunding)}. Schwab may reject one or more orders.
+              </div>
+            )}
+            <div className="max-h-[48vh] overflow-y-auto rounded-xl border border-border-soft">
+              <table className="w-full min-w-[650px] text-sm">
+                <thead className="sticky top-0 bg-surface">
+                  <tr className="text-left text-xs text-muted">
+                    <th className="px-3 py-2">Symbol</th><th className="px-3 py-2 text-right">Shares</th><th className="px-3 py-2 text-right">Limit</th><th className="px-3 py-2 text-right">Exposure</th><th className="px-3 py-2">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batch.rows.map((row) => (
+                    <tr key={row.key} className="border-t border-border-soft">
+                      <td className="px-3 py-2 font-semibold">{row.item.symbol}</td>
+                      <td className="num px-3 py-2 text-right">{row.item.shares}</td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="inline-flex items-center rounded border border-border bg-surface-2 px-1.5">
+                          <span className="text-faint">$</span>
+                          <input
+                            type="number" min="0.01" max="1000000" step="0.01"
+                            value={row.order.price ?? ''}
+                            disabled={busy || batch.stage === 'submitting' || batch.stage === 'complete'}
+                            onChange={(e) => setBatchRow(row.key, {
+                              requestId: crypto.randomUUID(),
+                              order: { ...row.order, price: e.target.value },
+                              state: 'pending', preview: undefined, error: undefined,
+                            })}
+                            className="num w-20 bg-transparent py-1 text-right outline-none disabled:opacity-60"
+                          />
+                        </div>
+                      </td>
+                      <td className="num px-3 py-2 text-right">{usd(row.item.shares * Number(row.order.price ?? 0))}</td>
+                      <td className="px-3 py-2 text-xs">
+                        {row.state === 'pending' && <span className="text-faint">Ready to preview</span>}
+                        {(row.state === 'previewing' || row.state === 'submitting') && <span className="flex items-center gap-1 text-muted"><LoaderCircle size={12} className="animate-spin" /> {row.state === 'previewing' ? 'Previewing' : 'Submitting'}</span>}
+                        {row.state === 'ready' && <span className="font-semibold text-pos">Preview passed</span>}
+                        {row.state === 'accepted' && <span className="font-semibold text-pos">{row.status} · #{row.orderId}</span>}
+                        {row.state === 'failed' && <span className="text-neg">{row.error || 'Failed'}</span>}
+                        {row.state === 'not_attempted' && <span className="text-[#f0a94a]">Not attempted</span>}
+                        {row.error && row.state === 'accepted' && <div className="mt-1 text-[#f0a94a]">{row.error}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {batch.stage === 'review' && allBatchReady && (
+              <div className="rounded-lg border border-[#17472f] bg-[#123024]/70 p-3 text-xs text-muted">
+                All {batch.rows.length} previews passed. The next confirmation submits these live orders sequentially.
+              </div>
+            )}
+            {batch.stage === 'review' && !allBatchReady && (
+              <div className="rounded-lg border border-[#5a2631] bg-[#33161d] p-3 text-xs text-[#f2607a]">
+                One or more previews failed. No orders were submitted. Correct the limit prices or selection, then preview again.
+              </div>
+            )}
           </div>
         )}
       </Modal>

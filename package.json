@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test:dividends": "tsc -p scripts/tsconfig.dividends.test.json && node /tmp/simonfire-dividend-tests/scripts/test-dividend-stats.js",
+    "test:margin": "tsc -p scripts/tsconfig.margin.test.json && node /tmp/simonfire-margin-tests/scripts/test-margin-capacity.js",
     "preview": "vite preview"
   },
   "dependencies": {

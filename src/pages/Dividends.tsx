@@ -6,13 +6,19 @@ import { usd, pct, intfmt, shortDate } from '../lib/format'
 import { KpiCard, PageHeader, Button } from '../components/ui'
 import { PositiveBars } from '../components/Charts'
 import { downloadCsv } from '../lib/csv'
+import { normTicker } from '../lib/plan'
 import clsx from 'clsx'
 
-const TODAY = '2026-08-26'
+const todayISO = () => {
+  const now = new Date()
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 10)
+}
 
 export default function Dividends() {
   const { positions, transactions } = useScoped()
-  const d = useMemo(() => dividendStats(positions, transactions, TODAY), [positions, transactions])
+  const today = todayISO()
+  const d = useMemo(() => dividendStats(positions, transactions, today), [positions, transactions, today])
 
   const futureData = d.future.map((f) => ({
     label: new Date(f.month + '-01').toLocaleDateString('en-US', { month: 'short' }),
@@ -21,15 +27,15 @@ export default function Dividends() {
 
   const exportCsv = () =>
     downloadCsv('dividends.csv', [
-      ['Symbol', 'Cadence', 'Trailing 12M', 'All-Time', 'Proj. Annual', 'Payments (12M)', 'Last Payment'],
-      ...d.bySymbol.map((s) => [s.symbol, s.cadence, s.ttm.toFixed(2), s.allTime.toFixed(2), s.projAnnual.toFixed(2), s.payments12m, s.lastPayment]),
+      ['Symbol', 'Cadence', 'Trailing 12M Received', 'Available History', 'Current Run Rate', 'Payments (12M)', 'Last Payment'],
+      ...d.bySymbol.map((s) => [s.symbol, s.cadence, s.ttm.toFixed(2), s.availableIncome.toFixed(2), s.projAnnual.toFixed(2), s.payments12m, s.lastPayment]),
     ])
 
   return (
     <div>
       <PageHeader
         title="Dividend Income"
-        subtitle={`As of ${TODAY}`}
+        subtitle={`As of ${today}`}
         right={
           <Button onClick={exportCsv}>
             <Download size={15} /> Export CSV
@@ -41,24 +47,30 @@ export default function Dividends() {
         <KpiCard label="Trailing 12M Income" value={usd(d.trailing12m)} sub={`${d.monthsActive}/12 months active`} icon={<DollarSign size={20} />} tile="green" />
         <KpiCard label="Monthly Average" value={usd(d.monthlyAverage)} icon={<TrendingUp size={20} />} tile="blue" />
         <KpiCard label="Dividend Symbols" value={intfmt(d.dividendSymbols)} sub={`${intfmt(d.totalPayments)} total payments`} icon={<Layers size={20} />} tile="purple" />
-        <KpiCard label="All-Time Income" value={usd(d.allTime)} icon={<Landmark size={20} />} tile="teal" />
+        <KpiCard label="Available-History Income" value={usd(d.availableIncome)} sub={d.availableHistoryStart ? `Since ${shortDate(d.availableHistoryStart)}` : 'No payment history'} icon={<Landmark size={20} />} tile="teal" />
       </div>
 
       <div className="mt-8 mb-3 text-xs font-semibold tracking-widest text-faint">PROJECTIONS</div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Est. Annual Income" value={usd(d.estAnnual)} icon={<Target size={20} />} tile="purple" info="Trailing-12-month income — a complete year of actual distributions from your sync." />
+        <KpiCard label="Current Annual Run Rate" value={usd(d.estAnnual)} icon={<Target size={20} />} tile="purple" info="Trailing per-share distributions scaled to the shares you hold now. This is historical, not a declared forward dividend." />
         <KpiCard label="Est. Monthly Income" value={usd(d.estMonthly)} icon={<Calendar size={20} />} tile="blue" />
-        <KpiCard label="Yield on Cost" value={pct(d.yieldOnCost * 100)} sub={`${d.symbolCount} paying symbols`} icon={<Percent size={20} />} tile="green" info="Trailing-12-month income / portfolio cost basis (excl. options)." />
-        <KpiCard label="Forward Yield" value={pct(d.forwardYield * 100)} icon={<LineChart size={20} />} tile="teal" info="Trailing-12-month income / portfolio market value (excl. options)." />
+        <KpiCard label="Yield on Cost" value={pct(d.yieldOnCost * 100)} sub={`${d.symbolCount} paying symbols`} icon={<Percent size={20} />} tile="green" info="Current annual run rate / current cost basis of long equity and ETF dividend payers. Options are excluded." />
+        <KpiCard label="Distribution Yield" value={pct(d.distributionYield * 100)} icon={<LineChart size={20} />} tile="teal" info="Current annual run rate / current market value of long equity and ETF dividend payers. Options are excluded." />
       </div>
       <p className="mt-3 text-xs text-faint">
-        Projected dividend income is an estimate based on historical payments and declared dividends. Past
-        distributions are not a guarantee of future distributions. Actual income may differ materially.
+        Run-rate income is estimated from historical per-share payments scaled to current shares. It does not include declared future dividends.
+        Past distributions are not a guarantee of future distributions, and actual income may differ materially.
       </p>
+
+      {(d.unassignedTrailing12m !== 0 || d.unassignedAvailable !== 0) && (
+        <div className="mt-4 rounded-lg border border-[#3a2a12] bg-[#241a0c]/60 p-3 text-xs text-[#e7c88f]">
+          Unassigned dividend transactions: {usd(d.unassignedTrailing12m)} received in the trailing 12 months and {usd(d.unassignedAvailable)} in available history. These are included in headline received income but excluded from symbol yields and run-rate estimates.
+        </div>
+      )}
 
       <div className="card mt-6">
         <div className="mb-1 text-lg font-semibold">Projected Future Payments (Next 12 Months)</div>
-        <div className="mb-4 text-xs text-faint">Based on declared dividends and trailing history. Actual payments may vary.</div>
+        <div className="mb-4 text-xs text-faint">Historical monthly payment pattern, adjusted to today’s share counts. The next month begins the 12-month window.</div>
         <PositiveBars data={futureData} xKey="label" yKey="amount" height={280} />
       </div>
 
@@ -70,10 +82,10 @@ export default function Dividends() {
               <th className="px-4 py-3 font-medium">Symbol</th>
               <th className="px-4 py-3 font-medium">Cadence</th>
               <th className="px-4 py-3 text-right font-medium">T12M</th>
-              <th className="px-4 py-3 text-right font-medium">All-Time</th>
-              <th className="px-4 py-3 text-right font-medium">YoC %</th>
-              <th className="px-4 py-3 text-right font-medium">Fwd %</th>
-              <th className="px-4 py-3 text-right font-medium">Proj. Annual</th>
+              <th className="px-4 py-3 text-right font-medium">Available History</th>
+              <th className="px-4 py-3 text-right font-medium">Est. YoC %</th>
+              <th className="px-4 py-3 text-right font-medium">Dist. Yield %</th>
+              <th className="px-4 py-3 text-right font-medium">Current Run Rate</th>
               <th className="px-4 py-3 text-right font-medium">Payments (12M)</th>
               <th className="px-4 py-3 text-right font-medium">Avg Payment</th>
               <th className="px-4 py-3 font-medium">Last Payment</th>
@@ -83,6 +95,20 @@ export default function Dividends() {
             {d.bySymbol.map((s) => (
               <SymbolRow key={s.symbol} s={s} />
             ))}
+            {(d.unassignedTrailing12m !== 0 || d.unassignedAvailable !== 0) && (
+              <tr className="border-b border-[#3a2a12] bg-[#241a0c]/30 text-[#e7c88f]">
+                <td className="px-4 py-3 font-semibold">Unassigned</td>
+                <td className="px-4 py-3 text-xs">Missing symbol</td>
+                <td className="num px-4 py-3 text-right">{usd(d.unassignedTrailing12m)}</td>
+                <td className="num px-4 py-3 text-right">{usd(d.unassignedAvailable)}</td>
+                <td className="px-4 py-3 text-right">—</td>
+                <td className="px-4 py-3 text-right">—</td>
+                <td className="px-4 py-3 text-right">—</td>
+                <td className="px-4 py-3 text-right">—</td>
+                <td className="px-4 py-3 text-right">—</td>
+                <td className="px-4 py-3">—</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -97,7 +123,7 @@ function SymbolRow({ s }: { s: SymbolDividend }) {
   const payments = useMemo(
     () =>
       transactions
-        .filter((t) => t.type === 'Dividend' && t.symbol === s.symbol)
+        .filter((t) => t.type === 'Dividend' && normTicker(t.symbol ?? '') === s.symbol)
         .sort((a, b) => (a.date < b.date ? 1 : -1)),
     [transactions, s.symbol],
   )
@@ -118,9 +144,9 @@ function SymbolRow({ s }: { s: SymbolDividend }) {
           <span className="rounded-md bg-[#10233f] px-2 py-0.5 text-xs font-medium text-[#5aa2ff]">{s.cadence}</span>
         </td>
         <td className="num px-4 py-3 text-right">{usd(s.ttm)}</td>
-        <td className="num px-4 py-3 text-right text-muted">{usd(s.allTime)}</td>
+        <td className="num px-4 py-3 text-right text-muted">{usd(s.availableIncome)}</td>
         <td className="num px-4 py-3 text-right text-pos">{pct(s.yoc * 100)}</td>
-        <td className="num px-4 py-3 text-right text-pos">{pct(s.fwd * 100)}</td>
+        <td className="num px-4 py-3 text-right text-pos">{pct(s.distributionYield * 100)}</td>
         <td className="num px-4 py-3 text-right">{usd(s.projAnnual)}</td>
         <td className="num px-4 py-3 text-right text-muted">{s.payments12m}</td>
         <td className="num px-4 py-3 text-right">{usd(s.avgPayment)}</td>

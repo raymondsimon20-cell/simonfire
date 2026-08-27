@@ -1,4 +1,5 @@
 import type { Account, Position, Transaction } from './types'
+import { normTicker } from './plan'
 
 // ---------- Position-level ----------
 export interface PosMetrics {
@@ -261,11 +262,14 @@ export interface DividendStats {
   monthlyAverage: number
   dividendSymbols: number
   totalPayments: number
-  allTime: number
+  availableIncome: number
+  availableHistoryStart: string
+  unassignedTrailing12m: number
+  unassignedAvailable: number
   estAnnual: number
   estMonthly: number
   yieldOnCost: number
-  forwardYield: number
+  distributionYield: number
   symbolCount: number
   future: { month: string; amount: number }[]
   bySymbol: SymbolDividend[]
@@ -273,12 +277,12 @@ export interface DividendStats {
 
 export interface SymbolDividend {
   symbol: string
-  cadence: 'Weekly' | 'Monthly'
+  cadence: 'Weekly' | 'Monthly' | 'Quarterly' | 'Semiannual' | 'Annual' | 'Irregular'
   ttm: number
-  allTime: number
+  availableIncome: number
   projAnnual: number
   yoc: number
-  fwd: number
+  distributionYield: number
   payments12m: number
   avgPayment: number
   lastPayment: string
@@ -289,73 +293,139 @@ export function dividendStats(
   txns: Transaction[],
   todayISO: string,
 ): DividendStats {
-  const divs = txns.filter((t) => t.type === 'Dividend')
   const today = new Date(todayISO + 'T00:00:00')
   const yearAgo = new Date(today)
   yearAgo.setFullYear(yearAgo.getFullYear() - 1)
-  const q = new Date(today)
-  q.setDate(q.getDate() - 90)
+  const inAvailableHistory = (t: Transaction) => t.type === 'Dividend' && t.date <= todayISO
+  const divs = txns.filter(inAvailableHistory)
+  const isTtm = (date: string) => {
+    const dt = new Date(date + 'T00:00:00')
+    return dt > yearAgo && dt <= today
+  }
 
   let trailing12m = 0
-  let allTime = 0
+  let availableIncome = 0
+  let unassignedTrailing12m = 0
+  let unassignedAvailable = 0
   const months = new Set<string>()
   const ttmBySym = new Map<string, number>()
-  const recentBySym = new Map<string, number>()
-  const allTimeBySym = new Map<string, number>()
+  const availableBySym = new Map<string, number>()
   const count12mBySym = new Map<string, number>()
-  const recentCountBySym = new Map<string, number>()
   const lastPayBySym = new Map<string, string>()
+  const datesBySym = new Map<string, string[]>()
 
   for (const t of divs) {
-    allTime += t.amount
-    if (t.symbol) allTimeBySym.set(t.symbol, (allTimeBySym.get(t.symbol) ?? 0) + t.amount)
-    if (t.symbol && (!lastPayBySym.has(t.symbol) || t.date > lastPayBySym.get(t.symbol)!))
-      lastPayBySym.set(t.symbol, t.date)
-    const dt = new Date(t.date + 'T00:00:00')
-    if (dt >= yearAgo) {
+    availableIncome += t.amount
+    const sym = t.symbol ? normTicker(t.symbol) : ''
+    if (!sym) unassignedAvailable += t.amount
+    else {
+      availableBySym.set(sym, (availableBySym.get(sym) ?? 0) + t.amount)
+      if (!lastPayBySym.has(sym) || t.date > lastPayBySym.get(sym)!) lastPayBySym.set(sym, t.date)
+    }
+    if (isTtm(t.date)) {
       trailing12m += t.amount
       months.add(t.date.slice(0, 7))
-      if (t.symbol) {
-        ttmBySym.set(t.symbol, (ttmBySym.get(t.symbol) ?? 0) + t.amount)
-        count12mBySym.set(t.symbol, (count12mBySym.get(t.symbol) ?? 0) + 1)
+      if (sym) {
+        ttmBySym.set(sym, (ttmBySym.get(sym) ?? 0) + t.amount)
+        count12mBySym.set(sym, (count12mBySym.get(sym) ?? 0) + 1)
+        const dates = datesBySym.get(sym) ?? []
+        dates.push(t.date)
+        datesBySym.set(sym, dates)
+      } else {
+        unassignedTrailing12m += t.amount
       }
     }
-    if (dt >= q && t.symbol) {
-      recentBySym.set(t.symbol, (recentBySym.get(t.symbol) ?? 0) + t.amount)
-      recentCountBySym.set(t.symbol, (recentCountBySym.get(t.symbol) ?? 0) + 1)
-    }
   }
 
-  // Per-symbol cost basis / market value from holdings.
+  // Current long equity/ETF holdings only. Options use the underlying ticker in
+  // our model and per-contract prices, so including them would corrupt yields.
   const costBySym = new Map<string, number>()
   const valueBySym = new Map<string, number>()
+  const currentSharesByAccountSym = new Map<string, number>()
+  const currentSharesBySym = new Map<string, number>()
   for (const p of positions) {
-    costBySym.set(p.symbol, (costBySym.get(p.symbol) ?? 0) + p.shares * p.avgCost)
-    valueBySym.set(p.symbol, (valueBySym.get(p.symbol) ?? 0) + p.shares * p.lastPrice)
+    if (p.isOption || p.shares <= 0) continue
+    const sym = normTicker(p.symbol)
+    if (!sym) continue
+    costBySym.set(sym, (costBySym.get(sym) ?? 0) + p.shares * p.avgCost)
+    valueBySym.set(sym, (valueBySym.get(sym) ?? 0) + p.shares * p.lastPrice)
+    currentSharesByAccountSym.set(`${p.accountId}|${sym}`, (currentSharesByAccountSym.get(`${p.accountId}|${sym}`) ?? 0) + p.shares)
+    currentSharesBySym.set(sym, (currentSharesBySym.get(sym) ?? 0) + p.shares)
   }
 
-  // Per-symbol projection uses trailing-12-month actuals (a complete year from
-  // the sync window), not a 90-day annualization — the latter zeroed out any
-  // holding whose last recorded payment predates the window and blew up tiny
-  // remnant positions. Yields are guarded against near-zero denominators.
+  // Reconstruct shares held on a payment date from today's shares and all later
+  // buys/sells. This lets us infer each distribution per share, then apply that
+  // history to today's share count instead of carrying income from a larger or
+  // already-sold position into the current run-rate estimate.
+  const trades = txns.filter(
+    (t) => (t.type === 'Buy' || t.type === 'Sell') && !!t.symbol && t.date <= todayISO,
+  )
+  const sharesOn = (accountId: string, sym: string, date: string) => {
+    let shares = currentSharesByAccountSym.get(`${accountId}|${sym}`) ?? 0
+    for (const t of trades) {
+      if (t.accountId === accountId && normTicker(t.symbol ?? '') === sym && t.date > date)
+        shares -= t.units
+    }
+    return Math.max(0, shares)
+  }
+
+  const paymentGroups = new Map<string, { symbol: string; date: string; amount: number; accounts: Set<string> }>()
+  for (const t of divs) {
+    if (!t.symbol || !isTtm(t.date)) continue
+    const symbol = normTicker(t.symbol)
+    const key = `${symbol}|${t.date}`
+    const group = paymentGroups.get(key) ?? { symbol, date: t.date, amount: 0, accounts: new Set<string>() }
+    group.amount += t.amount
+    group.accounts.add(t.accountId)
+    paymentGroups.set(key, group)
+  }
   const FLOOR = 25 // ignore yields on positions worth less than this (remnants)
   const CAP = 3 // cap a per-symbol yield at 300% so data glitches don't dominate
+  const projectedBySym = new Map<string, number>()
+  const projectedByMonth = new Map<number, number>()
+  for (const group of paymentGroups.values()) {
+    const historicalShares = [...group.accounts].reduce(
+      (sum, accountId) => sum + sharesOn(accountId, group.symbol, group.date),
+      0,
+    )
+    const currentShares = currentSharesBySym.get(group.symbol) ?? 0
+    if (historicalShares <= 0 || currentShares <= 0) continue
+    const adjusted = (group.amount / historicalShares) * currentShares
+    projectedBySym.set(group.symbol, (projectedBySym.get(group.symbol) ?? 0) + adjusted)
+    const month = Number(group.date.slice(5, 7)) - 1
+    if ((valueBySym.get(group.symbol) ?? 0) >= FLOOR)
+      projectedByMonth.set(month, (projectedByMonth.get(month) ?? 0) + adjusted)
+  }
+
+  const inferCadence = (rawDates: string[]): SymbolDividend['cadence'] => {
+    const dates = [...new Set(rawDates)].sort().map((d) => new Date(d + 'T00:00:00').getTime())
+    if (dates.length < 2) return 'Irregular'
+    const gaps = dates.slice(1).map((d, i) => (d - dates[i]) / 86_400_000).sort((a, b) => a - b)
+    const median = gaps[Math.floor(gaps.length / 2)]
+    const spread = gaps.length >= 3 ? gaps[gaps.length - 1] / Math.max(gaps[0], 1) : 1
+    if (spread > 3.5) return 'Irregular'
+    if (median <= 10) return 'Weekly'
+    if (median <= 45) return 'Monthly'
+    if (median <= 120) return 'Quarterly'
+    if (median <= 220) return 'Semiannual'
+    return 'Annual'
+  }
   const bySymbol: SymbolDividend[] = []
   const payingSymbols = new Set<string>([...ttmBySym.keys()])
   for (const sym of payingSymbols) {
     const ttm = ttmBySym.get(sym) ?? 0
+    const projected = projectedBySym.get(sym) ?? 0
     const pays = count12mBySym.get(sym) ?? 0
     const cost = costBySym.get(sym) ?? 0
     const value = valueBySym.get(sym) ?? 0
-    const weekly = (recentCountBySym.get(sym) ?? 0) >= 8 || pays >= 26
     bySymbol.push({
       symbol: sym,
-      cadence: weekly ? 'Weekly' : 'Monthly',
+      cadence: inferCadence(datesBySym.get(sym) ?? []),
       ttm,
-      allTime: allTimeBySym.get(sym) ?? 0,
-      projAnnual: ttm,
-      yoc: cost >= FLOOR ? Math.min(ttm / cost, CAP) : 0,
-      fwd: value >= FLOOR ? Math.min(ttm / value, CAP) : 0,
+      availableIncome: availableBySym.get(sym) ?? 0,
+      projAnnual: projected,
+      yoc: cost >= FLOOR ? Math.min(projected / cost, CAP) : 0,
+      distributionYield: value >= FLOOR ? Math.min(projected / value, CAP) : 0,
       payments12m: pays,
       avgPayment: pays ? ttm / pays : 0,
       lastPayment: lastPayBySym.get(sym) ?? '',
@@ -363,10 +433,6 @@ export function dividendStats(
   }
   bySymbol.sort((a, b) => b.ttm - a.ttm)
 
-  // Est. annual income and yields are based on the dividend payers you STILL hold
-  // (value ≥ FLOOR), summing each one's trailing-12m income. This excludes income
-  // from positions you've since sold/reduced, so the estimate tracks the current
-  // portfolio rather than two years of trading history.
   const payerSet = new Set<string>()
   let estAnnual = 0
   let payerCost = 0
@@ -374,36 +440,38 @@ export function dividendStats(
   for (const b of bySymbol) {
     const value = valueBySym.get(b.symbol) ?? 0
     const cost = costBySym.get(b.symbol) ?? 0
-    if (value >= FLOOR && b.ttm > 0) {
+    if (value >= FLOOR && b.projAnnual > 0) {
       payerSet.add(b.symbol)
-      estAnnual += b.ttm
+      estAnnual += b.projAnnual
       payerCost += cost
       payerValue += value
     }
   }
   const estMonthly = estAnnual / 12
   const future: { month: string; amount: number }[] = []
-  const m = new Date(today.getFullYear(), today.getMonth(), 1)
+  const m = new Date(today.getFullYear(), today.getMonth() + 1, 1)
   for (let i = 0; i < 12; i++) {
-    const label = new Date(m.getFullYear(), m.getMonth() + i, 1)
+    const date = new Date(m.getFullYear(), m.getMonth() + i, 1)
+    const label = date
       .toISOString()
       .slice(0, 7)
-    // gentle seasonal wobble so the bars aren't identical
-    const wob = 1 + Math.sin((i / 12) * Math.PI * 2) * 0.06
-    future.push({ month: label, amount: +(estMonthly * wob).toFixed(2) })
+    future.push({ month: label, amount: +(projectedByMonth.get(date.getMonth()) ?? 0).toFixed(2) })
   }
 
   return {
     trailing12m,
     monthsActive: Math.min(months.size, 12),
     monthlyAverage: trailing12m / 12,
-    dividendSymbols: new Set(divs.map((d) => d.symbol)).size,
+    dividendSymbols: new Set(divs.map((d) => normTicker(d.symbol ?? '')).filter(Boolean)).size,
     totalPayments: divs.length,
-    allTime,
+    availableIncome,
+    availableHistoryStart: divs.map((t) => t.date).sort()[0] ?? '',
+    unassignedTrailing12m,
+    unassignedAvailable,
     estAnnual,
     estMonthly,
     yieldOnCost: payerCost > 0 ? Math.min(estAnnual / payerCost, CAP) : 0,
-    forwardYield: payerValue > 0 ? Math.min(estAnnual / payerValue, CAP) : 0,
+    distributionYield: payerValue > 0 ? Math.min(estAnnual / payerValue, CAP) : 0,
     symbolCount: payerSet.size,
     future,
     bySymbol,

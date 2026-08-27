@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
+    "types": ["node"],
+    "rootDir": "..",
+    "outDir": "/tmp/simonfire-dividend-tests",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true
+  },
+  "include": [
+    "test-dividend-stats.ts",
+    "../src/lib/calc.ts",
+    "../src/lib/plan.ts",
+    "../src/lib/types.ts"
+  ]
+}

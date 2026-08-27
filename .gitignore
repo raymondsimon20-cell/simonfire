@@ -29,3 +29,6 @@ dist-single
 .env.local
 
 _to_delete/
+
+# Local Netlify folder
+.netlify

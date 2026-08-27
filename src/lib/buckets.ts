@@ -84,7 +84,8 @@ export function bucketStats(positions: Position[], transactions: Transaction[]):
   const ttmBySym = new Map<string, number>()
   for (const t of transactions) {
     if (t.type !== 'Dividend' || !t.symbol) continue
-    if (new Date(t.date + 'T00:00:00') < yearAgo) continue
+    const paidAt = new Date(t.date + 'T00:00:00')
+    if (paidAt < yearAgo || paidAt > today) continue
     ttmBySym.set(normTicker(t.symbol), (ttmBySym.get(normTicker(t.symbol)) ?? 0) + t.amount)
   }
 
@@ -106,7 +107,7 @@ export function bucketStats(positions: Position[], transactions: Transaction[]):
     buckets[b].count += 1
     total += value
     const key = normTicker(p.symbol)
-    if (!symSeen.has(key)) {
+    if (!p.isOption && !symSeen.has(key)) {
       symSeen.add(key)
       buckets[b].ttmIncome += ttmBySym.get(key) ?? 0
     }

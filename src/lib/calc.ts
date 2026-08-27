@@ -334,43 +334,53 @@ export function dividendStats(
     valueBySym.set(p.symbol, (valueBySym.get(p.symbol) ?? 0) + p.shares * p.lastPrice)
   }
 
-  // Forward run-rate: annualize the last 90 days per symbol.
+  // Per-symbol projection uses trailing-12-month actuals (a complete year from
+  // the sync window), not a 90-day annualization — the latter zeroed out any
+  // holding whose last recorded payment predates the window and blew up tiny
+  // remnant positions. Yields are guarded against near-zero denominators.
+  const FLOOR = 25 // ignore yields on positions worth less than this (remnants)
+  const CAP = 3 // cap a per-symbol yield at 300% so data glitches don't dominate
   const bySymbol: SymbolDividend[] = []
-  let estAnnual = 0
-  const payingSymbols = new Set<string>([...ttmBySym.keys(), ...recentBySym.keys()])
+  const payingSymbols = new Set<string>([...ttmBySym.keys()])
   for (const sym of payingSymbols) {
-    const est = (recentBySym.get(sym) ?? 0) * (365 / 90)
-    estAnnual += est
     const ttm = ttmBySym.get(sym) ?? 0
     const pays = count12mBySym.get(sym) ?? 0
     const cost = costBySym.get(sym) ?? 0
     const value = valueBySym.get(sym) ?? 0
+    const weekly = (recentCountBySym.get(sym) ?? 0) >= 8 || pays >= 26
     bySymbol.push({
       symbol: sym,
-      cadence: (recentCountBySym.get(sym) ?? 0) >= 8 ? 'Weekly' : 'Monthly',
+      cadence: weekly ? 'Weekly' : 'Monthly',
       ttm,
       allTime: allTimeBySym.get(sym) ?? 0,
-      projAnnual: est,
-      yoc: cost ? est / cost : 0,
-      fwd: value ? est / value : 0,
+      projAnnual: ttm,
+      yoc: cost >= FLOOR ? Math.min(ttm / cost, CAP) : 0,
+      fwd: value >= FLOOR ? Math.min(ttm / value, CAP) : 0,
       payments12m: pays,
       avgPayment: pays ? ttm / pays : 0,
       lastPayment: lastPayBySym.get(sym) ?? '',
     })
   }
-  bySymbol.sort((a, b) => b.projAnnual - a.projAnnual)
+  bySymbol.sort((a, b) => b.ttm - a.ttm)
 
-  // Yield metrics against dividend-paying holdings.
-  const payerSet = new Set(bySymbol.map((b) => b.symbol))
+  // Est. annual income and yields are based on the dividend payers you STILL hold
+  // (value ≥ FLOOR), summing each one's trailing-12m income. This excludes income
+  // from positions you've since sold/reduced, so the estimate tracks the current
+  // portfolio rather than two years of trading history.
+  const payerSet = new Set<string>()
+  let estAnnual = 0
   let payerCost = 0
   let payerValue = 0
-  for (const p of positions) {
-    if (payerSet.has(p.symbol)) {
-      payerCost += p.shares * p.avgCost
-      payerValue += p.shares * p.lastPrice
+  for (const b of bySymbol) {
+    const value = valueBySym.get(b.symbol) ?? 0
+    const cost = costBySym.get(b.symbol) ?? 0
+    if (value >= FLOOR && b.ttm > 0) {
+      payerSet.add(b.symbol)
+      estAnnual += b.ttm
+      payerCost += cost
+      payerValue += value
     }
   }
-
   const estMonthly = estAnnual / 12
   const future: { month: string; amount: number }[] = []
   const m = new Date(today.getFullYear(), today.getMonth(), 1)
@@ -392,8 +402,8 @@ export function dividendStats(
     allTime,
     estAnnual,
     estMonthly,
-    yieldOnCost: payerCost ? estAnnual / payerCost : 0,
-    forwardYield: payerValue ? estAnnual / payerValue : 0,
+    yieldOnCost: payerCost > 0 ? Math.min(estAnnual / payerCost, CAP) : 0,
+    forwardYield: payerValue > 0 ? Math.min(estAnnual / payerValue, CAP) : 0,
     symbolCount: payerSet.size,
     future,
     bySymbol,

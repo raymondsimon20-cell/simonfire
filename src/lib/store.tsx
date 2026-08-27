@@ -7,11 +7,36 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { Account, AppData, Connection, Position, Transaction } from './types'
+import type { Account, AppData, Connection, Position, TagRule, Transaction, TwrSeries } from './types'
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
+
+// Reconcile every tag rule against all transactions in place. Any tag string a
+// rule manages is stripped first, then re-applied only where an *enabled* rule
+// still matches — so disabling or deleting a rule also removes the tags it added.
+// Idempotent: safe to run on load, after each sync, and whenever rules change.
+// `extraManaged` lets callers include a just-removed rule's tag in the sweep.
+function applyRulesTo(d: AppData, extraManaged?: Iterable<string>) {
+  const all = d.tagRules ?? []
+  const managed = new Set<string>()
+  for (const r of all) if (r.tag) managed.add(r.tag)
+  if (extraManaged) for (const t of extraManaged) if (t) managed.add(t)
+  const active = all.filter((r) => r.enabled && r.contains.trim())
+  if (!managed.size && !active.length) return
+  for (const t of d.transactions) {
+    if (managed.size && t.tags.some((tg) => managed.has(tg))) {
+      t.tags = t.tags.filter((tg) => !managed.has(tg))
+    }
+    const desc = t.description.toLowerCase()
+    for (const r of active) {
+      if (!desc.includes(r.contains.toLowerCase())) continue
+      if (r.tag && !t.tags.includes(r.tag)) t.tags.push(r.tag)
+      if (r.setType) t.type = r.setType
+    }
+  }
+}
 
 const STORAGE_KEY = 'simonfire.data.v1'
 
@@ -24,6 +49,10 @@ function load(): AppData {
       if (parsed && parsed.version === 1) {
         if (!parsed.keepList) parsed.keepList = DEFAULT_KEEP
         if (!parsed.soldSymbols) parsed.soldSymbols = []
+        if (!parsed.tagRules) parsed.tagRules = []
+        // Backfill the sample value series for datasets stored before TWR existed.
+        if (!parsed.twr && parsed.source === 'sample') parsed.twr = buildSeed().twr
+        applyRulesTo(parsed)
         return parsed
       }
     }
@@ -70,6 +99,10 @@ interface StoreCtx {
   sellOffPlan: (keepSet: Set<string>) => void
   unsell: (accountId: string, symbol: string) => void
   setTargetAlloc: (alloc: Record<string, number>) => void
+  // Tag rules
+  addRule: (rule: Omit<TagRule, 'id'>) => void
+  updateRule: (id: string, patch: Partial<TagRule>) => void
+  removeRule: (id: string) => void
 }
 
 export interface ImportPayload {
@@ -77,6 +110,7 @@ export interface ImportPayload {
   positions: Position[]
   transactions: Transaction[]
   broker?: string
+  twr?: TwrSeries
 }
 
 const Ctx = createContext<StoreCtx | null>(null)
@@ -233,6 +267,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Keep positions marked sold in the tracker out of the synced set.
         const sold = new Set(d.soldSymbols ?? [])
         if (sold.size) d.positions = d.positions.filter((p) => !sold.has(soldKey(p.accountId, p.symbol)))
+        // Daily value series for time-weighted return (from the live sync).
+        if (result.twr) d.twr = result.twr
+        // Auto-tag/re-categorize the freshly synced transactions.
+        applyRulesTo(d)
         // Reflect the import as a connection so the Connections page shows it.
         const broker = result.broker || 'Schwab'
         d.connections = [
@@ -332,6 +370,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [mutate],
   )
 
+  const addRule: StoreCtx['addRule'] = useCallback(
+    (rule) => mutate((d) => {
+      d.tagRules = [...(d.tagRules ?? []), { ...rule, id: uid() }]
+      applyRulesTo(d)
+      return d
+    }),
+    [mutate],
+  )
+
+  const updateRule: StoreCtx['updateRule'] = useCallback(
+    (id, patch) => mutate((d) => {
+      d.tagRules = (d.tagRules ?? []).map((r) => (r.id === id ? { ...r, ...patch } : r))
+      applyRulesTo(d)
+      return d
+    }),
+    [mutate],
+  )
+
+  const removeRule: StoreCtx['removeRule'] = useCallback(
+    (id) => mutate((d) => {
+      const gone = (d.tagRules ?? []).find((r) => r.id === id)
+      d.tagRules = (d.tagRules ?? []).filter((r) => r.id !== id)
+      applyRulesTo(d, gone?.tag ? [gone.tag] : undefined)
+      return d
+    }),
+    [mutate],
+  )
+
   const value = useMemo<StoreCtx>(
     () => ({
       data,
@@ -353,6 +419,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sellOffPlan,
       unsell,
       setTargetAlloc,
+      addRule,
+      updateRule,
+      removeRule,
     }),
     [
       data,
@@ -373,6 +442,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sellOffPlan,
       unsell,
       setTargetAlloc,
+      addRule,
+      updateRule,
+      removeRule,
     ],
   )
 

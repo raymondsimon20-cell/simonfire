@@ -46,10 +46,10 @@ export default function Dividends() {
 
       <div className="mt-8 mb-3 text-xs font-semibold tracking-widest text-faint">PROJECTIONS</div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Est. Annual Income" value={usd(d.estAnnual)} icon={<Target size={20} />} tile="purple" info="Forward run-rate annualized from recent payments." />
+        <KpiCard label="Est. Annual Income" value={usd(d.estAnnual)} icon={<Target size={20} />} tile="purple" info="Trailing-12-month income — a complete year of actual distributions from your sync." />
         <KpiCard label="Est. Monthly Income" value={usd(d.estMonthly)} icon={<Calendar size={20} />} tile="blue" />
-        <KpiCard label="Yield on Cost" value={pct(d.yieldOnCost * 100)} sub={`${d.symbolCount} of ${positions.length} symbols`} icon={<Percent size={20} />} tile="green" info="Est. annual income / cost basis of paying holdings." />
-        <KpiCard label="Forward Yield" value={pct(d.forwardYield * 100)} icon={<LineChart size={20} />} tile="teal" info="Est. annual income / market value of paying holdings." />
+        <KpiCard label="Yield on Cost" value={pct(d.yieldOnCost * 100)} sub={`${d.symbolCount} paying symbols`} icon={<Percent size={20} />} tile="green" info="Trailing-12-month income / portfolio cost basis (excl. options)." />
+        <KpiCard label="Forward Yield" value={pct(d.forwardYield * 100)} icon={<LineChart size={20} />} tile="teal" info="Trailing-12-month income / portfolio market value (excl. options)." />
       </div>
       <p className="mt-3 text-xs text-faint">
         Projected dividend income is an estimate based on historical payments and declared dividends. Past

@@ -4,6 +4,7 @@ import type {
   Connection,
   Position,
   Transaction,
+  TwrSeries,
   TxnType,
 } from './types'
 import { DEFAULT_KEEP } from './plan'
@@ -412,6 +413,66 @@ const connections: Connection[] = [
   },
 ]
 
+// Synthesize a plausible weekly value series so the sample dataset shows a
+// realistic time-weighted return before any live sync. Reconstructs backward
+// from current equity value, baking out the real sample external flows so the
+// client's TWR math recovers the intended weekly returns.
+function buildSampleTwr(): TwrSeries {
+  const rng = mulberry32(99)
+  const extType = new Set<TxnType>(['Contribution', 'Withdrawal', 'Bill Payment'])
+  const osi = /\d{6}[CP]\d{8}$/
+  const isOpt = (s?: string) => !!s && osi.test((s || '').replace(/\s+/g, ''))
+  const flowOf = (t: Transaction) =>
+    extType.has(t.type) || ((t.type === 'Buy' || t.type === 'Sell') && isOpt(t.symbol))
+      ? t.amount
+      : 0
+
+  const weeks = 53
+  const byAccount: Record<string, { date: string; value: number }[]> = {}
+  const combined = new Map<string, number>()
+
+  // Week-end dates, oldest → today.
+  const dates: string[] = []
+  for (let w = weeks - 1; w >= 0; w--) {
+    const d = new Date(today)
+    d.setDate(d.getDate() - w * 7)
+    dates.push(d.toISOString().slice(0, 10))
+  }
+
+  for (const acc of accounts) {
+    const accTxns = transactions.filter((t) => t.accountId === acc.id)
+    const curEquity =
+      positions
+        .filter((p) => p.accountId === acc.id && !p.isOption)
+        .reduce((s, p) => s + p.shares * p.lastPrice, 0) + acc.cash
+    const totalFlow = accTxns.reduce((s, t) => s + flowOf(t), 0)
+    // Reconstruct FORWARD so the series can never collapse to a clamp: begin at a
+    // plausible base, then apply weekly returns and the real weekly flows. The
+    // client's TWR math recovers the intended returns because flows are baked in.
+    let v = Math.max(curEquity - totalFlow, curEquity * 0.5, 5000)
+    const pts: { date: string; value: number }[] = [{ date: dates[0], value: +v.toFixed(2) }]
+    for (let i = 1; i < dates.length; i++) {
+      let flow = 0
+      for (const t of accTxns) if (t.date > dates[i - 1] && t.date <= dates[i]) flow += flowOf(t)
+      const r = 0.0018 + (rng() - 0.5) * 0.03 // ~9%/yr drift with weekly noise
+      v = Math.max(v * (1 + r) + flow, 1)
+      pts.push({ date: dates[i], value: +v.toFixed(2) })
+    }
+    byAccount[acc.id] = pts
+    for (const p of pts) combined.set(p.date, (combined.get(p.date) ?? 0) + p.value)
+  }
+
+  const all = [...combined.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([date, value]) => ({ date, value: +value.toFixed(2) }))
+  return {
+    byAccount,
+    all,
+    generatedAt: isoDT(today),
+    note: 'Sample data — synthetic value path for demonstration.',
+  }
+}
+
 export function buildSeed(): AppData {
   return {
     version: 1,
@@ -423,6 +484,8 @@ export function buildSeed(): AppData {
     source: 'sample',
     keepList: DEFAULT_KEEP,
     soldSymbols: [],
+    tagRules: [],
+    twr: buildSampleTwr(),
   }
 }
 

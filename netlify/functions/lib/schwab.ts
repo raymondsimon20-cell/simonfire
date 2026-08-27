@@ -6,6 +6,7 @@ import { getStore } from '@netlify/blobs'
 const TOKEN_URL = 'https://api.schwabapi.com/v1/oauth/token'
 const AUTH_URL = 'https://api.schwabapi.com/v1/oauth/authorize'
 const API_BASE = 'https://api.schwabapi.com/trader/v1'
+const MARKET_BASE = 'https://api.schwabapi.com/marketdata/v1'
 
 export function env() {
   return {
@@ -173,6 +174,165 @@ function parseOption(inst: any) {
   return { optionType, strike, expiration, underlying, label }
 }
 
+// ---- Price history + time-weighted-return value series ----
+const OSI_RE = /\d{6}[CP]\d{8}$/
+function isOptionSymbol(sym?: string) {
+  return !!sym && OSI_RE.test(String(sym).replace(/\s+/g, ''))
+}
+
+// Daily closing prices for one symbol over [startMs, endMs]. Returns date→close.
+async function fetchDailyCloses(
+  symbol: string,
+  token: string,
+  startMs: number,
+  endMs: number,
+): Promise<Map<string, number>> {
+  const p = new URLSearchParams({
+    symbol,
+    periodType: 'year',
+    frequencyType: 'daily',
+    frequency: '1',
+    startDate: String(startMs),
+    endDate: String(endMs),
+    needExtendedHoursData: 'false',
+    needPreviousClose: 'false',
+  })
+  try {
+    const res = await fetch(`${MARKET_BASE}/pricehistory?${p.toString()}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    })
+    if (!res.ok) return new Map()
+    const data: any = await res.json()
+    const m = new Map<string, number>()
+    for (const c of data.candles ?? []) {
+      const d = new Date(c.datetime).toISOString().slice(0, 10)
+      if (typeof c.close === 'number') m.set(d, c.close)
+    }
+    return m
+  } catch {
+    return new Map()
+  }
+}
+
+// Reconstruct a daily portfolio-value series (equity/ETF market value + cash),
+// backward from the known current state, for each account and combined. Options
+// are excluded from the securities valuation (no reliable historical option
+// pricing via the API); their premium cash is neutralised client-side as an
+// external flow, so it never fabricates return.
+async function buildTwrSeries(
+  accounts: any[],
+  positions: any[],
+  transactions: any[],
+  token: string,
+  start: Date,
+  end: Date,
+): Promise<any> {
+  const startISO = start.toISOString().slice(0, 10)
+  const todayISO = end.toISOString().slice(0, 10)
+
+  // Equity/ETF symbols needing price history (current holdings + traded in window).
+  const equitySyms = new Set<string>()
+  for (const p of positions) if (!p.isOption && p.symbol) equitySyms.add(p.symbol)
+  for (const t of transactions)
+    if ((t.type === 'Buy' || t.type === 'Sell') && t.symbol && !isOptionSymbol(t.symbol))
+      equitySyms.add(t.symbol)
+
+  const syms = [...equitySyms].slice(0, 80)
+  const closeBySym = new Map<string, Map<string, number>>()
+  await Promise.all(
+    syms.map(async (s) => {
+      closeBySym.set(s, await fetchDailyCloses(s, token, start.getTime(), end.getTime()))
+    }),
+  )
+  const sortedDates = new Map<string, string[]>()
+  for (const [s, m] of closeBySym) sortedDates.set(s, [...m.keys()].sort())
+  const closeAsOf = (sym: string, d: string): number | undefined => {
+    const m = closeBySym.get(sym)
+    if (!m || !m.size) return undefined
+    if (m.has(d)) return m.get(d)
+    const ds = sortedDates.get(sym)!
+    let lo = 0
+    let hi = ds.length - 1
+    let ans = -1
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (ds[mid] <= d) {
+        ans = mid
+        lo = mid + 1
+      } else hi = mid - 1
+    }
+    return ans >= 0 ? m.get(ds[ans]) : undefined
+  }
+
+  // Union date axis: every close date + every transaction date, clamped to window.
+  const dateSet = new Set<string>([startISO, todayISO])
+  for (const m of closeBySym.values())
+    for (const d of m.keys()) if (d >= startISO && d <= todayISO) dateSet.add(d)
+  for (const t of transactions) if (t.date >= startISO && t.date <= todayISO) dateSet.add(t.date)
+  const dates = [...dateSet].sort()
+
+  const byAccount: Record<string, { date: string; value: number }[]> = {}
+  const combined = new Map<string, number>()
+
+  for (const acc of accounts) {
+    const accTxns = transactions
+      .filter((t) => t.accountId === acc.id)
+      .slice()
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    const cashNow = acc.cash || 0
+
+    // Current equity shares + last price per symbol (for the exact "today" anchor).
+    const sharesNow = new Map<string, number>()
+    const lastPx = new Map<string, number>()
+    const symUniverse = new Set<string>()
+    for (const p of positions) {
+      if (p.accountId !== acc.id || p.isOption || !p.symbol) continue
+      sharesNow.set(p.symbol, (sharesNow.get(p.symbol) ?? 0) + p.shares)
+      lastPx.set(p.symbol, p.lastPrice)
+      symUniverse.add(p.symbol)
+    }
+    for (const t of accTxns)
+      if ((t.type === 'Buy' || t.type === 'Sell') && t.symbol && !isOptionSymbol(t.symbol))
+        symUniverse.add(t.symbol)
+
+    const series: { date: string; value: number }[] = []
+    for (const d of dates) {
+      // Cash and post-date share movements reconstructed from txns after day d.
+      let cashAfter = 0
+      const unitsAfter = new Map<string, number>()
+      for (const t of accTxns) {
+        if (t.date <= d) continue
+        cashAfter += t.amount
+        if ((t.type === 'Buy' || t.type === 'Sell') && t.symbol && !isOptionSymbol(t.symbol))
+          unitsAfter.set(t.symbol, (unitsAfter.get(t.symbol) ?? 0) + (t.units || 0))
+      }
+      const cashD = cashNow - cashAfter
+      let secD = 0
+      const isToday = d === todayISO
+      for (const sym of symUniverse) {
+        const sh = (sharesNow.get(sym) ?? 0) - (unitsAfter.get(sym) ?? 0)
+        if (Math.abs(sh) < 1e-9) continue
+        const px = isToday ? (lastPx.get(sym) ?? closeAsOf(sym, d)) : closeAsOf(sym, d)
+        secD += sh * (px ?? 0)
+      }
+      const value = cashD + secD
+      series.push({ date: d, value })
+      combined.set(d, (combined.get(d) ?? 0) + value)
+    }
+    byAccount[acc.id] = series
+  }
+
+  const all = dates.map((d) => ({ date: d, value: combined.get(d) ?? 0 }))
+  return {
+    byAccount,
+    all,
+    generatedAt: new Date().toISOString(),
+    note:
+      'Time-weighted return covers your equity/ETF holdings, their dividends, and cash. ' +
+      'Option premium is neutralised (historical option prices are unavailable), so option P/L is not marked to market here.',
+  }
+}
+
 export async function fetchPortfolio(token: string) {
   const accountsRaw: any[] = await api('/accounts?fields=positions', token)
   const hashList: any[] = await api('/accounts/accountNumbers', token).catch(() => [])
@@ -300,7 +460,17 @@ export async function fetchPortfolio(token: string) {
   for (const p of positions) p.dividendsReceived = +(divBy.get(p.accountId + '|' + p.symbol) ?? 0).toFixed(2)
 
   transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
-  return { accounts, positions, transactions, broker: 'Schwab' }
+
+  // Build the daily value series for time-weighted return. Never let a pricing
+  // hiccup break the whole sync — TWR is a bonus metric.
+  let twr: any = undefined
+  try {
+    twr = await buildTwrSeries(accounts, positions, transactions, token, start, end)
+  } catch {
+    twr = undefined
+  }
+
+  return { accounts, positions, transactions, broker: 'Schwab', twr }
 }
 
 // Map a Schwab transaction to the app's model.

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useStore, useScoped } from '../lib/store'
 import { portfolioSummary, positionMetrics } from '../lib/calc'
+import { twrForScope } from '../lib/twr'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { usd, pct, intfmt, relTime, posNeg, shortDate } from '../lib/format'
 import { KpiCard, PageHeader, Badge } from '../components/ui'
@@ -29,6 +30,7 @@ export default function Dashboard() {
   const { positions, accounts, transactions, scope, lastSyncAt } = useScoped()
   const navigate = useNavigate()
   const s = portfolioSummary(positions, accounts, scope, transactions)
+  const twr = twrForScope(data.twr, scope, transactions)
 
   const [selectedPos, setSelectedPos] = useState<Position | null>(null)
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
@@ -92,10 +94,11 @@ export default function Dashboard() {
         <SubStat icon={<Clock size={18} />} label="Last Sync" value={relTime(lastSyncAt)} />
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MoveCard label="Day Change" amount={s.dayChange} pctv={s.dayChangePct * 100} />
         <MoveCard label="Total Gain" amount={s.totalGain} pctv={s.totalGainPct * 100} />
-        <MoveCard label="Total Return" amount={s.totalReturn} pctv={s.totalReturnPct * 100} note="Schwab investment change: gains + income − fees" />
+        <MoveCard label="Total Return" amount={s.totalReturn} pctv={s.totalReturnPct * 100} note="Dollar-weighted — Schwab investment change: gains + income − fees" />
+        <TwrCard twr={twr} />
       </div>
 
       {/* Your Accounts ------------------------------------------------------ */}
@@ -374,6 +377,36 @@ function MoveCard({ label, amount, pctv, note }: { label: string; amount: number
       <div className={clsx('num mt-1 text-2xl font-semibold', posNeg(amount))}>{usd(amount, { sign: true })}</div>
       <div className={clsx('text-sm', posNeg(pctv))}>{pct(pctv, { sign: true })}</div>
       {note && <div className="mt-1 text-xs text-faint">{note}</div>}
+    </div>
+  )
+}
+
+function TwrCard({ twr }: { twr: ReturnType<typeof twrForScope> }) {
+  const pctv = twr.twrPct * 100
+  const ann = twr.annualizedPct * 100
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-1.5 text-sm text-muted">
+        Time-Weighted Return
+        <span
+          className="cursor-help text-faint"
+          title="How your investments performed, independent of when you added or withdrew money — the metric funds report and benchmark against. Deposits, withdrawals, bill payments, and option premium are neutralised so timing doesn't flatter or hide the result. Contrast with Total Return, which is a dollar figure that IS affected by your deposit timing."
+        >
+          ⓘ
+        </span>
+      </div>
+      {twr.ok ? (
+        <>
+          <div className={clsx('num mt-1 text-2xl font-semibold', posNeg(pctv))}>{pct(pctv, { sign: true })}</div>
+          <div className={clsx('text-sm', posNeg(ann))}>{pct(ann, { sign: true })} annualized</div>
+          <div className="mt-1 text-xs text-faint">Investment performance, timing removed</div>
+        </>
+      ) : (
+        <>
+          <div className="num mt-1 text-2xl font-semibold text-faint">—</div>
+          <div className="mt-1 text-xs text-faint">Sync a connected account to build the value history</div>
+        </>
+      )}
     </div>
   )
 }

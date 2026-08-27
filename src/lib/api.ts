@@ -40,6 +40,7 @@ export async function schwabSync(): Promise<SyncResult> {
         positions: d.positions,
         transactions: d.transactions,
         broker: d.broker || 'Schwab',
+        twr: d.twr,
       },
     }
   } catch {

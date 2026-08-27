@@ -1,11 +1,11 @@
 import { Fragment, useMemo, useState } from 'react'
-import { Search, ArrowUpRight, ArrowDownRight, RefreshCcw, ArrowLeftRight, ChevronDown, Plus, X } from 'lucide-react'
+import { Search, ArrowUpRight, ArrowDownRight, RefreshCcw, ArrowLeftRight, ChevronDown, Plus, X, Tags, Trash2 } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
 import { ledgerKpis, groupByMonth } from '../lib/calc'
 import { usd, num, shortDate, monthLabel } from '../lib/format'
-import { KpiCard, PageHeader, Badge } from '../components/ui'
+import { KpiCard, PageHeader, Badge, Button } from '../components/ui'
 import { TransactionDrawer } from '../components/TransactionDrawer'
-import type { Transaction } from '../lib/types'
+import type { Transaction, TxnType } from '../lib/types'
 import clsx from 'clsx'
 
 const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Fee', 'Buy', 'Sell', 'Other']
@@ -41,6 +41,8 @@ export default function Ledger() {
   return (
     <div>
       <PageHeader title="Ledger" subtitle="Complete transaction ledger" />
+
+      <RulesPanel presetContains={search} matchCount={filtered.length} />
 
       <div className="card mb-4 flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-sm text-muted">
@@ -124,6 +126,102 @@ export default function Ledger() {
       </div>
 
       <TransactionDrawer txn={selected} onClose={() => setSelected(null)} />
+    </div>
+  )
+}
+
+function RulesPanel({ presetContains, matchCount }: { presetContains: string; matchCount: number }) {
+  const { data, addRule, updateRule, removeRule } = useStore()
+  const rules = data.tagRules ?? []
+  const [open, setOpen] = useState(false)
+  const [contains, setContains] = useState('')
+  const [tag, setTag] = useState('')
+  const [setType, setSetType] = useState('')
+
+  const add = () => {
+    const c = contains.trim()
+    const t = tag.trim()
+    if (!c || (!t && !setType)) return
+    addRule({ contains: c, tag: t, setType: (setType || undefined) as TxnType | undefined, enabled: true })
+    setContains('')
+    setTag('')
+    setSetType('')
+  }
+
+  return (
+    <div className="card mb-4 p-0">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 px-5 py-3.5 text-left">
+        <Tags size={17} className="text-brand" />
+        <span className="font-semibold">Tag Rules</span>
+        <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-xs text-faint">{rules.length}</span>
+        <span className="text-xs text-faint">auto-apply to existing &amp; future transactions</span>
+        <ChevronDown size={16} className={clsx('ml-auto text-faint transition-transform', !open && '-rotate-90')} />
+      </button>
+
+      {open && (
+        <div className="border-t border-border-soft p-5">
+          {/* Add rule */}
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-xs text-muted">
+              <div className="mb-1">Description contains</div>
+              <input
+                value={contains}
+                onChange={(e) => setContains(e.target.value)}
+                placeholder="e.g. BEST EGG"
+                className="w-48 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-brand"
+              />
+            </label>
+            <label className="text-xs text-muted">
+              <div className="mb-1">Apply tag</div>
+              <input
+                value={tag}
+                onChange={(e) => setTag(e.target.value)}
+                placeholder="e.g. Loan payment"
+                className="w-40 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-brand"
+              />
+            </label>
+            <label className="text-xs text-muted">
+              <div className="mb-1">Set category (optional)</div>
+              <select value={setType} onChange={(e) => setSetType(e.target.value)} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none">
+                <option value="">— leave as is —</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </label>
+            <Button variant="primary" onClick={add}><Plus size={15} /> Add rule</Button>
+            {presetContains.trim() && (
+              <button
+                onClick={() => setContains(presetContains.trim())}
+                className="text-xs text-brand hover:underline"
+                title={`Use your current search (${matchCount} matching now)`}
+              >
+                Use search “{presetContains.trim()}” ({matchCount})
+              </button>
+            )}
+          </div>
+
+          {/* Existing rules */}
+          {rules.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {rules.map((r) => (
+                <div key={r.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-border-soft bg-surface-2/40 px-3 py-2 text-sm">
+                  <input type="checkbox" checked={r.enabled} onChange={(e) => updateRule(r.id, { enabled: e.target.checked })} className="h-4 w-4 accent-[#3fd88a]" />
+                  <span className="text-muted">contains</span>
+                  <span className="rounded-md bg-surface px-2 py-0.5 font-mono text-xs">{r.contains}</span>
+                  <span className="text-faint">→</span>
+                  {r.tag && <span className="rounded-md bg-[#123024] px-2 py-0.5 text-xs font-medium text-[#3fd88a]">{r.tag}</span>}
+                  {r.setType && <span className="text-xs text-muted">set <Badge>{r.setType}</Badge></span>}
+                  <button onClick={() => removeRule(r.id)} className="ml-auto text-faint hover:text-neg"><Trash2 size={14} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-3 text-xs text-faint">
+            Rules match on the transaction description (case-insensitive) and apply everywhere the tag or category shows — automatically, on every sync.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { portfolioSummary, positionMetrics, investmentReturn, monthClose, availableMonths } from '../lib/calc'
+import { twrForScope } from '../lib/twr'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { usd, pct, num, relTime, monthLabel, posNeg } from '../lib/format'
 import { Badge } from '../components/ui'
@@ -413,7 +414,9 @@ function BalanceHistoryTab({
   txns: Transaction[]
   summary: import('../lib/calc').PortfolioSummary
 }) {
+  const { data } = useStore()
   const rb = useMemo(() => investmentReturn(positions, txns), [positions, txns])
+  const twr = useMemo(() => twrForScope(data.twr, account.id, txns), [data.twr, account.id, txns])
 
   const series = useMemo(() => {
     const monthsAsc = availableMonths(txns).slice(0, 14).reverse()
@@ -520,6 +523,28 @@ function BalanceHistoryTab({
         <Divider />
         <BreakdownRow label="Ending Value" value={rb.endingValue} bold />
         <BreakdownRow label="Market Value" value={rb.endingValue} indent />
+        <Divider />
+        <div className="flex items-center justify-between py-1">
+          <span className="flex items-center gap-1.5 text-sm text-muted">
+            Time-Weighted Return
+            <span
+              className="cursor-help text-faint"
+              title="Investment performance with your deposit/withdrawal timing removed — the fund-manager metric. The Investment Change above is dollar-weighted (timing included); this is not. Option premium is neutralised (no historical option prices)."
+            >
+              ⓘ
+            </span>
+          </span>
+          {twr.ok ? (
+            <span className="text-sm">
+              <span className={clsx('num font-semibold', posNeg(twr.twrPct))}>{pct(twr.twrPct * 100, { sign: true })}</span>
+              <span className={clsx('num ml-2 text-xs', posNeg(twr.annualizedPct))}>
+                {pct(twr.annualizedPct * 100, { sign: true })} ann.
+              </span>
+            </span>
+          ) : (
+            <span className="text-sm text-faint">— sync to build</span>
+          )}
+        </div>
       </div>
     </div>
   )

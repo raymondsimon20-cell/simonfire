@@ -101,4 +101,31 @@ export interface AppData {
   soldSymbols?: string[]
   // Target allocation: bucket name → target percent (0–100), should sum to 100.
   targetAlloc?: Record<string, number>
+  // Auto-tagging rules applied to existing + future transactions.
+  tagRules?: TagRule[]
+  // Daily portfolio value series for time-weighted return (built at sync time).
+  twr?: TwrSeries
+}
+
+export interface TwrPoint {
+  date: string // ISO yyyy-mm-dd
+  value: number // portfolio value (securities MV + cash) at close
+}
+
+// Per-account (+ combined) daily value series produced at sync time. TWR itself
+// is computed live from this series plus the current transaction classifications,
+// so re-tagging contributions/withdrawals recomputes the return without a re-sync.
+export interface TwrSeries {
+  byAccount: Record<string, TwrPoint[]> // key: account id
+  all: TwrPoint[] // combined portfolio
+  generatedAt: string // ISO datetime
+  note?: string // caveats (e.g. options valued at cost)
+}
+
+export interface TagRule {
+  id: string
+  contains: string // case-insensitive match on the transaction description
+  tag: string // tag/label to apply to matching transactions
+  setType?: TxnType // optionally re-categorize matching transactions
+  enabled: boolean
 }

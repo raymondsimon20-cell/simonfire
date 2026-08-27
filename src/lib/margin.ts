@@ -4,13 +4,14 @@ export interface MarginCapacity {
   maxOrderSpend: number
   currentUsage: number
   projectedUsage: (spend: number) => number
-  basis: 'buying power and 50% ceiling' | '50% ceiling' | 'available cash'
+  basis: 'SMA, buying power, and 50% minimum equity' | 'buying power and 50% minimum equity' | '50% minimum equity' | 'available cash'
   alreadyOverLimit: boolean
 }
 
 // Maximum planned order spend that keeps margin debt / gross assets <= 50%.
 // Purchases consume positive cash first; only spend beyond cash increases both
-// margin debt and gross assets. Schwab buying power is an additional hard cap.
+// margin debt and gross assets. Schwab buying power and SMA are additional
+// hard caps when the broker reports them.
 export function marginCapacity(account: Account | undefined, positionValue: number): MarginCapacity | null {
   if (!account) return null
   const cash = Math.max(0, account.cash || 0)
@@ -34,9 +35,12 @@ export function marginCapacity(account: Account | undefined, positionValue: numb
   const marginHeadroom = alreadyOverLimit ? 0 : Math.max(0, gross - 2 * debt)
   const ratioLimitedSpend = alreadyOverLimit ? 0 : cash + marginHeadroom
   const hasBrokerBuyingPower = account.buyingPower != null && account.buyingPower >= 0
-  const maxOrderSpend = hasBrokerBuyingPower
-    ? Math.min(ratioLimitedSpend, account.buyingPower!)
-    : ratioLimitedSpend
+  const hasSma = account.sma != null && account.sma >= 0
+  const maxOrderSpend = Math.min(
+    ratioLimitedSpend,
+    hasBrokerBuyingPower ? account.buyingPower! : Number.POSITIVE_INFINITY,
+    hasSma ? account.sma! : Number.POSITIVE_INFINITY,
+  )
 
   return {
     maxOrderSpend,
@@ -46,7 +50,9 @@ export function marginCapacity(account: Account | undefined, positionValue: numb
       const nextGross = gross + borrowed
       return nextGross > 0 ? (debt + borrowed) / nextGross : 0
     },
-    basis: hasBrokerBuyingPower ? 'buying power and 50% ceiling' : '50% ceiling',
+    basis: hasSma
+      ? 'SMA, buying power, and 50% minimum equity'
+      : hasBrokerBuyingPower ? 'buying power and 50% minimum equity' : '50% minimum equity',
     alreadyOverLimit,
   }
 }

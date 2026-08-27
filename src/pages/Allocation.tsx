@@ -253,7 +253,7 @@ export default function Allocation() {
               <CircleAlert size={16} className="mt-0.5 shrink-0 text-[#f0a94a]" />
               <div>
                 <div className="text-sm font-semibold">50% Minimum Equity by Account</div>
-                <div className="mt-0.5 text-xs text-faint">Equity % matches Schwab’s view. Maximum safe spend accounts for current margin debt and keeps account equity at or above 50%, capped by Schwab buying power.</div>
+                <div className="mt-0.5 text-xs text-faint">Equity % matches Schwab’s view. Maximum safe spend accounts for current margin debt and keeps account equity at or above 50%, capped by Schwab SMA and buying power.</div>
               </div>
             </div>
             <div className="overflow-x-auto">

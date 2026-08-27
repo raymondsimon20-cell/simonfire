@@ -25,7 +25,14 @@ assert.equal(higherCurrentUsage.projectedUsage(30), 0.5)
 
 const brokerCapped = marginCapacity(account({ equity: 70, buyingPower: 25 }), 90)
 assert.equal(brokerCapped?.maxOrderSpend, 25)
-assert.equal(brokerCapped?.basis, 'buying power and 50% ceiling')
+assert.equal(brokerCapped?.basis, 'buying power and 50% minimum equity')
+
+const smaCapped = marginCapacity(account({ equity: 70, buyingPower: 80, sma: 24 }), 90)
+assert.equal(smaCapped?.maxOrderSpend, 24)
+assert.equal(smaCapped?.basis, 'SMA, buying power, and 50% minimum equity')
+
+const zeroSma = marginCapacity(account({ equity: 70, buyingPower: 80, sma: 0 }), 90)
+assert.equal(zeroSma?.maxOrderSpend, 0)
 
 const alreadyOver = marginCapacity(account({ equity: 40, marginBalance: 60 }), 90)
 assert.equal(alreadyOver?.currentUsage, 0.6)

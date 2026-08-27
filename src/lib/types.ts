@@ -20,6 +20,7 @@ export interface Account {
   // Optional broker-reported balances (populate the account-detail KPIs).
   equity?: number // net liquidation value / equity
   buyingPower?: number
+  sma?: number // Schwab Special Memorandum Account balance
   availableFunds?: number // cash available to withdraw (incl. margin)
   longMarketValue?: number
 }

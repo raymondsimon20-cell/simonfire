@@ -413,6 +413,7 @@ export async function fetchPortfolio(token: string) {
     // Extra balance fields Schwab reports — power the account-detail KPIs.
     const equity = num(bal.equity ?? bal.liquidationValue)
     const buyingPower = num(bal.buyingPower ?? bal.buyingPowerNonMarginableTrade)
+    const sma = bal.sma == null ? undefined : Math.max(0, num(bal.sma))
     // Schwab reports "available to withdraw" separately from "available to trade".
     // cashAvailableForWithdrawal respects settled funds + margin maintenance (house
     // ~30%+); availableFunds is buying-power oriented. Prefer the withdrawal field.
@@ -432,6 +433,7 @@ export async function fetchPortfolio(token: string) {
       marginBalance,
       equity: equity || undefined,
       buyingPower: buyingPower || undefined,
+      sma,
       availableFunds: availableFunds || undefined,
       longMarketValue: longMarketValue || undefined,
     })

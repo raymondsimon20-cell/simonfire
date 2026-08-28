@@ -22,6 +22,7 @@ import { Modal } from '../components/Modal'
 import { ImportModal } from '../components/ImportModal'
 import { schwabStatus, schwabSync, schwabDisconnect, schwabLoginUrl } from '../lib/api'
 import clsx from 'clsx'
+import { useToast } from '../components/Toast'
 
 const BROKERS = [
   { name: 'E*TRADE', status: 'Available' },
@@ -44,6 +45,7 @@ export default function Connections() {
   const [menu, setMenu] = useState<string | null>(null)
   const [live, setLive] = useState(false)
   const [liveMsg, setLiveMsg] = useState('')
+  const { push } = useToast()
 
   const accountsOf = (ids: string[]) => data.accounts.filter((a) => ids.includes(a.id))
   const allEvents = data.connections.flatMap((c) => c.events).sort((a, b) => (a.at < b.at ? 1 : -1))
@@ -58,15 +60,18 @@ export default function Connections() {
       applyImport(r.payload, 'replace', 'live')
       setLive(true)
       setLiveMsg(`Synced ${r.payload.accounts.length} account(s) from Schwab.`)
+      push('Schwab accounts synchronized', 'success', `${r.payload.accounts.length} accounts · ${r.payload.transactions.length} transactions`)
     } else if (r.error === 'refresh_expired' || r.error === 'not_connected') {
       setLive(false)
       setLiveMsg('Schwab session expired — reconnect to sync again.')
+      push('Schwab session expired', 'error', 'Reconnect to resume secure synchronization')
     } else {
       setLiveMsg(
         r.error === 'unreachable'
           ? 'Live sync needs the deployed app (Netlify Functions). Use Import CSV here, or deploy to sync live.'
           : `Sync failed: ${r.error}`,
       )
+      push('Synchronization failed', 'error', r.error === 'unreachable' ? 'Netlify Functions are unavailable' : String(r.error))
     }
   }
 
@@ -99,6 +104,7 @@ export default function Connections() {
     setTimeout(() => {
       syncAll()
       setSyncing(false)
+      push('Sample prices refreshed', 'info')
     }, 800)
   }
 
@@ -106,6 +112,7 @@ export default function Connections() {
     await schwabDisconnect()
     setLive(false)
     setLiveMsg('Disconnected from Schwab.')
+    push('Schwab disconnected', 'info')
   }
 
   return (

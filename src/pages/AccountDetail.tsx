@@ -32,6 +32,7 @@ import { TransactionDrawer } from '../components/TransactionDrawer'
 import { HoldingCell, displayPrice, displayShares } from '../components/HoldingCell'
 import type { Position, Transaction } from '../lib/types'
 import clsx from 'clsx'
+import { useToast } from '../components/Toast'
 
 type Tab = 'positions' | 'transactions' | 'balance'
 
@@ -43,6 +44,7 @@ export default function AccountDetail() {
   const [selectedPos, setSelectedPos] = useState<Position | null>(null)
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const { push } = useToast()
 
   const account = data.accounts.find((a) => a.id === id)
 
@@ -66,10 +68,10 @@ export default function AccountDetail() {
       const st = await schwabStatus()
       if (st.connected) {
         const r = await schwabSync()
-        if (r.ok && r.payload) applyImport(r.payload, 'replace', 'live')
-        else syncAll()
+        if (r.ok && r.payload) { applyImport(r.payload, 'replace', 'live'); push('Account synchronized', 'success') }
+        else { push('Sync failed', 'error', r.error || 'Your data was not changed'); return }
       } else {
-        syncAll()
+        syncAll(); push('Sample prices refreshed', 'info')
       }
     } finally {
       setSyncing(false)

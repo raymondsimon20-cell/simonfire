@@ -1,10 +1,11 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { relTime } from '../lib/format'
 import clsx from 'clsx'
+import { useToast } from './Toast'
 
 // Brand mark: a rounded gradient tile with an upward "portfolio growth" line.
 function LogoMark({ size = 34 }: { size?: number }) {
@@ -196,6 +197,13 @@ export default function Layout() {
   const { data, syncAll, applyImport, reset } = useStore()
   const [syncing, setSyncing] = useState(false)
   const [autoSyncing, setAutoSyncing] = useState(false)
+  const { push } = useToast()
+  const location = useLocation()
+
+  useEffect(() => {
+    const label = NAV.find((n) => n.to === location.pathname)?.label ?? (location.pathname.startsWith('/account/') ? 'Account' : 'Portfolio')
+    document.title = `${label} · SimonFIRE`
+  }, [location.pathname])
 
   // Auto-sync on load: if this browser is connected to Schwab, pull live data so
   // every browser/device shows the real portfolio without a manual sync.
@@ -222,10 +230,10 @@ export default function Layout() {
       const st = await schwabStatus()
       if (st.connected) {
         const r = await schwabSync()
-        if (r.ok && r.payload) applyImport(r.payload, 'replace', 'live')
-        else syncAll()
+        if (r.ok && r.payload) { applyImport(r.payload, 'replace', 'live'); push('Portfolio synchronized', 'success', `${r.payload.transactions.length} transactions refreshed`) }
+        else { push('Schwab sync failed', 'error', r.error || 'Your saved data was not changed'); return }
       } else {
-        syncAll()
+        syncAll(); push('Sample prices refreshed', 'info')
       }
     } finally {
       setSyncing(false)
@@ -297,6 +305,7 @@ export default function Layout() {
       </header>
 
       <main className="mx-auto max-w-[1480px] px-4 py-7 sm:px-6 lg:ml-[248px] lg:px-10 lg:py-9 xl:px-12">
+        {(syncing || autoSyncing) && <div className="mb-4 flex items-center gap-2 rounded-xl border border-[#c7a96b]/20 bg-[#c7a96b]/8 px-4 py-2.5 text-xs text-[#dec78f]"><RefreshCw size={13} className="animate-spin" /> Securely refreshing portfolio data…</div>}
         <div className="mb-5 flex justify-end lg:hidden">
           <AccountScope />
         </div>

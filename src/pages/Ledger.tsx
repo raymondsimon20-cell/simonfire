@@ -7,6 +7,7 @@ import { KpiCard, PageHeader, Badge, Button } from '../components/ui'
 import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Transaction, TxnType } from '../lib/types'
 import { normalizeTransactionPattern } from '../lib/transaction-classification'
+import { useToast } from '../components/Toast'
 import clsx from 'clsx'
 
 const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action', 'Buy', 'Sell', 'Other']
@@ -147,6 +148,7 @@ function CategoryCleanup() {
   const [direction, setDirection] = useState<'all' | 'positive' | 'negative' | 'zero'>('all')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkType, setBulkType] = useState('')
+  const { push } = useToast()
 
   const groups = useMemo(() => {
     const m = new Map<string, { key: string; pattern: string; direction: 'positive' | 'negative' | 'zero'; count: number; total: number }>()
@@ -173,7 +175,7 @@ function CategoryCleanup() {
       return { ...prev, [pattern]: { ...base, ...patch } }
     })
 
-  const apply = (g: (typeof groups)[number], forcedType?: string) => {
+  const apply = (g: (typeof groups)[number], forcedType?: string, quiet = false) => {
     const e = edits[g.key] ?? { contains: g.pattern, type: '' }
     const contains = (e.contains || g.pattern).trim()
     const nextType = forcedType || e.type
@@ -189,11 +191,15 @@ function CategoryCleanup() {
       n.delete(g.key)
       return n
     })
+    if (!quiet) push('Category rule saved', 'success', `${g.count} transaction${g.count === 1 ? '' : 's'} classified as ${nextType}`)
   }
 
   const applySelected = () => {
     if (!bulkType) return
-    groups.filter((g) => selected.has(g.key)).forEach((g) => apply(g, bulkType))
+    const chosen = groups.filter((g) => selected.has(g.key))
+    const count = chosen.reduce((sum, g) => sum + g.count, 0)
+    chosen.forEach((g) => apply(g, bulkType, true))
+    push('Bulk classification saved', 'success', `${count} transactions · rules will persist after sync`)
     setBulkType('')
   }
 

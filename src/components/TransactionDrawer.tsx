@@ -177,6 +177,10 @@ export function TransactionDrawer({
             </div>
             <div className="mt-3">
               <CategoryEditor txn={txn} />
+              <div className="mt-2 flex items-center gap-2 text-xs text-faint">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#c7a96b]" />
+                {txn.classificationSource === 'rule' ? 'Classified by your saved rule · persists after sync' : txn.classificationSource === 'automatic' ? 'Automatically classified from Schwab details' : txn.classificationSource === 'manual' ? 'Manually classified' : 'Category supplied by Schwab · review if needed'}
+              </div>
             </div>
 
             <div className="mb-3 mt-7 text-sm font-semibold text-muted">Financials</div>

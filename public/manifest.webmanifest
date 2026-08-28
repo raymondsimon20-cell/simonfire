@@ -1,0 +1,12 @@
+{
+  "name": "SimonFIRE Portfolio Intelligence",
+  "short_name": "SimonFIRE",
+  "description": "Private portfolio performance, income, cash flow, and allocation intelligence.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080b10",
+  "theme_color": "#080b10",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

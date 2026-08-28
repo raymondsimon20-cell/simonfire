@@ -86,7 +86,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   outline: 2px solid rgba(199, 169, 107, 0.7);
   outline-offset: 2px;
 }
-table thead { background: rgba(255, 255, 255, 0.012); }
+table thead { background: #10151d; }
+table thead th { position: sticky; top: 0; z-index: 2; background: #10151d; }
 table tbody tr { transition: background-color 140ms ease; }
 ::selection { background: rgba(199, 169, 107, 0.28); color: #fff; }
 

@@ -73,6 +73,7 @@ export interface Transaction {
   exp?: string
   pl?: number // realized P/L on sells
   tags: string[]
+  classificationSource?: 'schwab' | 'automatic' | 'rule' | 'manual'
 }
 
 export interface Connection {

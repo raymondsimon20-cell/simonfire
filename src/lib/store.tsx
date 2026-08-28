@@ -40,7 +40,7 @@ function applyRulesTo(d: AppData, extraManaged?: Iterable<string>) {
       if (r.amountDirection === 'negative' && t.amount >= 0) continue
       if (r.amountDirection === 'zero' && t.amount !== 0) continue
       if (r.tag && !t.tags.includes(r.tag)) t.tags.push(r.tag)
-      if (r.setType) t.type = r.setType
+      if (r.setType) { t.type = r.setType; t.classificationSource = 'rule' }
     }
   }
 }
@@ -76,7 +76,7 @@ function classifyKnownOthers(d: AppData) {
       amount: t.amount,
       units: t.units,
     })
-    if (classified !== 'Other') t.type = classified
+    if (classified !== 'Other') { t.type = classified; t.classificationSource = 'automatic' }
   }
 }
 
@@ -196,6 +196,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // Persist a direction-scoped rule so fresh Schwab rows inherit the choice.
           if (patch.type) {
             const t = d.transactions[i]
+            t.classificationSource = 'manual'
             const contains = normalizeTransactionPattern(t.description) || t.description.trim()
             upsertRule(d, {
               contains,

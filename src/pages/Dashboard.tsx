@@ -13,19 +13,22 @@ import {
   ChevronRight,
   RefreshCw,
   Briefcase,
+  ShieldCheck,
 } from 'lucide-react'
 import { useStore, useScoped } from '../lib/store'
 import { portfolioSummary, positionMetrics } from '../lib/calc'
 import { twrForScope } from '../lib/twr'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { usd, pct, intfmt, relTime, posNeg, shortDate } from '../lib/format'
-import { KpiCard, PageHeader, Badge } from '../components/ui'
+import { KpiCard, Badge } from '../components/ui'
 import { PositionDrawer } from '../components/PositionDrawer'
 import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Account, Position, Transaction } from '../lib/types'
 import clsx from 'clsx'
 import { BucketBadge } from '../components/HoldingCell'
 import { bucketOf } from '../lib/buckets'
+import { BUCKETS, BUCKET_COLOR } from '../lib/buckets'
+import { useToast } from '../components/Toast'
 
 export default function Dashboard() {
   const { data, applyImport, syncAll } = useStore()
@@ -37,6 +40,7 @@ export default function Dashboard() {
   const [selectedPos, setSelectedPos] = useState<Position | null>(null)
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const { push } = useToast()
 
   const syncNow = async () => {
     setSyncing(true)
@@ -44,10 +48,10 @@ export default function Dashboard() {
       const st = await schwabStatus()
       if (st.connected) {
         const r = await schwabSync()
-        if (r.ok && r.payload) applyImport(r.payload, 'replace', 'live')
-        else syncAll()
+        if (r.ok && r.payload) { applyImport(r.payload, 'replace', 'live'); push('Account synchronized', 'success') }
+        else { push('Sync failed', 'error', r.error || 'Your data was not changed'); return }
       } else {
-        syncAll()
+        syncAll(); push('Sample prices refreshed', 'info')
       }
     } finally {
       setSyncing(false)
@@ -81,11 +85,10 @@ export default function Dashboard() {
 
   return (
     <div>
-      <PageHeader title="Portfolio Dashboard" subtitle="Overview of your investment accounts" />
+      <PortfolioHero net={s.net} gross={s.gross} dayChange={s.dayChange} dayPct={s.dayChangePct} series={(scope === 'all' ? data.twr?.all : data.twr?.byAccount[scope]) ?? []} lastSyncAt={lastSyncAt} />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <KpiCard label="Gross Portfolio Value" value={usd(s.gross)} icon={<BarChart3 size={20} />} tile="green" />
-        <KpiCard label="Net Portfolio Value" value={usd(s.net)} icon={<DollarSign size={20} />} tile="blue" />
         <KpiCard label="Margin Used" value={usd(s.marginUsed)} icon={<TrendingDown size={20} />} tile="red" />
         <KpiCard label="Equity %" value={pct(s.equityPct * 100)} icon={<Percent size={20} />} tile="orange" />
       </div>
@@ -245,6 +248,43 @@ export default function Dashboard() {
   )
 }
 
+function PortfolioHero({ net, gross, dayChange, dayPct, series, lastSyncAt }: { net: number; gross: number; dayChange: number; dayPct: number; series: { date: string; value: number }[]; lastSyncAt: string }) {
+  const [range, setRange] = useState<'1M' | '3M' | 'YTD' | '1Y' | 'ALL'>('1Y')
+  const visible = useMemo(() => {
+    if (!series.length || range === 'ALL') return series
+    const end = new Date(series[series.length - 1].date + 'T00:00:00')
+    const start = new Date(end)
+    if (range === '1M') start.setMonth(start.getMonth() - 1)
+    if (range === '3M') start.setMonth(start.getMonth() - 3)
+    if (range === '1Y') start.setFullYear(start.getFullYear() - 1)
+    if (range === 'YTD') start.setMonth(0, 1)
+    return series.filter((p) => new Date(p.date + 'T00:00:00') >= start)
+  }, [series, range])
+  const values = visible.map((p) => p.value)
+  const lo = Math.min(...values, net || 0)
+  const hi = Math.max(...values, net || 1)
+  const points = visible.map((p, i) => `${visible.length <= 1 ? 0 : (i / (visible.length - 1)) * 600},${150 - ((p.value - lo) / Math.max(hi - lo, 1)) * 125}`).join(' ')
+  const startValue = visible[0]?.value ?? net
+  const periodMove = net - startValue
+  return (
+    <section className="relative overflow-hidden rounded-[24px] border border-[#c7a96b]/15 bg-[linear-gradient(135deg,#141820_0%,#0c1016_62%,#17140d_100%)] p-6 shadow-[0_24px_80px_rgba(0,0,0,.28)] sm:p-8">
+      <div className="pointer-events-none absolute -right-24 -top-32 h-80 w-80 rounded-full bg-[#c7a96b]/10 blur-3xl" />
+      <div className="relative grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
+        <div>
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#cbb77f]"><ShieldCheck size={13} /> Consolidated portfolio</div>
+          <div className="mt-4 text-sm text-muted">Net portfolio value</div>
+          <div className="num mt-1 text-[clamp(2.3rem,5vw,4.2rem)] font-medium tracking-[-0.06em] text-white">{usd(net)}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-3"><span className={clsx('num rounded-full px-2.5 py-1 text-xs font-medium', dayChange >= 0 ? 'bg-pos/10 text-pos' : 'bg-neg/10 text-neg')}>{usd(dayChange, { sign: true })} · {pct(dayPct * 100, { sign: true })} today</span><span className="text-xs text-faint">Gross {usd(gross)} · synced {relTime(lastSyncAt)}</span></div>
+        </div>
+        <div>
+          <div className="mb-3 flex items-center justify-between"><div><div className="text-xs text-muted">Period movement</div><div className={clsx('num mt-0.5 text-sm font-medium', posNeg(periodMove))}>{usd(periodMove, { sign: true })}</div></div><div className="flex rounded-lg border border-white/[0.06] bg-black/20 p-0.5">{(['1M','3M','YTD','1Y','ALL'] as const).map((r) => <button key={r} onClick={() => setRange(r)} className={clsx('rounded-md px-2 py-1 text-[10px] font-medium', range === r ? 'bg-[#c7a96b]/18 text-[#e1c887]' : 'text-faint hover:text-ink')}>{r}</button>)}</div></div>
+          <div className="h-[155px] w-full"><svg viewBox="0 0 600 155" preserveAspectRatio="none" className="h-full w-full overflow-visible"><defs><linearGradient id="hero-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#c7a96b" stopOpacity=".28"/><stop offset="1" stopColor="#c7a96b" stopOpacity="0"/></linearGradient></defs>{points && <><polygon points={`0,155 ${points} 600,155`} fill="url(#hero-area)"/><polyline points={points} fill="none" stroke="#d8bd7a" strokeWidth="2" vectorEffect="non-scaling-stroke"/></>}</svg></div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 // ---- Account card matching the paycheck2portfolio layout ----
 function AccountCard({
   account,
@@ -267,6 +307,8 @@ function AccountCard({
   const acctTxns = transactions.filter((t) => t.accountId === account.id)
   const summary = portfolioSummary(acctPositions, [account], account.id, acctTxns)
   const equityColor = summary.equityPct >= 0.999 ? 'text-ink' : 'text-[#f0a94a]'
+  const allocation = BUCKETS.map((bucket) => ({ bucket, value: acctPositions.filter((p) => bucketOf(p) === bucket).reduce((sum, p) => sum + p.shares * p.lastPrice, 0) }))
+  const allocationTotal = allocation.reduce((sum, b) => sum + b.value, 0)
 
   return (
     <div
@@ -306,6 +348,10 @@ function AccountCard({
             <Metric icon={<Layers size={12} />} label="Positions" value={intfmt(summary.uniquePositions)} />
           </>
         )}
+      </div>
+
+      <div className="mt-5 flex h-1.5 overflow-hidden rounded-full bg-white/[0.04]" title="Account allocation by portfolio bucket">
+        {allocation.filter((b) => b.value > 0).map((b) => <span key={b.bucket} style={{ width: `${allocationTotal ? (b.value / allocationTotal) * 100 : 0}%`, backgroundColor: BUCKET_COLOR[b.bucket] }} />)}
       </div>
 
       <div className="mt-5 flex items-center justify-between border-t border-border-soft pt-3.5">

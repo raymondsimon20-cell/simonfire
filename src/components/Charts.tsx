@@ -12,9 +12,9 @@ import { usd } from '../lib/format'
 
 const POS = '#34d17d'
 const NEG = '#f2607a'
-const BASE = '#4a86f0'
+const BASE = '#c7a96b'
 
-const axisStyle = { fill: '#5c6a80', fontSize: 11 }
+const axisStyle = { fill: '#697485', fontSize: 11 }
 
 function money(v: number) {
   const a = Math.abs(v)
@@ -25,7 +25,7 @@ function money(v: number) {
 function ChartTip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-xl">
+    <div className="rounded-xl border border-white/10 bg-[#10151d]/95 px-3 py-2 text-xs shadow-2xl backdrop-blur-xl">
       <div className="mb-0.5 text-muted">{label}</div>
       <div className="num font-semibold">{usd(payload[0].value)}</div>
     </div>
@@ -50,7 +50,7 @@ export function SignedBars({
         <XAxis dataKey={xKey} tick={axisStyle} axisLine={false} tickLine={false} minTickGap={20} />
         <YAxis tick={axisStyle} axisLine={false} tickLine={false} tickFormatter={money} width={48} />
         <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }} content={<ChartTip />} />
-        <ReferenceLine y={0} stroke="#222c3f" />
+        <ReferenceLine y={0} stroke="#252c37" />
         <Bar dataKey={yKey} radius={[3, 3, 0, 0]}>
           {data.map((d, i) => (
             <Cell key={i} fill={d[yKey] >= 0 ? POS : NEG} />
@@ -121,7 +121,7 @@ export function Waterfall({ steps, height = 300 }: { steps: BridgeStep[]; height
             if (!active || !payload?.length) return null
             const r = payload[0].payload
             return (
-              <div className="rounded-lg border border-border bg-surface px-3 py-2 text-xs shadow-xl">
+              <div className="rounded-xl border border-white/10 bg-[#10151d]/95 px-3 py-2 text-xs shadow-2xl backdrop-blur-xl">
                 <div className="mb-0.5 text-muted">{r.label}</div>
                 <div className="num font-semibold">{usd(r.value)}</div>
               </div>

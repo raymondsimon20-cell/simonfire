@@ -9,6 +9,7 @@ import { HoldingCell, displayPrice, displayShares } from '../components/HoldingC
 import { downloadCsv } from '../lib/csv'
 import type { Position } from '../lib/types'
 import { bucketOf, BUCKETS, type Bucket } from '../lib/buckets'
+import { useToast } from '../components/Toast'
 import clsx from 'clsx'
 
 type SortKey =
@@ -32,6 +33,8 @@ export default function Positions() {
   const [sort, setSort] = useState<SortKey>('value')
   const [dir, setDir] = useState<'asc' | 'desc'>('desc')
   const [selected, setSelected] = useState<Position | null>(null)
+  const [compact, setCompact] = useState(false)
+  const { push } = useToast()
 
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
 
@@ -139,6 +142,7 @@ export default function Positions() {
       (x.weight * 100).toFixed(2),
     ])
     downloadCsv('positions.csv', [header, ...body])
+    push('Positions exported', 'success', `${rows.filtered.length} rows saved to CSV`)
   }
 
   return (
@@ -193,6 +197,7 @@ export default function Positions() {
         <div className="text-xs text-faint">
           {rows.filtered.length} of {positions.length} holdings
         </div>
+        <button onClick={() => setCompact((v) => !v)} className="ml-auto rounded-lg border border-border px-3 py-2 text-xs text-muted hover:text-ink">{compact ? 'Comfortable rows' : 'Compact rows'}</button>
       </div>
 
       <div className="card mt-4 overflow-x-auto p-0">
@@ -243,7 +248,7 @@ export default function Positions() {
               <tr
                 key={p.id}
                 onClick={() => setSelected(p)}
-                className="cursor-pointer border-b border-border-soft hover:bg-surface-2/40"
+                className={clsx('cursor-pointer border-b border-border-soft hover:bg-surface-2/40', compact && '[&>td]:py-1.5')}
               >
                 <td className="px-4 py-3"><HoldingCell p={p} /></td>
                 <td className="px-4 py-3 text-xs text-muted">{accName(p.accountId)}</td>

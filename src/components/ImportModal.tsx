@@ -4,6 +4,7 @@ import { Modal } from './Modal'
 import { Button } from './ui'
 import { useStore } from '../lib/store'
 import { parseSchwabFiles, type ImportResult } from '../lib/import'
+import { useToast } from './Toast'
 
 export function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { applyImport } = useStore()
@@ -16,6 +17,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
   const [txnFile, setTxnFile] = useState<{ name: string; text: string } | null>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState('')
+  const { push } = useToast()
 
   const read = (file: File, set: (v: { name: string; text: string }) => void) => {
     const r = new FileReader()
@@ -52,6 +54,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
   const doApply = () => {
     if (!result) return
     applyImport({ accounts: result.accounts, positions: result.positions, transactions: result.transactions, broker }, replace ? 'replace' : 'merge')
+    push('Portfolio import complete', 'success', `${result.positions.length} positions · ${result.transactions.length} transactions`)
     reset()
     onClose()
   }

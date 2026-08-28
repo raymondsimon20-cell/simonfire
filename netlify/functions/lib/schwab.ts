@@ -569,6 +569,7 @@ function mapTxn(accountId: string, t: any) {
     units: units || 0,
     fee: fee || undefined,
     tags: [],
+    classificationSource: type === 'Other' ? 'schwab' : 'automatic',
   }
 }
 

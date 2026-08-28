@@ -278,6 +278,7 @@ export function parseSchwabFiles(
           fee: cFees >= 0 ? toNum(cells[cFees]) : undefined,
           pl: undefined,
           tags: [],
+          classificationSource: type === 'Other' ? 'schwab' : 'automatic',
         })
       }
     }

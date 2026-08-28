@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { protectivePutOutcome, protectivePutPlan, rankProtectivePut } from '../src/lib/hedge'
+import { portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut } from '../src/lib/hedge'
 
 const full = protectivePutPlan({ shares: 250, sharePrice: 100, coveragePct: 100, maxDrawdownPct: 15, premiumPerShare: 2 })
 assert.equal(full.contracts, 3)
@@ -41,5 +41,15 @@ const thinFit = rankProtectivePut({ strike: 87, ask: 4, mark: 2.5, bid: 1, last:
 assert.equal(liquidFit.effectiveFloor, 85)
 assert.ok(liquidFit.score > thinFit.score)
 assert.ok(liquidFit.reasons.includes('tight spread'))
+
+const portfolioHedge = portfolioPutHedge({ longExposure: 500000, qqqPrice: 500, portfolioQqqBeta: .8, targetQqqDeclinePct: 25, lossOffsetPct: 50, strikePrice: 425, premiumPerShare: 8, annualPremiumBudgetPct: 3 })
+assert.equal(portfolioHedge.modeledPortfolioLoss, 100000)
+assert.equal(portfolioHedge.desiredOffset, 50000)
+assert.equal(portfolioHedge.grossPayoffPerContract, 5000)
+assert.equal(portfolioHedge.netPayoffPerContract, 4200)
+assert.equal(portfolioHedge.contracts, 12)
+assert.equal(portfolioHedge.grossPremium, 9600)
+assert.equal(portfolioHedge.monthlyGrossDebitBudget, 1250)
+assert.equal(portfolioHedge.overMonthlyBudget, true)
 
 console.log('protective put tests passed')

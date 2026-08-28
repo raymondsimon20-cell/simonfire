@@ -106,3 +106,43 @@ export function rankProtectivePut<T extends PutQuoteCandidate>(
   ]
   return { score, premium, effectiveFloor, targetFloor, floorGapPct, spreadPct, reasons }
 }
+
+export interface PortfolioPutHedgeInput {
+  longExposure: number
+  qqqPrice: number
+  portfolioQqqBeta: number
+  targetQqqDeclinePct: number
+  lossOffsetPct: number
+  strikePrice: number
+  premiumPerShare: number
+  annualPremiumBudgetPct: number
+}
+
+export function portfolioPutHedge(input: PortfolioPutHedgeInput) {
+  const longExposure = Math.max(0, input.longExposure)
+  const qqqPrice = Math.max(0, input.qqqPrice)
+  const beta = Math.max(0, input.portfolioQqqBeta)
+  const decline = Math.max(0, Math.min(100, input.targetQqqDeclinePct)) / 100
+  const offset = Math.max(0, Math.min(100, input.lossOffsetPct)) / 100
+  const strike = Math.max(0, input.strikePrice)
+  const premium = Math.max(0, input.premiumPerShare)
+  const crashPrice = qqqPrice * (1 - decline)
+  const modeledPortfolioLoss = Math.min(longExposure, longExposure * beta * decline)
+  const desiredOffset = modeledPortfolioLoss * offset
+  const grossPayoffPerContract = Math.max(0, strike - crashPrice) * 100
+  const netPayoffPerContract = Math.max(0, grossPayoffPerContract - premium * 100)
+  const contracts = netPayoffPerContract > 0 ? Math.ceil(desiredOffset / netPayoffPerContract) : 0
+  const grossPremium = contracts * premium * 100
+  const modeledGrossPayoff = contracts * grossPayoffPerContract
+  const modeledNetOffset = Math.max(0, modeledGrossPayoff - grossPremium)
+  const offsetAchievedPct = modeledPortfolioLoss ? Math.min(1, modeledNetOffset / modeledPortfolioLoss) : 0
+  const annualBudget = longExposure * Math.max(0, input.annualPremiumBudgetPct) / 100
+  const monthlyGrossDebitBudget = annualBudget / 12
+  return {
+    longExposure, qqqPrice, beta, crashPrice, modeledPortfolioLoss, desiredOffset,
+    grossPayoffPerContract, netPayoffPerContract, contracts, grossPremium,
+    modeledGrossPayoff, modeledNetOffset, offsetAchievedPct, annualBudget,
+    monthlyGrossDebitBudget, overMonthlyBudget: grossPremium > monthlyGrossDebitBudget,
+    residualLoss: Math.max(0, modeledPortfolioLoss - modeledNetOffset),
+  }
+}

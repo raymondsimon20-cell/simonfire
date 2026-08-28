@@ -12,7 +12,7 @@ import { schwabOrderStatus, schwabPlaceOrder, schwabPreviewOrder, schwabPutChain
 import { marginCapacity, type MarginCapacity } from '../lib/margin'
 import clsx from 'clsx'
 import type { Account, Position } from '../lib/types'
-import { protectivePutOutcome, protectivePutPlan, rankProtectivePut } from '../lib/hedge'
+import { portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut } from '../lib/hedge'
 
 const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<string, number> => {
   const out: Record<string, number> = {}
@@ -482,7 +482,7 @@ export default function Allocation() {
       <FallbackCorrections rows={classificationRows.filter((r) => r.method === 'Growth fallback')} onSetBucket={setPositionBucket} />
       <RebalanceInsights insights={insights} accName={(id) => data.accounts.find((a) => a.id === id)?.name ?? id} hasData={!!data.insights} />
       </>}
-      {tab === 'hedges' && <div className="space-y-4"><ProtectivePutTutorial /><LivePutQuotes positions={positions} accounts={data.accounts} /><ProtectivePutsEngine positions={positions} accounts={data.accounts} /></div>}
+      {tab === 'hedges' && <div className="space-y-4"><PortfolioHedgeGuide /><LivePutQuotes positions={positions} accounts={data.accounts} symbolFilter="QQQ" /><PortfolioHedgeEngine positions={positions} /></div>}
     </div>
   )
 }
@@ -506,7 +506,50 @@ function FallbackCorrections({ rows, onSetBucket }: { rows: Array<{ position: Po
   return <div className="card mt-4 p-5"><div className="flex items-start gap-2"><CircleAlert size={16} className="mt-0.5 text-[#e7c88f]"/><div><h3 className="font-semibold">Resolve Growth Fallbacks</h3><p className="mt-1 text-xs text-faint">Choose the intended bucket. Overrides are saved by account and symbol and reapplied after every sync.</p></div></div><div className="mt-4 space-y-2">{rows.map(({ position }) => <div key={position.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-border-soft bg-surface-2/40 p-3"><div className="min-w-[180px] flex-1"><span className="font-semibold">{position.symbol}</span><div className="truncate text-xs text-faint">{position.name}</div></div>{BUCKETS.map((bucket) => <button key={bucket} onClick={() => onSetBucket(position.accountId, position.symbol, bucket)} className="rounded-lg border px-2.5 py-1.5 text-xs font-medium hover:bg-white/[.04]" style={{ borderColor: `${BUCKET_COLOR[bucket]}35`, color: BUCKET_COLOR[bucket] }}>{bucket}</button>)}</div>)}</div></div>
 }
 
-function ProtectivePutTutorial() {
+function PortfolioHedgeGuide() {
+  return <details className="card group p-0" open><summary className="flex cursor-pointer list-none items-center gap-3 p-5"><ShieldCheck size={19} className="text-brand"/><div><h3 className="font-semibold">Portfolio QQQ hedge · monthly roll plan</h3><p className="mt-0.5 text-xs text-faint">The put is sized against portfolio risk—not your three QQQ shares</p></div><ChevronRight size={17} className="ml-auto text-faint transition-transform group-open:rotate-90"/></summary><div className="border-t border-border-soft p-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{[
+    ['1 · Estimate exposure', 'Use total long market exposure and a conservative estimate of how strongly the portfolio moves with QQQ. Beta is a planning assumption until enough clean portfolio history exists.'],
+    ['2 · Define the crash', 'Choose the QQQ decline to insure and the percentage of the modeled portfolio loss you want the put payoff to offset.'],
+    ['3 · Select a live QQQ put', 'Load QQQ quotes, then choose a liquid 60–90 DTE contract. The selected ask, strike, and expiration feed the portfolio model.'],
+    ['4 · Roll every 30 days', 'Sell-to-close the existing put before buying the replacement. Do not allow it to expire: three QQQ shares cannot deliver against a 100-share put exercise.'],
+  ].map(([title, body]) => <div key={title} className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="text-sm font-semibold">{title}</div><p className="mt-2 text-xs leading-5 text-muted">{body}</p></div>)}</div><div className="mt-4 rounded-lg border border-[#5a3a16] bg-[#38240f]/55 p-3 text-xs leading-5 text-[#e7c88f]">A QQQ put has basis risk: it may not offset losses in CEFs, credit funds, or non-Nasdaq holdings. Gross premium is not the same as net monthly roll cost because the old put may retain value when sold.</div></div></details>
+}
+
+function PortfolioHedgeEngine({ positions }: { positions: Position[] }) {
+  const longExposure = positions.filter((p) => !p.isOption && p.shares > 0).reduce((sum, p) => sum + p.shares * p.lastPrice, 0)
+  const heldQqq = positions.find((p) => !p.isOption && normTicker(p.symbol) === 'QQQ')
+  const [qqqPrice, setQqqPrice] = useState(heldQqq?.lastPrice ?? 0)
+  const [beta, setBeta] = useState(.8)
+  const [decline, setDecline] = useState(25)
+  const [offset, setOffset] = useState(50)
+  const [budget, setBudget] = useState(3)
+  const [rollDays, setRollDays] = useState(30)
+  const [strike, setStrike] = useState(0)
+  const [premium, setPremium] = useState(0)
+  const [expiry, setExpiry] = useState('')
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    const applyQuote = (event: Event) => {
+      const detail = (event as CustomEvent<{ symbol?: string; underlyingPrice?: number; strike: number; expiration: string; premium: number }>).detail
+      if (normTicker(detail.symbol ?? '') !== 'QQQ') return
+      if (detail.underlyingPrice) setQqqPrice(detail.underlyingPrice)
+      setStrike(detail.strike); setPremium(detail.premium); setExpiry(detail.expiration)
+    }
+    window.addEventListener('simonfire:put-quote', applyQuote)
+    return () => window.removeEventListener('simonfire:put-quote', applyQuote)
+  }, [])
+  const plan = portfolioPutHedge({ longExposure, qqqPrice, portfolioQqqBeta: beta, targetQqqDeclinePct: decline, lossOffsetPct: offset, strikePrice: strike, premiumPerShare: premium, annualPremiumBudgetPct: budget })
+  const expiryDate = expiry ? new Date(`${expiry}T00:00:00`) : null
+  const daysToExpiry = expiryDate ? Math.ceil((expiryDate.getTime() - Date.now()) / 86_400_000) : null
+  const nextRoll = new Date(); nextRoll.setDate(nextRoll.getDate() + rollDays)
+  const ticket = `BUY TO OPEN ${plan.contracts} QQQ PUT ${expiry || '[EXPIRY]'} $${strike.toFixed(2)} @ $${premium.toFixed(2)} LIMIT · PORTFOLIO HEDGE · SELL TO CLOSE BY ${nextRoll.toISOString().slice(0, 10)}`
+  const copy = async () => { try { await navigator.clipboard.writeText(ticket); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* unavailable */ } }
+  return <div className="space-y-4"><div className="card p-5"><div className="flex items-start gap-3"><ShieldCheck size={20} className="text-brand"/><div><h3 className="font-semibold">Portfolio hedge sizing</h3><p className="mt-1 text-xs text-faint">Scenario-based QQQ proxy hedge with a fixed monthly roll discipline.</p></div><span className="ml-auto rounded-md bg-[#c7a96b]/10 px-2 py-1 text-xs text-[#d8bd7a]">Planning only</span></div><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><HedgeInput label="Long market exposure" prefix="$" value={longExposure} disabled/><HedgeInput label="QQQ price" prefix="$" value={qqqPrice} onChange={setQqqPrice}/><HedgeInput label="Estimated portfolio QQQ beta" value={beta} step={.05} onChange={(v) => setBeta(Math.max(0, Math.min(3, v)))}/><HedgeInput label="QQQ crash scenario" suffix="% down" value={decline} onChange={(v) => setDecline(Math.max(1, Math.min(90, v)))}/><HedgeInput label="Loss offset target" suffix="%" value={offset} onChange={(v) => setOffset(Math.max(1, Math.min(100, v)))}/><HedgeInput label="Annual premium budget" suffix="%" value={budget} step={.25} onChange={(v) => setBudget(Math.max(0, Math.min(20, v)))}/><HedgeInput label="Roll interval" suffix="days" value={rollDays} onChange={(v) => setRollDays(Math.max(7, Math.min(60, v)))}/><HedgeInput label="Selected strike" prefix="$" value={strike} onChange={setStrike}/><HedgeInput label="Selected ask" prefix="$" value={premium} step={.01} onChange={setPremium}/><label className="text-xs text-muted"><span>Expiration</span><input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm [color-scheme:dark]"/></label></div>{daysToExpiry != null && daysToExpiry < rollDays && <div className="mt-4 rounded-lg border border-neg/30 bg-neg/10 p-3 text-xs text-neg">This contract expires before the planned {rollDays}-day roll. Choose a longer-dated QQQ put.</div>}</div><div className="card p-5"><div className="grid grid-cols-2 gap-5 lg:grid-cols-4"><SummaryMetric label="Modeled portfolio loss" value={usd(plan.modeledPortfolioLoss)} tone="warn"/><SummaryMetric label="Desired dollar offset" value={usd(plan.desiredOffset)}/><SummaryMetric label="Net payoff / contract" value={usd(plan.netPayoffPerContract)}/><SummaryMetric label="Contracts required" value={String(plan.contracts)}/><SummaryMetric label="Gross premium debit" value={usd(plan.grossPremium)} tone={plan.overMonthlyBudget ? 'warn' : undefined}/><SummaryMetric label="Monthly debit budget" value={usd(plan.monthlyGrossDebitBudget)}/><SummaryMetric label="Modeled net offset" value={usd(plan.modeledNetOffset)}/><SummaryMetric label="Offset achieved" value={pct(plan.offsetAchievedPct * 100)}/><SummaryMetric label="Residual modeled loss" value={usd(plan.residualLoss)} tone="warn"/><SummaryMetric label="QQQ crash price" value={usd(plan.crashPrice)}/><SummaryMetric label="Next roll date" value={shortDate(nextRoll.toISOString().slice(0, 10))}/><SummaryMetric label="Days to expiration" value={daysToExpiry == null ? 'Select contract' : String(daysToExpiry)}/></div>{plan.overMonthlyBudget && <div className="mt-4 rounded-lg border border-[#5a3a16] bg-[#38240f]/55 p-3 text-xs text-[#e7c88f]">The gross purchase debit exceeds one month of the annual premium budget. This is a conservative warning: actual net roll cost depends on proceeds from selling the old put.</div>}</div><div className="card p-5"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-[#cbb77f]">Monthly roll ticket</div><div className="num mt-2 break-words text-sm">{ticket}</div><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-faint">Sell the existing put to close first, record its proceeds, then buy the replacement. Never exercise or leave this proxy hedge unattended into expiration.</p><Button onClick={copy} disabled={!plan.contracts || !expiry}>{copied ? <Check size={14}/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy ticket'}</Button></div></div></div>
+}
+
+function HedgeInput({ label, value, prefix, suffix, step, disabled, onChange }: { label: string; value: number; prefix?: string; suffix?: string; step?: number; disabled?: boolean; onChange?: (v: number) => void }) { return <label className="text-xs text-muted"><span>{label}</span><div className={clsx('mt-1 flex rounded-xl border border-border bg-surface-2 px-3', disabled && 'opacity-60')}>{prefix && <span className="my-auto">{prefix}</span>}<input type="number" value={Number.isFinite(value) ? +value.toFixed(2) : 0} step={step} disabled={disabled} onChange={(e) => onChange?.(+e.target.value)} className="num w-full bg-transparent py-2.5 outline-none"/>{suffix && <span className="my-auto whitespace-nowrap">{suffix}</span>}</div></label> }
+
+export function ProtectivePutTutorial() {
   const steps = [
     ['Choose the holding', 'Select the stock or ETF you want to insure. A standard equity option contract controls 100 shares.'],
     ['Choose coverage', 'Full coverage targets every share. Partial coverage costs less but leaves some downside exposed. Use contract rounding deliberately for odd lots.'],
@@ -538,8 +581,8 @@ function ProtectivePutTutorial() {
   )
 }
 
-function LivePutQuotes({ positions, accounts }: { positions: Position[]; accounts: Account[] }) {
-  const eligible = useMemo(() => positions.filter((p) => !p.isOption && p.shares > 0 && p.lastPrice > 0), [positions])
+function LivePutQuotes({ positions, accounts, symbolFilter }: { positions: Position[]; accounts: Account[]; symbolFilter?: string }) {
+  const eligible = useMemo(() => positions.filter((p) => !p.isOption && p.shares > 0 && p.lastPrice > 0 && (!symbolFilter || normTicker(p.symbol) === normTicker(symbolFilter))), [positions, symbolFilter])
   const [positionId, setPositionId] = useState(() => eligible[0]?.id ?? '')
   const [quotes, setQuotes] = useState<PutQuote[]>([])
   const [loading, setLoading] = useState(false)
@@ -566,7 +609,7 @@ function LivePutQuotes({ positions, accounts }: { positions: Position[]; account
   }
   const useQuote = (quote: PutQuote) => {
     const premium = quote.ask ?? quote.mark ?? quote.last ?? quote.bid ?? 0
-    window.dispatchEvent(new CustomEvent('simonfire:put-quote', { detail: { positionId: position?.id, strike: quote.strike, expiration: quote.expiration, premium } }))
+    window.dispatchEvent(new CustomEvent('simonfire:put-quote', { detail: { positionId: position?.id, symbol: position?.symbol, underlyingPrice: meta.underlyingPrice ?? position?.lastPrice, strike: quote.strike, expiration: quote.expiration, premium } }))
     document.getElementById('protective-put-inputs')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
   return (
@@ -593,7 +636,7 @@ function LivePutQuotes({ positions, accounts }: { positions: Position[]; account
   )
 }
 
-function ProtectivePutsEngine({ positions, accounts }: { positions: Position[]; accounts: Account[] }) {
+export function ProtectivePutsEngine({ positions, accounts }: { positions: Position[]; accounts: Account[] }) {
   const eligible = useMemo(() => positions.filter((p) => !p.isOption && p.shares > 0 && p.lastPrice > 0).sort((a, b) => b.shares * b.lastPrice - a.shares * a.lastPrice), [positions])
   const [positionId, setPositionId] = useState(() => eligible[0]?.id ?? '')
   const [coverage, setCoverage] = useState(100)

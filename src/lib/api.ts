@@ -140,19 +140,3 @@ export async function schwabPutChain(symbol: string, fromDate?: string, toDate?:
     return { ok: false, error: 'unreachable' }
   }
 }
-
-export interface StrategyHistoryResult {
-  ok: boolean
-  error?: string
-  fetchedAt?: string
-  series?: Record<'QQQ' | 'TQQQ' | 'SQQQ', Array<{ date: string; close: number }>>
-}
-
-export async function schwabStrategyHistory(): Promise<StrategyHistoryResult> {
-  try {
-    const response = await fetch(`${FN}/schwab-strategy-history`)
-    return await response.json() as StrategyHistoryResult
-  } catch {
-    return { ok: false, error: 'unreachable' }
-  }
-}

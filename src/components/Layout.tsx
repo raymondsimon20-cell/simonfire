@@ -54,7 +54,6 @@ const NAV = [
   { to: '/month-close', label: 'Month Close', icon: CalendarCheck },
   { to: '/ledger', label: 'Ledger', icon: BookOpenText },
   { to: '/allocation', label: 'Allocation', icon: Goal },
-  { to: '/strategy-lab', label: 'Strategy Lab', icon: FlaskConical },
   { to: '/connections', label: 'Connections', icon: Cable },
 ]
 

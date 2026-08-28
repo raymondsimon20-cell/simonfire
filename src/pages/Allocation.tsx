@@ -149,19 +149,19 @@ export default function Allocation() {
           </div>
           <div className="text-faint">→</div>
           <div>
-            <div className="text-xs text-muted">TARGET</div>
+            <div className="text-xs text-muted">AT TARGET MIX</div>
             <div className="num text-2xl font-bold text-pos">{pct(targetBlended * 100)}</div>
           </div>
           <div className="ml-auto flex flex-wrap gap-2">
             {BUCKETS.map((b) => (
               <span key={b} className="rounded-md px-2 py-1 text-xs font-medium" style={{ background: BUCKET_COLOR[b] + '22', color: BUCKET_COLOR[b] }}>
-                {b} {pct(((target[b] ?? 0) / 100) * buckets[b].yield * 100)}
+                {b} yield {pct(buckets[b].yield * 100)} · {target[b] ?? 0}% target
               </span>
             ))}
           </div>
         </div>
         <p className="mt-3 text-xs text-faint">
-          Yield is trailing-12-month distributions over market value. Target yield weights each bucket's current yield by your target allocation.
+          Current yield is trailing-12-month distributions over market value. At-target mix applies each bucket's current yield to your target allocation; it is an estimate, not a forward yield forecast.
         </p>
       </div>
 

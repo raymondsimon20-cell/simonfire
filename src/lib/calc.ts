@@ -187,6 +187,7 @@ export function isExpense(t: Transaction) {
     t.amount < 0 &&
     (t.type === 'Bill Payment' ||
       t.type === 'Fee' ||
+      t.type === 'Tax Withholding' ||
       t.type === 'Withdrawal' ||
       t.type === 'Interest' ||
       t.type === 'Other')

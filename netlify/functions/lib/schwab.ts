@@ -2,6 +2,7 @@
 // Server-side only. Secrets come from env; OAuth tokens are stored in Netlify Blobs.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getStore } from '@netlify/blobs'
+import { classifySchwabTransaction } from '../../../src/lib/transaction-classification'
 
 const TOKEN_URL = 'https://api.schwabapi.com/v1/oauth/token'
 const AUTH_URL = 'https://api.schwabapi.com/v1/oauth/authorize'
@@ -555,42 +556,7 @@ function mapTxn(accountId: string, t: any) {
     .filter((i) => i.feeType)
     .reduce((s, i) => s + Math.abs(num(i.cost ?? i.amount)), 0)
 
-  let type = 'Other'
-  if (rawType === 'TRADE') type = units < 0 ? 'Sell' : 'Buy'
-  else if (rawType.includes('DIVIDEND') || rawType.includes('INTEREST')) {
-    // Schwab lumps dividends and interest under DIVIDEND_OR_INTEREST. Real interest
-    // is almost always a margin/credit charge (negative); positive payments on a
-    // fund are dividends.
-    const looksInterest =
-      amount < 0 || /MARGIN INTEREST|CREDIT INTEREST|BANK INTEREST|SCHWAB.*\bINT\b/.test(desc)
-    type = looksInterest ? 'Interest' : 'Dividend'
-  } else if (rawType === 'ACH_RECEIPT' || rawType === 'WIRE_IN' || rawType === 'CASH_RECEIPT')
-    type = 'Contribution'
-  else if (rawType === 'ACH_DISBURSEMENT' || rawType === 'WIRE_OUT' || rawType === 'CASH_DISBURSEMENT')
-    type = 'Withdrawal'
-  else if (rawType.includes('FEE')) type = 'Fee'
-  if (type === 'Contribution' && amount < 0) type = 'Withdrawal'
-
-  // Margin interest can arrive under JOURNAL / other types rather than
-  // DIVIDEND_OR_INTEREST — catch it by description so it counts as an Interest cost.
-  if (
-    (type === 'Other' || type === 'Fee') &&
-    amount < 0 &&
-    /MARGIN INTEREST|INTEREST CHARGED|MARGIN INT\b|INT CHARGE|MARGININT/.test(desc)
-  )
-    type = 'Interest'
-
-  // A disbursement to a third party (a biller, loan, or card) is a Bill Payment,
-  // not a cash withdrawal to yourself. Distinguish by the payee in the description.
-  const looksBill = /\b(PAYMENT|PMT|BILLPAY|BILL PAY|BILL|CARD|CREDIT CARD|LOAN|MORTGAGE|AUTOPAY|BEST EGG|ACH DEBIT|OVERDRAFT|INVESTOR CHECKING)\b/.test(desc)
-  if (amount < 0 && (type === 'Withdrawal' || type === 'Other') && looksBill) type = 'Bill Payment'
-
-  // Internal transfer between the cash (Type 1) and margin (Type 2) sides of the
-  // same account — the two legs net to zero and are NOT real money in/out, so they
-  // must stay out of contributions/withdrawals (which would distort returns).
-  const looksInternalXfer =
-    /\bTRF FUNDS\b|\bTRANSFER OF FUNDS\b|\bJOURNAL/.test(desc) && /\bTYPE ?[12]\b/.test(desc)
-  if (looksInternalXfer) type = 'Transfer'
+  const type = classifySchwabTransaction({ rawType, description: desc, amount, units })
 
   return {
     id: 'txn_' + Math.random().toString(36).slice(2, 9),

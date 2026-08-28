@@ -10,6 +10,7 @@ import {
 import type { Account, AppData, Connection, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
+import { classifySchwabTransaction } from './transaction-classification'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -38,6 +39,20 @@ function applyRulesTo(d: AppData, extraManaged?: Iterable<string>) {
   }
 }
 
+// Upgrade only transactions that are still uncategorized and match a strong,
+// description-based Schwab rule. User edits and existing categories always win.
+function classifyKnownOthers(d: AppData) {
+  for (const t of d.transactions) {
+    if (t.type !== 'Other') continue
+    const classified = classifySchwabTransaction({
+      description: t.description,
+      amount: t.amount,
+      units: t.units,
+    })
+    if (classified !== 'Other') t.type = classified
+  }
+}
+
 const STORAGE_KEY = 'simonfire.data.v1'
 
 // ---- Persistence (swap this module for a Supabase-backed one later) ----
@@ -56,6 +71,7 @@ function load(): AppData {
           if (!parsed.twr) parsed.twr = s.twr
           if (!parsed.insights) parsed.insights = s.insights
         }
+        classifyKnownOthers(parsed)
         applyRulesTo(parsed)
         return parsed
       }
@@ -275,7 +291,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Daily value series for time-weighted return (from the live sync).
         if (result.twr) d.twr = result.twr
         if (result.insights) d.insights = result.insights
-        // Auto-tag/re-categorize the freshly synced transactions.
+        // Classify known Schwab descriptions, then let user rules take precedence.
+        classifyKnownOthers(d)
         applyRulesTo(d)
         // Reflect the import as a connection so the Connections page shows it.
         const broker = result.broker || 'Schwab'

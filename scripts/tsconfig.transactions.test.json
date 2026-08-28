@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
+    "types": ["node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "rootDir": "..",
+    "outDir": "/tmp/simonfire-transaction-tests"
+  },
+  "include": ["test-transaction-classification.ts", "../src/lib/transaction-classification.ts", "../src/lib/types.ts"]
+}

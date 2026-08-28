@@ -54,6 +54,7 @@ const TYPE_OPTIONS: TxnType[] = [
   'Bill Payment',
   'Transfer',
   'Fee',
+  'Tax Withholding',
   'Other',
 ]
 

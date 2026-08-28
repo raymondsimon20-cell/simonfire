@@ -107,7 +107,7 @@ export default function CashFlow() {
             className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none"
           >
             <option value="all">All Categories</option>
-            {['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Fee', 'Buy', 'Sell', 'Other'].map((c) => (
+            {['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Fee', 'Tax Withholding', 'Buy', 'Sell', 'Other'].map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>

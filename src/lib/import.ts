@@ -3,6 +3,7 @@
 // parenthesised negatives, and "N/A" / "--" placeholders.
 
 import type { Account, AccountType, Position, Transaction, TxnType } from './types'
+import { classifySchwabTransaction } from './transaction-classification'
 
 export interface ImportFallback {
   broker: string
@@ -109,19 +110,8 @@ function parseAccountLabel(label: string): { name: string; mask: string; type: A
 }
 
 // Map a Schwab "Action" to our transaction type.
-function mapAction(action: string): TxnType {
-  const a = action.toLowerCase()
-  if (a.includes('dividend')) return 'Dividend'
-  if (a.includes('interest')) return 'Interest'
-  if (a.includes('buy') || a.includes('reinvest shares') || a.includes('purchase')) return 'Buy'
-  if (a.includes('sell') || a.includes('sold')) return 'Sell'
-  if (a.includes('bill') || a.includes('billpay') || a.includes('atm') || a.includes('check') || a.includes('debit'))
-    return 'Bill Payment'
-  if (a.includes('fee') || a.includes('commission') || a.includes('adr')) return 'Fee'
-  if (a.includes('deposit') || a.includes('contribution') || a.includes('funds received') || a.includes('transfer'))
-    return 'Contribution' // sign corrects below
-  if (a.includes('withdraw')) return 'Withdrawal'
-  return 'Other'
+function mapAction(action: string, description: string, amount: number, units: number): TxnType {
+  return classifySchwabTransaction({ rawType: action, description, amount, units })
 }
 
 function isoDate(raw: string): string {
@@ -268,9 +258,10 @@ export function parseSchwabFiles(
         if (!dateRaw || /transactions total|^date$/i.test(dateRaw)) continue
         const action = cells[cAction]?.trim() ?? ''
         if (!action && !cells[cAmount]) continue
-        let type = mapAction(action)
         const amount = toNum(cells[cAmount])
         let units = toNum(cells[cQty])
+        const description = cells[cDesc]?.trim() || action
+        let type = mapAction(action, description, amount, units)
         // Sign corrections
         if (type === 'Sell') units = -Math.abs(units)
         if (type === 'Buy') units = Math.abs(units)
@@ -281,7 +272,7 @@ export function parseSchwabFiles(
           date: isoDate(dateRaw),
           type,
           symbol: cells[cSym]?.trim() || undefined,
-          description: cells[cDesc]?.trim() || action,
+          description,
           amount,
           units: units || 0,
           fee: cFees >= 0 ? toNum(cells[cFees]) : undefined,

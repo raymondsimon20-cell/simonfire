@@ -8,7 +8,7 @@ import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Transaction, TxnType } from '../lib/types'
 import clsx from 'clsx'
 
-const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Buy', 'Sell', 'Other']
+const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Buy', 'Sell', 'Other']
 
 export default function Ledger() {
   const { transactions, accounts } = useScoped()
@@ -143,7 +143,7 @@ function normalizePattern(desc: string) {
     .trim()
 }
 
-const CLEANUP_CATS: TxnType[] = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee']
+const CLEANUP_CATS: TxnType[] = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding']
 
 // Surfaces every transaction still sitting in the catch-all "Other" category,
 // grouped by description pattern, and lets you categorize each group in one

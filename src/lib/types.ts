@@ -55,6 +55,7 @@ export type TxnType =
   | 'Bill Payment'
   | 'Transfer'
   | 'Fee'
+  | 'Tax Withholding'
   | 'Other'
 
 export interface Transaction {

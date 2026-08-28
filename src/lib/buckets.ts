@@ -3,6 +3,7 @@
 // (derived from the P2P allocation tool), then name-based heuristics.
 import type { Position, Transaction } from './types'
 import { normTicker } from './plan'
+import { dividendStats } from './calc'
 
 export type Bucket = 'Growth' | 'CEFs' | 'High Yield' | 'Leveraged'
 export const BUCKETS: Bucket[] = ['Growth', 'CEFs', 'High Yield', 'Leveraged']
@@ -57,7 +58,7 @@ function classifyByName(name: string): Bucket {
 }
 
 export function bucketOf(p: Position): Bucket {
-  const key = normTicker(p.symbol)
+  const key = normTicker(p.isOption && p.underlying ? p.underlying : p.symbol)
   if (MAP[key]) return MAP[key]
   return classifyByName(p.name || p.symbol)
 }
@@ -67,29 +68,24 @@ export interface BucketStat {
   value: number
   count: number
   weight: number // fraction of total
-  ttmIncome: number // trailing-12mo dividends for this bucket
-  yield: number // ttmIncome / value
+  runRateIncome: number // historical per-share payments scaled to current shares
+  yieldValue: number // eligible long equity/ETF market value; options excluded
+  yield: number // runRateIncome / yieldValue
 }
 
-// Per-bucket value, weight, and current forward-ish yield.
+// Per-bucket allocation value and current-share distribution run-rate yield.
 export function bucketStats(positions: Position[], transactions: Transaction[]): {
   buckets: Record<Bucket, BucketStat>
   total: number
   blendedYield: number
 } {
-  // Trailing-12mo dividends per symbol.
-  const today = new Date()
-  const yearAgo = new Date(today)
-  yearAgo.setFullYear(yearAgo.getFullYear() - 1)
-  const ttmBySym = new Map<string, number>()
-  for (const t of transactions) {
-    if (t.type !== 'Dividend' || !t.symbol) continue
-    const paidAt = new Date(t.date + 'T00:00:00')
-    if (paidAt < yearAgo || paidAt > today) continue
-    ttmBySym.set(normTicker(t.symbol), (ttmBySym.get(normTicker(t.symbol)) ?? 0) + t.amount)
-  }
+  const now = new Date()
+  const localToday = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
+  const runRateBySym = new Map(
+    dividendStats(positions, transactions, localToday).bySymbol.map((s) => [s.symbol, s.projAnnual]),
+  )
 
-  const init = (): BucketStat => ({ bucket: 'Growth', value: 0, count: 0, weight: 0, ttmIncome: 0, yield: 0 })
+  const init = (): BucketStat => ({ bucket: 'Growth', value: 0, count: 0, weight: 0, runRateIncome: 0, yieldValue: 0, yield: 0 })
   const buckets = {
     Growth: { ...init(), bucket: 'Growth' as Bucket },
     CEFs: { ...init(), bucket: 'CEFs' as Bucket },
@@ -98,7 +94,8 @@ export function bucketStats(positions: Position[], transactions: Transaction[]):
   } as Record<Bucket, BucketStat>
 
   let total = 0
-  // A symbol may sit in more than one account — attribute income once per symbol-account share.
+  // dividendStats already combines accounts and scales payments to all current
+  // shares, so attribute each symbol's run rate exactly once.
   const symSeen = new Set<string>()
   for (const p of positions) {
     const b = bucketOf(p)
@@ -107,17 +104,20 @@ export function bucketStats(positions: Position[], transactions: Transaction[]):
     buckets[b].count += 1
     total += value
     const key = normTicker(p.symbol)
-    if (!p.isOption && !symSeen.has(key)) {
+    if (!p.isOption && p.shares > 0) buckets[b].yieldValue += value
+    if (!p.isOption && p.shares > 0 && !symSeen.has(key)) {
       symSeen.add(key)
-      buckets[b].ttmIncome += ttmBySym.get(key) ?? 0
+      buckets[b].runRateIncome += runRateBySym.get(key) ?? 0
     }
   }
   let blendedIncome = 0
+  let blendedValue = 0
   for (const b of BUCKETS) {
     const s = buckets[b]
     s.weight = total ? s.value / total : 0
-    s.yield = s.value ? s.ttmIncome / s.value : 0
-    blendedIncome += s.ttmIncome
+    s.yield = s.yieldValue ? s.runRateIncome / s.yieldValue : 0
+    blendedIncome += s.runRateIncome
+    blendedValue += s.yieldValue
   }
-  return { buckets, total, blendedYield: total ? blendedIncome / total : 0 }
+  return { buckets, total, blendedYield: blendedValue ? blendedIncome / blendedValue : 0 }
 }

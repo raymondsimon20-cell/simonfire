@@ -17,6 +17,8 @@ import { useStore } from '../lib/store'
 import { positionMetrics } from '../lib/calc'
 import { usd, pct, num, posNeg } from '../lib/format'
 import clsx from 'clsx'
+import { BucketBadge } from './HoldingCell'
+import { bucketOf } from '../lib/buckets'
 
 type Mode = 'Auto' | 'On' | 'Off'
 
@@ -103,6 +105,7 @@ export function PositionDrawer({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className="text-2xl font-bold">{p.symbol}</h2>
+                <BucketBadge bucket={bucketOf(p)} />
                 <span
                   className={clsx(
                     'rounded-full px-2 py-0.5 text-xs font-medium',

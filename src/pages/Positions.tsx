@@ -8,6 +8,7 @@ import { PositionDrawer } from '../components/PositionDrawer'
 import { HoldingCell, displayPrice, displayShares } from '../components/HoldingCell'
 import { downloadCsv } from '../lib/csv'
 import type { Position } from '../lib/types'
+import { bucketOf, BUCKETS, type Bucket } from '../lib/buckets'
 import clsx from 'clsx'
 
 type SortKey =
@@ -27,6 +28,7 @@ export default function Positions() {
   const { data } = useStore()
   const { positions, accounts, transactions } = useScoped()
   const [query, setQuery] = useState('')
+  const [bucket, setBucket] = useState<'all' | Bucket>('all')
   const [sort, setSort] = useState<SortKey>('value')
   const [dir, setDir] = useState<'asc' | 'desc'>('desc')
   const [selected, setSelected] = useState<Position | null>(null)
@@ -37,12 +39,10 @@ export default function Positions() {
     const r = positions.map((p) => ({ p, m: positionMetrics(p) }))
     const total = r.reduce((s, x) => s + x.m.value, 0)
     const withWeight = r.map((x) => ({ ...x, weight: total ? x.m.value / total : 0 }))
-    const filtered = withWeight.filter(
-      (x) =>
-        !query ||
-        x.p.symbol.toLowerCase().includes(query.toLowerCase()) ||
-        x.p.name.toLowerCase().includes(query.toLowerCase()),
-    )
+    const filtered = withWeight.filter((x) => {
+      if (bucket !== 'all' && bucketOf(x.p) !== bucket) return false
+      return !query || x.p.symbol.toLowerCase().includes(query.toLowerCase()) || x.p.name.toLowerCase().includes(query.toLowerCase())
+    })
     const val = (x: (typeof withWeight)[number]) => {
       switch (sort) {
         case 'symbol':
@@ -77,7 +77,7 @@ export default function Positions() {
       return dir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
     })
     return { filtered, total }
-  }, [positions, query, sort, dir])
+  }, [positions, query, bucket, sort, dir])
 
   const totals = useMemo(() => {
     const m = positions.map(positionMetrics)
@@ -111,6 +111,7 @@ export default function Positions() {
     const header = [
       'Holding',
       'Account',
+      'Bucket',
       'Shares',
       'Price',
       'Day Chg $',
@@ -125,6 +126,7 @@ export default function Positions() {
     const body = rows.filtered.map((x) => [
       x.p.symbol,
       accName(x.p.accountId),
+      bucketOf(x.p),
       x.p.shares,
       x.p.lastPrice,
       x.m.dayChange.toFixed(2),
@@ -184,6 +186,10 @@ export default function Positions() {
             className="w-56 rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm outline-none focus:border-brand"
           />
         </div>
+        <select value={bucket} onChange={(e) => setBucket(e.target.value as 'all' | Bucket)} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-brand">
+          <option value="all">All buckets</option>
+          {BUCKETS.map((b) => <option key={b} value={b}>{b}</option>)}
+        </select>
         <div className="text-xs text-faint">
           {rows.filtered.length} of {positions.length} holdings
         </div>

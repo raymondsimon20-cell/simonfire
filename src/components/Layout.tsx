@@ -130,7 +130,7 @@ function AvatarMenu({ onReset }: { onReset: () => void }) {
   )
 }
 
-function AccountScope() {
+function AccountScope({ placement = 'bottom' }: { placement?: 'top' | 'bottom' }) {
   const { data, scope, setScope } = useStore()
   const [open, setOpen] = useState(false)
   const current =
@@ -150,7 +150,10 @@ function AccountScope() {
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-20 mt-1 w-64 overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
+          <div className={clsx(
+            'absolute right-0 z-20 w-64 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-border bg-surface shadow-xl',
+            placement === 'top' ? 'bottom-full mb-2 max-h-[min(28rem,calc(100vh-8rem))]' : 'top-full mt-1 max-h-[min(28rem,calc(100vh-10rem))]',
+          )}>
             <button
               className={clsx(
                 'flex w-full items-center justify-between px-4 py-2.5 text-left text-sm hover:bg-surface-2',
@@ -251,7 +254,7 @@ export default function Layout() {
           })}
         </nav>
         <div className="space-y-3 border-t border-white/[0.06] pt-4">
-          <AccountScope />
+          <AccountScope placement="top" />
           <StatusPill source={data.source} lastSyncAt={data.lastSyncAt} syncing={autoSyncing} />
           <div className="flex items-center gap-2">
             <button onClick={doSync} className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-white/[0.025] px-3 py-2.5 text-sm font-medium hover:bg-white/[0.05]">

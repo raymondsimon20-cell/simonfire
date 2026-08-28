@@ -24,6 +24,8 @@ import { PositionDrawer } from '../components/PositionDrawer'
 import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Account, Position, Transaction } from '../lib/types'
 import clsx from 'clsx'
+import { BucketBadge } from '../components/HoldingCell'
+import { bucketOf } from '../lib/buckets'
 
 export default function Dashboard() {
   const { data, applyImport, syncAll } = useStore()
@@ -167,7 +169,9 @@ export default function Dashboard() {
                     onClick={() => setSelectedPos(p)}
                     className="cursor-pointer border-b border-border-soft last:border-0 hover:bg-surface-2/40"
                   >
-                    <td className="px-5 py-3 font-semibold">{p.symbol}</td>
+                    <td className="px-5 py-3">
+                      <span className="flex items-center gap-2 font-semibold"><span>{p.symbol}</span><BucketBadge bucket={bucketOf(p)} /></span>
+                    </td>
                     <td className={clsx('num px-4 py-3 text-right', posNeg(m.dayChange))}>{usd(m.dayChange, { sign: true })}</td>
                     <td className={clsx('num px-4 py-3 text-right', posNeg(m.dayChange))}>{pct(m.dayChangePct * 100, { sign: true })}</td>
                     <td className={clsx('num px-4 py-3 text-right', posNeg(m.totalGain))}>{usd(m.totalGain, { sign: true })}</td>

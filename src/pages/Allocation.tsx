@@ -140,11 +140,11 @@ export default function Allocation() {
       {/* Blended yield */}
       <div className="card p-5">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[#f0a94a]">
-          <Percent size={16} /> Estimated Blended Yield
+          <Percent size={16} /> Current-Share Distribution Yield
         </div>
         <div className="flex items-center gap-4">
           <div>
-            <div className="text-xs text-muted">CURRENT</div>
+            <div className="text-xs text-muted">CURRENT RUN RATE</div>
             <div className="num text-2xl font-bold">{pct(blendedYield * 100)}</div>
           </div>
           <div className="text-faint">→</div>
@@ -161,7 +161,7 @@ export default function Allocation() {
           </div>
         </div>
         <p className="mt-3 text-xs text-faint">
-          Current yield is trailing-12-month distributions over market value. At-target mix applies each bucket's current yield to your target allocation; it is an estimate, not a forward yield forecast.
+          Run-rate yield scales historical per-share distributions to the shares held today and excludes options. At-target mix applies each bucket's run-rate yield to your target allocation; it is an estimate, not a declared forward yield.
         </p>
       </div>
 

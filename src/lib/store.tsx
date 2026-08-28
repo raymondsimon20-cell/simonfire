@@ -10,7 +10,7 @@ import {
 import type { Account, AppData, Connection, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
-import { classifySchwabTransaction } from './transaction-classification'
+import { classifySchwabTransaction, normalizeTransactionPattern } from './transaction-classification'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -24,7 +24,10 @@ function applyRulesTo(d: AppData, extraManaged?: Iterable<string>) {
   const managed = new Set<string>()
   for (const r of all) if (r.tag) managed.add(r.tag)
   if (extraManaged) for (const t of extraManaged) if (t) managed.add(t)
-  const active = all.filter((r) => r.enabled && r.contains.trim())
+  // Broad rules run first; the most specific matching description wins.
+  const active = all
+    .filter((r) => r.enabled && r.contains.trim())
+    .sort((a, b) => a.contains.length - b.contains.length)
   if (!managed.size && !active.length) return
   for (const t of d.transactions) {
     if (managed.size && t.tags.some((tg) => managed.has(tg))) {
@@ -40,6 +43,27 @@ function applyRulesTo(d: AppData, extraManaged?: Iterable<string>) {
       if (r.setType) t.type = r.setType
     }
   }
+}
+
+function amountDirection(amount: number): NonNullable<TagRule['amountDirection']> {
+  return amount > 0 ? 'positive' : amount < 0 ? 'negative' : 'zero'
+}
+
+function upsertRule(d: AppData, rule: Omit<TagRule, 'id'>) {
+  const contains = rule.contains.trim()
+  const sameMatcher = (r: TagRule) =>
+    r.contains.trim().toLowerCase() === contains.toLowerCase() &&
+    r.amountDirection === rule.amountDirection
+  const matches = (d.tagRules ?? []).filter(sameMatcher)
+  const existing = matches.at(-1)
+  d.tagRules = (d.tagRules ?? []).filter((r) => !sameMatcher(r))
+  d.tagRules.push({
+    ...existing,
+    ...rule,
+    contains,
+    tag: rule.tag || existing?.tag || '',
+    id: existing?.id ?? uid(),
+  })
 }
 
 // Upgrade only transactions that are still uncategorized and match a strong,
@@ -166,7 +190,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (id, patch) => {
       mutate((d) => {
         const i = d.transactions.findIndex((t) => t.id === id)
-        if (i >= 0) d.transactions[i] = { ...d.transactions[i], ...patch }
+        if (i >= 0) {
+          d.transactions[i] = { ...d.transactions[i], ...patch }
+          // Category edits are intended classifications, not ephemeral row edits.
+          // Persist a direction-scoped rule so fresh Schwab rows inherit the choice.
+          if (patch.type) {
+            const t = d.transactions[i]
+            const contains = normalizeTransactionPattern(t.description) || t.description.trim()
+            upsertRule(d, {
+              contains,
+              tag: '',
+              setType: patch.type,
+              amountDirection: amountDirection(t.amount),
+              enabled: true,
+            })
+            applyRulesTo(d)
+          }
+        }
         return d
       })
     },
@@ -398,7 +438,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const addRule: StoreCtx['addRule'] = useCallback(
     (rule) => mutate((d) => {
-      d.tagRules = [...(d.tagRules ?? []), { ...rule, id: uid() }]
+      upsertRule(d, rule)
       applyRulesTo(d)
       return d
     }),

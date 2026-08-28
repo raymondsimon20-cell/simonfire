@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { classifySchwabTransaction as classify } from '../src/lib/transaction-classification'
+import { classifySchwabTransaction as classify, normalizeTransactionPattern } from '../src/lib/transaction-classification'
 
 assert.equal(classify({ rawType: 'JOURNAL', description: 'Foreign Tax Paid ACME LTD', amount: -12.34 }), 'Tax Withholding')
 assert.equal(classify({ rawType: 'JOURNAL', description: 'Federal Tax Withheld', amount: -45 }), 'Tax Withholding')
@@ -14,5 +14,6 @@ assert.equal(classify({ rawType: 'DIVIDEND_OR_INTEREST', description: 'QUALIFIED
 assert.equal(classify({ rawType: 'ACH_RECEIPT', description: 'ACH receipt', amount: 1000 }), 'Contribution')
 assert.equal(classify({ rawType: 'ACH_DISBURSEMENT', description: 'ACH to Best Egg loan payment', amount: -250 }), 'Bill Payment')
 assert.equal(classify({ rawType: 'TRADE', description: 'SELL TRADE', amount: 500, units: -5 }), 'Sell')
+assert.equal(normalizeTransactionPattern('OVERDRAFT TO INVESTOR CHECKING 3142'), 'OVERDRAFT TO INVESTOR CHECKING')
 
 console.log('transaction classification tests passed')

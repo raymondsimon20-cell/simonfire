@@ -6,6 +6,7 @@ import { usd, num, shortDate, monthLabel } from '../lib/format'
 import { KpiCard, PageHeader, Badge, Button } from '../components/ui'
 import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Transaction, TxnType } from '../lib/types'
+import { normalizeTransactionPattern } from '../lib/transaction-classification'
 import clsx from 'clsx'
 
 const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action', 'Buy', 'Sell', 'Other']
@@ -134,15 +135,6 @@ export default function Ledger() {
 // Collapse a description to a stable pattern by dropping account numbers, masks,
 // and long digit runs, so "OVERDRAFT TO INVESTOR CHECKING 3142" and "…3143"
 // group together.
-function normalizePattern(desc: string) {
-  return desc
-    .toUpperCase()
-    .replace(/\b[\dX*#]{2,}\b/g, '') // account numbers, masks, long digit runs
-    .replace(/[#*]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
 const CLEANUP_CATS: TxnType[] = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action']
 
 // Surfaces every transaction still sitting in the catch-all "Other" category,
@@ -160,7 +152,7 @@ function CategoryCleanup() {
     const m = new Map<string, { key: string; pattern: string; direction: 'positive' | 'negative' | 'zero'; count: number; total: number }>()
     for (const t of data.transactions) {
       if (t.type !== 'Other') continue
-      const pattern = normalizePattern(t.description) || t.description.toUpperCase()
+      const pattern = normalizeTransactionPattern(t.description) || t.description.toUpperCase()
       const cashDirection = t.amount > 0 ? 'positive' : t.amount < 0 ? 'negative' : 'zero'
       const key = `${cashDirection}|${pattern}`
       const g = m.get(key) ?? { key, pattern, direction: cashDirection, count: 0, total: 0 }

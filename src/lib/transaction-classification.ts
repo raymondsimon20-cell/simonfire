@@ -7,6 +7,17 @@ export interface ClassificationInput {
   units?: number
 }
 
+// Stable enough to survive Schwab changing account masks/reference numbers on
+// otherwise identical transactions, while retaining the meaningful wording.
+export function normalizeTransactionPattern(description: string) {
+  return description
+    .toUpperCase()
+    .replace(/\b[\dX*#]{2,}\b/g, '')
+    .replace(/[#*]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 // Schwab's API types are intentionally broad. JOURNAL, for example, can mean an
 // internal transfer, withholding, an adjustment, or a corporate action. Prefer
 // distinctive description text before falling back to the API/CSV action.

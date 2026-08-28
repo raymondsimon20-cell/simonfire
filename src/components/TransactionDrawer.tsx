@@ -59,8 +59,8 @@ const TYPE_OPTIONS: TxnType[] = [
   'Other',
 ]
 
-// Editable category: click the badge to re-classify a transaction (e.g. flag a
-// disbursement as a Bill Payment or a Withdrawal). Persists via updateTransaction.
+// Editable category: changing it also creates/updates a direction-scoped rule,
+// so the classification survives Schwab replacing transaction IDs during sync.
 function CategoryEditor({ txn }: { txn: Transaction }) {
   const { updateTransaction } = useStore()
   const [open, setOpen] = useState(false)
@@ -88,7 +88,7 @@ function CategoryEditor({ txn }: { txn: Transaction }) {
       {open && (
         <div className="absolute left-0 z-[110] mt-1.5 w-48 overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
           <div className="border-b border-border-soft px-3 py-2 text-xs font-medium text-faint">
-            Change category
+            Change category · saved for future syncs
           </div>
           {TYPE_OPTIONS.map((t) => (
             <button

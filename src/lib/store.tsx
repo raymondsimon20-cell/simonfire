@@ -92,6 +92,8 @@ function load(): AppData {
         if (!parsed.keepList) parsed.keepList = DEFAULT_KEEP
         if (!parsed.soldSymbols) parsed.soldSymbols = []
         if (!parsed.tagRules) parsed.tagRules = []
+        if (!parsed.bucketOverrides) parsed.bucketOverrides = {}
+        for (const p of parsed.positions) p.allocationBucket = parsed.bucketOverrides[`${p.accountId}|${p.symbol}`]
         // Backfill sample analytics for datasets stored before these existed.
         if (parsed.source === 'sample' && (!parsed.twr || !parsed.insights)) {
           const s = buildSeed()
@@ -146,6 +148,7 @@ interface StoreCtx {
   sellOffPlan: (keepSet: Set<string>) => void
   unsell: (accountId: string, symbol: string) => void
   setTargetAlloc: (alloc: Record<string, number>) => void
+  setPositionBucket: (accountId: string, symbol: string, bucket: NonNullable<Position['allocationBucket']>) => void
   // Tag rules
   addRule: (rule: Omit<TagRule, 'id'>) => void
   updateRule: (id: string, patch: Partial<TagRule>) => void
@@ -329,6 +332,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           d.transactions.unshift(...result.transactions)
           d.transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         }
+        d.bucketOverrides = d.bucketOverrides ?? {}
+        for (const p of d.positions) p.allocationBucket = d.bucketOverrides[`${p.accountId}|${p.symbol}`]
         // Keep positions marked sold in the tracker out of the synced set.
         const sold = new Set(d.soldSymbols ?? [])
         if (sold.size) d.positions = d.positions.filter((p) => !sold.has(soldKey(p.accountId, p.symbol)))
@@ -437,6 +442,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [mutate],
   )
 
+  const setPositionBucket: StoreCtx['setPositionBucket'] = useCallback(
+    (accountId, symbol, bucket) => mutate((d) => {
+      const key = `${accountId}|${symbol}`
+      d.bucketOverrides = { ...(d.bucketOverrides ?? {}), [key]: bucket }
+      for (const p of d.positions) if (p.accountId === accountId && p.symbol === symbol) p.allocationBucket = bucket
+      return d
+    }), [mutate],
+  )
+
   const addRule: StoreCtx['addRule'] = useCallback(
     (rule) => mutate((d) => {
       upsertRule(d, rule)
@@ -486,6 +500,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sellOffPlan,
       unsell,
       setTargetAlloc,
+      setPositionBucket,
       addRule,
       updateRule,
       removeRule,
@@ -509,6 +524,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sellOffPlan,
       unsell,
       setTargetAlloc,
+      setPositionBucket,
       addRule,
       updateRule,
       removeRule,

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
-import { Target, Wand2, Eraser, Percent, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList, ShieldCheck, LoaderCircle, ListChecks, CircleAlert } from 'lucide-react'
+import { Target, Wand2, Eraser, Percent, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList, ShieldCheck, LoaderCircle, ListChecks, CircleAlert, Lock, Unlock, Scale, SlidersHorizontal, Eye, ShoppingCart } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
-import { bucketOf, bucketStats, BUCKETS, BUCKET_COLOR, type Bucket } from '../lib/buckets'
+import { bucketOf, bucketStats, bucketClassification, BUCKETS, BUCKET_COLOR, type Bucket } from '../lib/buckets'
 import { normTicker } from '../lib/plan'
 import { buildInsights, SIGNAL_STYLE, ACTION_STYLE, type HoldingInsight } from '../lib/insights'
 import { usd, pct, intfmt } from '../lib/format'
@@ -11,6 +11,8 @@ import { Modal } from '../components/Modal'
 import { schwabOrderStatus, schwabPlaceOrder, schwabPreviewOrder, type EquityOrder } from '../lib/api'
 import { marginCapacity, type MarginCapacity } from '../lib/margin'
 import clsx from 'clsx'
+import type { Account, Position } from '../lib/types'
+import { protectivePutPlan } from '../lib/hedge'
 
 const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<string, number> => {
   const out: Record<string, number> = {}
@@ -20,10 +22,12 @@ const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<strin
 
 export default function Allocation() {
   const { positions, transactions } = useScoped()
-  const { data, setTargetAlloc } = useStore()
+  const { data, setTargetAlloc, setPositionBucket } = useStore()
 
   const stats = useMemo(() => bucketStats(positions, transactions), [positions, transactions])
   const { buckets, total, blendedYield } = stats
+  const [tab, setTab] = useState<'targets' | 'plan' | 'review' | 'hedges' | 'orders'>('targets')
+  const [locked, setLocked] = useState<Set<Bucket>>(new Set())
 
   const insights = useMemo(
     () => buildInsights(positions, data.insights?.bySymbol),
@@ -60,9 +64,23 @@ export default function Allocation() {
     setTarget(next)
     setTargetAlloc(next)
   }
-  const setBucket = (b: Bucket, v: number) => update({ ...target, [b]: Math.max(0, Math.min(100, v)) })
+  const setBucket = (b: Bucket, v: number) => { if (!locked.has(b)) update({ ...target, [b]: Math.max(0, Math.min(100, v)) }) }
   const resetFromCurrent = () => update(roundWeights(buckets))
   const clearAll = () => update({ Growth: 0, CEFs: 0, 'High Yield': 0, Leveraged: 0 })
+  const normalizeTargets = () => {
+    const lockedTotal = BUCKETS.filter((b) => locked.has(b)).reduce((sum, b) => sum + (target[b] ?? 0), 0)
+    const open = BUCKETS.filter((b) => !locked.has(b))
+    const openTotal = open.reduce((sum, b) => sum + (target[b] ?? 0), 0)
+    const remaining = Math.max(0, 100 - lockedTotal)
+    const next = { ...target }
+    open.forEach((b) => { next[b] = openTotal ? ((target[b] ?? 0) / openTotal) * remaining : remaining / Math.max(open.length, 1) })
+    update(Object.fromEntries(BUCKETS.map((b) => [b, +Number(next[b] ?? 0).toFixed(1)])))
+  }
+  const scenario = (name: 'income' | 'growth' | 'defensive' | 'current') => {
+    if (name === 'current') return resetFromCurrent()
+    const presets = name === 'income' ? { Growth: 20, CEFs: 30, 'High Yield': 45, Leveraged: 5 } : name === 'growth' ? { Growth: 65, CEFs: 15, 'High Yield': 15, Leveraged: 5 } : { Growth: 50, CEFs: 30, 'High Yield': 20, Leveraged: 0 }
+    update(presets)
+  }
 
   const targetTotal = BUCKETS.reduce((s, b) => s + (target[b] ?? 0), 0)
   const balanced = Math.abs(targetTotal - 100) < 0.05
@@ -71,6 +89,7 @@ export default function Allocation() {
 
   // ---- Rebalance calculator ----
   const [contribution, setContribution] = useState(2000)
+  const [planMode, setPlanMode] = useState<'contribution' | 'rebalance'>('contribution')
   const [wholeShares, setWholeShares] = useState(true)
   const [orderAccount, setOrderAccount] = useState<string>(() => data.accounts[0]?.id ?? '')
   const selectedOrderAccount = data.accounts.find((account) => account.id === orderAccount)
@@ -84,13 +103,19 @@ export default function Allocation() {
   const contributionOverCapacity = !!capacity && contribution > capacity.maxOrderSpend + 0.005
 
   const plan = useMemo(() => {
+    const empty: Record<Bucket, number> = { Growth: 0, CEFs: 0, 'High Yield': 0, Leveraged: 0 }
+    if (!balanced) return empty
     const newTotal = total + contribution
     const desired = BUCKETS.map((b) => {
       const targetValue = newTotal * ((target[b] ?? 0) / 100)
       return { b, add: Math.max(0, targetValue - buckets[b].value) }
     })
     const sumDesired = desired.reduce((s, d) => s + d.add, 0)
-    const addByBucket: Record<Bucket, number> = { Growth: 0, CEFs: 0, 'High Yield': 0, Leveraged: 0 }
+    const addByBucket: Record<Bucket, number> = empty
+    if (planMode === 'rebalance') {
+      for (const d of desired) addByBucket[d.b] = d.add
+      return addByBucket
+    }
     if (sumDesired <= 0) {
       // Already at/over target everywhere → split by target weight.
       for (const b of BUCKETS) addByBucket[b] = contribution * ((target[b] ?? 0) / 100)
@@ -102,7 +127,7 @@ export default function Allocation() {
         addByBucket[d.b] = d.add + leftover * ((target[d.b] ?? 0) / 100)
     }
     return addByBucket
-  }, [total, contribution, target, buckets])
+  }, [total, contribution, target, buckets, balanced, planMode])
 
   // Flatten the plan into a reviewable BUY order queue (one row per ticker).
   const orderQueue = useMemo(() => {
@@ -123,6 +148,19 @@ export default function Allocation() {
     }
     return items
   }, [plan, tickersByBucket, wholeShares])
+  const sellPlan = useMemo(() => {
+    if (planMode !== 'rebalance' || !balanced) return []
+    const postValue = total + contribution
+    return BUCKETS.map((bucket) => ({ bucket, amount: Math.max(0, buckets[bucket].value - postValue * ((target[bucket] ?? 0) / 100)) })).filter((row) => row.amount > .5)
+  }, [planMode, balanced, total, contribution, buckets, target])
+
+  const driftRows = BUCKETS.map((b) => ({ bucket: b, current: buckets[b].weight * 100, target: target[b] ?? 0, drift: buckets[b].weight * 100 - (target[b] ?? 0) }))
+  const largestDrift = [...driftRows].sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift))[0]
+  const annualIncomeDelta = total * (targetBlended - blendedYield)
+  const plannedSpend = orderQueue.reduce((sum, item) => sum + item.spend, 0)
+  const cashRemaining = Math.max(0, contribution - plannedSpend)
+  const classificationRows = positions.map((p) => ({ position: p, ...bucketClassification(p) }))
+  const fallbackCount = classificationRows.filter((r) => r.method === 'Growth fallback').length
 
   return (
     <div>
@@ -136,6 +174,24 @@ export default function Allocation() {
           </>
         }
       />
+
+      <div className="mb-5 flex overflow-x-auto rounded-xl border border-border bg-surface/70 p-1">
+        {([
+          ['targets', Target, 'Targets'], ['plan', Calculator, 'Contribution Plan'], ['review', Eye, 'Holdings Review'], ['hedges', ShieldCheck, 'Protective Puts'], ['orders', ShoppingCart, 'Orders'],
+        ] as const).map(([key, Icon, label]) => <button key={key} onClick={() => setTab(key)} className={clsx('flex min-w-max flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors', tab === key ? 'bg-[#c7a96b]/15 text-[#e1c887]' : 'text-muted hover:bg-white/[0.03] hover:text-ink')}><Icon size={15} />{label}</button>)}
+      </div>
+
+      {tab === 'targets' && <>
+      <section className="mb-4 overflow-hidden rounded-[22px] border border-[#c7a96b]/15 bg-[linear-gradient(135deg,#151922,#0c1016)] p-6">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#cbb77f]">Allocation mandate</div>
+        <div className="mt-4 grid grid-cols-2 gap-5 lg:grid-cols-5">
+          <SummaryMetric label="Portfolio" value={usd(total, { cents: false })} />
+          <SummaryMetric label="Largest drift" value={largestDrift ? `${largestDrift.bucket} ${largestDrift.drift >= 0 ? '+' : ''}${largestDrift.drift.toFixed(1)}%` : '—'} tone={largestDrift && Math.abs(largestDrift.drift) > 2 ? 'warn' : undefined} />
+          <SummaryMetric label="Current run-rate" value={pct(blendedYield * 100)} />
+          <SummaryMetric label="At-target run-rate" value={pct(targetBlended * 100)} />
+          <SummaryMetric label="Annual income impact" value={usd(annualIncomeDelta, { sign: true })} tone={annualIncomeDelta >= 0 ? 'positive' : 'warn'} />
+        </div>
+      </section>
 
       {/* Blended yield */}
       <div className="card p-5">
@@ -182,6 +238,14 @@ export default function Allocation() {
           </span>
         </div>
         <p className="mb-4 text-xs text-faint">Adjust target percentages for each bucket. Targets should sum to 100%.</p>
+        <div className="mb-4 flex flex-wrap gap-2">
+          <Button onClick={normalizeTargets}><Scale size={14} /> Normalize to 100%</Button>
+          <span className="my-auto text-xs text-faint">Scenarios:</span>
+          <button onClick={() => scenario('income')} className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-ink">Income focus</button>
+          <button onClick={() => scenario('growth')} className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-ink">Growth focus</button>
+          <button onClick={() => scenario('defensive')} className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-ink">Reduce leverage</button>
+          <button onClick={() => scenario('current')} className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-ink">Current mix</button>
+        </div>
         <div className="space-y-3">
           {BUCKETS.map((b) => {
             const s = buckets[b]
@@ -202,9 +266,11 @@ export default function Allocation() {
                   <div className="num font-semibold">{delta >= 0 ? '+' : ''}{delta.toFixed(1)}%</div>
                 </div>
                 <div className="ml-auto flex items-center gap-2">
+                  <button onClick={() => setLocked((prev) => { const next = new Set(prev); if (next.has(b)) next.delete(b); else next.add(b); return next })} className={clsx('grid h-8 w-8 place-items-center rounded-lg border', locked.has(b) ? 'border-[#c7a96b]/40 bg-[#c7a96b]/10 text-[#d8bd7a]' : 'border-border text-faint')} title={locked.has(b) ? 'Unlock target' : 'Lock target'}>{locked.has(b) ? <Lock size={13} /> : <Unlock size={13} />}</button>
                   <input
                     type="range" min={0} max={100} step={0.5} value={target[b] ?? 0}
                     onChange={(e) => setBucket(b, +e.target.value)}
+                    disabled={locked.has(b)}
                     className="w-40 accent-[color:var(--tw)]"
                     style={{ accentColor: BUCKET_COLOR[b] }}
                   />
@@ -212,6 +278,7 @@ export default function Allocation() {
                     <input
                       type="number" min={0} max={100} step={0.5} value={target[b] ?? 0}
                       onChange={(e) => setBucket(b, +e.target.value)}
+                      disabled={locked.has(b)}
                       className="w-16 bg-transparent py-1.5 text-right text-sm outline-none"
                     />
                     <span className="text-xs text-faint">%</span>
@@ -223,7 +290,15 @@ export default function Allocation() {
         </div>
       </div>
 
+      <div className="card mt-4 overflow-x-auto p-0">
+        <div className="flex items-center gap-2 p-5 pb-3"><SlidersHorizontal size={16} className="text-brand" /><h3 className="font-semibold">Allocation Drift</h3></div>
+        <table className="w-full min-w-[680px] text-sm"><thead><tr className="border-y border-border-soft text-left text-xs text-muted"><th className="px-5 py-2.5">Bucket</th><th className="px-4 py-2.5 text-right">Current</th><th className="px-4 py-2.5 text-right">Target</th><th className="px-4 py-2.5 text-right">Drift</th><th className="px-5 py-2.5">Action</th></tr></thead><tbody>{driftRows.map((r) => <tr key={r.bucket} className="border-b border-border-soft"><td className="px-5 py-3 font-semibold"><span className="mr-2 inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: BUCKET_COLOR[r.bucket] }} />{r.bucket}</td><td className="num px-4 py-3 text-right">{pct(r.current)}</td><td className="num px-4 py-3 text-right">{pct(r.target)}</td><td className={clsx('num px-4 py-3 text-right font-semibold', Math.abs(r.drift) < .5 ? 'text-faint' : r.drift > 0 ? 'text-neg' : 'text-pos')}>{r.drift >= 0 ? '+' : ''}{r.drift.toFixed(1)}%</td><td className="px-5 py-3"><span className={clsx('rounded-md px-2 py-1 text-xs font-medium', Math.abs(r.drift) < .5 ? 'bg-white/[.04] text-faint' : r.drift > 0 ? 'bg-neg/10 text-neg' : 'bg-pos/10 text-pos')}>{Math.abs(r.drift) < .5 ? 'Hold' : r.drift > 0 ? 'Pause / trim' : 'Add'}</span></td></tr>)}</tbody></table>
+      </div>
+      </>}
+
       {/* Rebalance calculator */}
+      {tab === 'plan' && <>
+      <div className="card mb-4 flex flex-wrap items-center gap-3 p-4"><span className="text-xs font-medium uppercase tracking-[.12em] text-faint">Scenario</span><button onClick={() => setPlanMode('contribution')} className={clsx('rounded-lg px-3 py-2 text-sm', planMode === 'contribution' ? 'bg-[#c7a96b]/15 text-[#e1c887]' : 'text-muted hover:bg-white/[.03]')}>New contribution only</button><button onClick={() => setPlanMode('rebalance')} className={clsx('rounded-lg px-3 py-2 text-sm', planMode === 'rebalance' ? 'bg-[#c7a96b]/15 text-[#e1c887]' : 'text-muted hover:bg-white/[.03]')}>Rebalance with sales</button><span className="ml-auto text-xs text-faint">Sales remain review-only and are never submitted automatically.</span></div>
       <div className="card mt-4 p-5">
         <div className="mb-1 flex items-center gap-2">
           <Calculator size={18} className="text-brand" />
@@ -323,6 +398,7 @@ export default function Allocation() {
         )}
 
         <div className="space-y-4">
+          {planMode === 'rebalance' && sellPlan.length > 0 && <div className="rounded-xl border border-[#5a2631]/60 bg-[#33161d]/35 p-4"><div className="flex items-center gap-2"><TrendingDown size={15} className="text-neg"/><span className="font-semibold">Allocation-funded trims</span><span className="ml-auto text-xs text-faint">Review-only</span></div><div className="mt-3 grid gap-2 sm:grid-cols-2">{sellPlan.map((row) => <div key={row.bucket} className="flex items-center justify-between rounded-lg bg-black/15 px-3 py-2 text-sm"><span>{row.bucket}</span><span className="num text-neg">−{usd(row.amount)}</span></div>)}</div><p className="mt-3 text-xs text-faint">These are bucket-level sale amounts required for an immediate rebalance. Choose tax lots and confirm tax consequences at Schwab; the app does not generate or submit these sells.</p></div>}
           {BUCKETS.map((b) => {
             const add = plan[b]
             const tickers = tickersByBucket[b]
@@ -348,6 +424,8 @@ export default function Allocation() {
                           <th className="px-4 py-2 text-right font-medium">Buy $</th>
                           <th className="px-4 py-2 text-right font-medium">Shares</th>
                           <th className="px-4 py-2 text-right font-medium">Price</th>
+                          <th className="px-4 py-2 text-right font-medium">After plan</th>
+                          <th className="px-4 py-2 font-medium">Reason</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -364,6 +442,8 @@ export default function Allocation() {
                               <td className="num px-4 py-2 text-right text-pos">+{usd(spend)}</td>
                               <td className="num px-4 py-2 text-right text-muted">{wholeShares ? shares : `~${rawShares.toFixed(3)}`}</td>
                               <td className="num px-4 py-2 text-right">{usd(t.price)}</td>
+                              <td className="num px-4 py-2 text-right text-muted">{pct(((buckets[b].value + plan[b]) / Math.max(total + contribution, 1)) * 100)}</td>
+                              <td className="px-4 py-2 text-xs text-faint">Under target by {Math.max(0, tgtW - nowW).toFixed(1)} pts</td>
                             </tr>
                           )
                         })}
@@ -379,8 +459,12 @@ export default function Allocation() {
           Amounts move your portfolio toward its target allocation and are split evenly across each bucket's holdings. This is a plan — place the actual buys in your brokerage.
         </p>
       </div>
+      <PlanReview contribution={contribution} account={selectedOrderAccount?.name ?? 'No account'} orderCount={orderQueue.length} plannedSpend={plannedSpend} cashRemaining={cashRemaining} yieldBefore={blendedYield} yieldAfter={targetBlended} capacity={capacity} overCapacity={contributionOverCapacity} onContinue={() => setTab('orders')} balanced={balanced} />
+      </>}
 
       {/* Order Queue — review & place */}
+      {tab === 'orders' && <>
+      <PlanReview contribution={contribution} account={selectedOrderAccount?.name ?? 'No account'} orderCount={orderQueue.length} plannedSpend={plannedSpend} cashRemaining={cashRemaining} yieldBefore={blendedYield} yieldAfter={targetBlended} capacity={capacity} overCapacity={contributionOverCapacity} balanced={balanced} />
       <OrderQueue
         items={orderQueue}
         wholeShares={wholeShares}
@@ -390,11 +474,54 @@ export default function Allocation() {
         live={data.source === 'live'}
         capacity={capacity}
       />
+      </>}
 
       {/* Rebalance Insights (50/100/200 SMA) */}
+      {tab === 'review' && <>
+      <ClassificationReview rows={classificationRows} fallbackCount={fallbackCount} accounts={data.accounts} />
+      <FallbackCorrections rows={classificationRows.filter((r) => r.method === 'Growth fallback')} onSetBucket={setPositionBucket} />
       <RebalanceInsights insights={insights} accName={(id) => data.accounts.find((a) => a.id === id)?.name ?? id} hasData={!!data.insights} />
+      </>}
+      {tab === 'hedges' && <ProtectivePutsEngine positions={positions} accounts={data.accounts} />}
     </div>
   )
+}
+
+function SummaryMetric({ label, value, tone }: { label: string; value: string; tone?: 'positive' | 'warn' }) {
+  return <div><div className="text-[10px] font-medium uppercase tracking-[.12em] text-faint">{label}</div><div className={clsx('num mt-1 text-lg font-semibold', tone === 'positive' ? 'text-pos' : tone === 'warn' ? 'text-[#e7c88f]' : 'text-ink')}>{value}</div></div>
+}
+
+function PlanReview({ contribution, account, orderCount, plannedSpend, cashRemaining, yieldBefore, yieldAfter, capacity, overCapacity, balanced, onContinue }: { contribution: number; account: string; orderCount: number; plannedSpend: number; cashRemaining: number; yieldBefore: number; yieldAfter: number; capacity: MarginCapacity | null; overCapacity: boolean; balanced: boolean; onContinue?: () => void }) {
+  const projectedEquity = capacity ? (1 - capacity.projectedUsage(plannedSpend)) * 100 : null
+  const warnings = [!balanced && 'Targets do not total 100%.', overCapacity && 'Contribution exceeds the account safety limit.', orderCount === 0 && 'No executable whole-share orders were generated.'].filter(Boolean)
+  return <div className="card mt-4 p-5"><div className="flex items-center gap-2"><ShieldCheck size={17} className="text-brand"/><h3 className="font-semibold">Final Plan Review</h3>{warnings.length === 0 && <span className="ml-auto rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Ready for review</span>}</div><div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4"><SummaryMetric label="Contribution" value={usd(contribution)} /><SummaryMetric label="Order account" value={account} /><SummaryMetric label="Proposed orders" value={String(orderCount)} /><SummaryMetric label="Planned exposure" value={usd(plannedSpend)} /><SummaryMetric label="Cash remaining" value={usd(cashRemaining)} /><SummaryMetric label="Yield impact" value={`${pct(yieldBefore * 100)} → ${pct(yieldAfter * 100)}`} /><SummaryMetric label="Projected equity" value={projectedEquity == null ? 'Cash account' : pct(projectedEquity)} tone={projectedEquity != null && projectedEquity < 50 ? 'warn' : undefined} /><SummaryMetric label="Safety limit" value={capacity ? usd(capacity.maxOrderSpend) : '—'} /></div>{warnings.length > 0 && <div className="mt-4 rounded-xl border border-[#5a3a16] bg-[#38240f]/70 p-3 text-xs text-[#e7c88f]">{warnings.join(' ')}</div>}{onContinue && <div className="mt-4 flex justify-end"><Button variant="primary" onClick={onContinue} disabled={warnings.length > 0}>Review order queue</Button></div>}</div>
+}
+
+function ClassificationReview({ rows, fallbackCount, accounts: _accounts }: { rows: Array<{ position: Position; bucket: Bucket; method: ReturnType<typeof bucketClassification>['method'] }>; fallbackCount: number; accounts: Account[] }) {
+  return <div className="card p-0"><div className="flex items-start gap-3 p-5"><ListChecks size={18} className="mt-0.5 text-brand"/><div><h3 className="font-semibold">Classification Review</h3><p className="mt-1 text-xs text-faint">Verify how each holding entered its allocation bucket. Growth fallbacks deserve manual review because no explicit ticker or name rule matched.</p></div><span className={clsx('ml-auto rounded-md px-2 py-1 text-xs', fallbackCount ? 'bg-[#38240f] text-[#e7c88f]' : 'bg-pos/10 text-pos')}>{fallbackCount} fallback</span></div><div className="max-h-[430px] overflow-auto"><table className="w-full min-w-[680px] text-sm"><thead><tr className="border-y border-border-soft text-left text-xs text-muted"><th className="px-5 py-2.5">Holding</th><th className="px-4 py-2.5">Account</th><th className="px-4 py-2.5">Bucket</th><th className="px-5 py-2.5">Classification source</th></tr></thead><tbody>{rows.map((r) => <tr key={r.position.id} className="border-b border-border-soft"><td className="px-5 py-3"><span className="font-semibold">{r.position.symbol}</span><span className="ml-2 text-xs text-faint">{r.position.name}</span></td><td className="px-4 py-3 text-xs text-muted">{r.position.accountId}</td><td className="px-4 py-3"><span className="rounded-md px-2 py-1 text-xs font-medium" style={{ color: BUCKET_COLOR[r.bucket], backgroundColor: `${BUCKET_COLOR[r.bucket]}15` }}>{r.bucket}</span></td><td className="px-5 py-3"><span className={clsx('text-xs', r.method === 'Growth fallback' ? 'text-[#e7c88f]' : 'text-muted')}>{r.method}</span></td></tr>)}</tbody></table></div></div>
+}
+
+function FallbackCorrections({ rows, onSetBucket }: { rows: Array<{ position: Position; bucket: Bucket }>; onSetBucket: (accountId: string, symbol: string, bucket: Bucket) => void }) {
+  if (!rows.length) return null
+  return <div className="card mt-4 p-5"><div className="flex items-start gap-2"><CircleAlert size={16} className="mt-0.5 text-[#e7c88f]"/><div><h3 className="font-semibold">Resolve Growth Fallbacks</h3><p className="mt-1 text-xs text-faint">Choose the intended bucket. Overrides are saved by account and symbol and reapplied after every sync.</p></div></div><div className="mt-4 space-y-2">{rows.map(({ position }) => <div key={position.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-border-soft bg-surface-2/40 p-3"><div className="min-w-[180px] flex-1"><span className="font-semibold">{position.symbol}</span><div className="truncate text-xs text-faint">{position.name}</div></div>{BUCKETS.map((bucket) => <button key={bucket} onClick={() => onSetBucket(position.accountId, position.symbol, bucket)} className="rounded-lg border px-2.5 py-1.5 text-xs font-medium hover:bg-white/[.04]" style={{ borderColor: `${BUCKET_COLOR[bucket]}35`, color: BUCKET_COLOR[bucket] }}>{bucket}</button>)}</div>)}</div></div>
+}
+
+function ProtectivePutsEngine({ positions, accounts }: { positions: Position[]; accounts: Account[] }) {
+  const eligible = useMemo(() => positions.filter((p) => !p.isOption && p.shares > 0 && p.lastPrice > 0).sort((a, b) => b.shares * b.lastPrice - a.shares * a.lastPrice), [positions])
+  const [positionId, setPositionId] = useState(() => eligible[0]?.id ?? '')
+  const [coverage, setCoverage] = useState(100)
+  const [drawdown, setDrawdown] = useState(15)
+  const [premium, setPremium] = useState(0)
+  const [expiry, setExpiry] = useState('')
+  const [copied, setCopied] = useState(false)
+  const p = eligible.find((row) => row.id === positionId) ?? eligible[0]
+  if (!p) return <div className="card p-10 text-center text-sm text-muted">No eligible long equity positions are available to hedge.</div>
+  const hedge = protectivePutPlan({ shares: p.shares, sharePrice: p.lastPrice, coveragePct: coverage, maxDrawdownPct: drawdown, premiumPerShare: premium })
+  const { contracts, coveredShares, strike, premiumCost, protectedNotional: protectedValue, positionValue, effectiveFloor, premiumDrag: annualDrag } = hedge
+  const account = accounts.find((a) => a.id === p.accountId)
+  const ticket = `BUY TO OPEN ${contracts} ${p.symbol} PUT ${expiry || '[EXPIRY]'} $${strike.toFixed(2)} @ $${premium.toFixed(2)} LIMIT (${account?.name ?? p.accountId})`
+  const copy = async () => { try { await navigator.clipboard.writeText(ticket); setCopied(true); setTimeout(() => setCopied(false), 1600) } catch { /* unavailable */ } }
+  return <div className="space-y-4"><div className="card p-5"><div className="flex items-start gap-3"><ShieldCheck size={20} className="mt-0.5 text-brand"/><div><h3 className="text-lg font-semibold">Protective Puts Engine</h3><p className="mt-1 text-xs text-faint">Size downside protection against a selected long position. Strike and premium are planning inputs—not live option-chain quotes.</p></div></div><div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4"><label className="text-xs text-muted"><span>Position</span><select value={p.id} onChange={(e) => setPositionId(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm text-ink">{eligible.map((row) => <option key={row.id} value={row.id}>{row.symbol} · {row.shares} shares · {accounts.find((a) => a.id === row.accountId)?.name}</option>)}</select></label><label className="text-xs text-muted"><span>Coverage</span><div className="mt-1 flex rounded-xl border border-border bg-surface-2 px-3"><input type="number" min={1} max={100} value={coverage} onChange={(e) => setCoverage(Math.max(1, Math.min(100, +e.target.value)))} className="num w-full bg-transparent py-2.5 outline-none"/><span className="my-auto">%</span></div></label><label className="text-xs text-muted"><span>Maximum tolerated drawdown</span><div className="mt-1 flex rounded-xl border border-border bg-surface-2 px-3"><input type="number" min={1} max={90} value={drawdown} onChange={(e) => setDrawdown(Math.max(1, Math.min(90, +e.target.value)))} className="num w-full bg-transparent py-2.5 outline-none"/><span className="my-auto">%</span></div></label><label className="text-xs text-muted"><span>Expiration</span><input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm [color-scheme:dark]"/></label><label className="text-xs text-muted"><span>Premium per share (manual quote)</span><div className="mt-1 flex rounded-xl border border-border bg-surface-2 px-3"><span className="my-auto">$</span><input type="number" min={0} step={.01} value={premium} onChange={(e) => setPremium(Math.max(0, +e.target.value))} className="num w-full bg-transparent py-2.5 pl-1 outline-none"/></div></label></div></div><div className="card p-5"><div className="grid grid-cols-2 gap-5 lg:grid-cols-4"><SummaryMetric label="Suggested strike" value={usd(strike)} /><SummaryMetric label="Contracts" value={String(contracts)} /><SummaryMetric label="Shares protected" value={`${coveredShares} / ${p.shares}`} /><SummaryMetric label="Protected notional" value={usd(protectedValue)} /><SummaryMetric label="Premium cost" value={usd(premiumCost)} /><SummaryMetric label="Effective floor" value={usd(effectiveFloor)} /><SummaryMetric label="Premium drag" value={pct(annualDrag * 100)} tone={annualDrag > .03 ? 'warn' : undefined} /><SummaryMetric label="Current position" value={usd(positionValue)} /></div><div className="mt-5 rounded-xl border border-[#c7a96b]/20 bg-[#c7a96b]/5 p-4"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-[#cbb77f]">Reviewable hedge ticket</div><div className="num mt-2 break-words text-sm">{ticket}</div><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-faint">Contract sizing rounds up to avoid under-covering the requested shares. Confirm deliverables, liquidity, expiration, strike, and live premium in Schwab before trading.</p><Button onClick={copy}>{copied ? <Check size={14}/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy ticket'}</Button></div></div></div></div>
 }
 
 function OrderQueue({
@@ -637,6 +764,7 @@ function OrderQueue({
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <ClipboardList size={18} className="text-brand" />
         <h3 className="text-lg font-semibold">Order Queue</h3>
+        <span className={clsx('rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-wide', live ? 'bg-pos/10 text-pos' : 'bg-[#c7a96b]/10 text-[#d8bd7a]')}>{live ? 'Live Schwab orders' : 'Planning only'}</span>
         <span className="text-xs text-faint">{placed.size}/{items.length} placed · ≈ {usd(totalSpend)}</span>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs text-muted">Account</span>

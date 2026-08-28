@@ -43,6 +43,7 @@ export interface Position {
   strike?: number
   expiration?: string // ISO yyyy-mm-dd
   underlying?: string
+  allocationBucket?: 'Growth' | 'CEFs' | 'High Yield' | 'Leveraged'
 }
 
 export type TxnType =
@@ -106,6 +107,7 @@ export interface AppData {
   soldSymbols?: string[]
   // Target allocation: bucket name → target percent (0–100), should sum to 100.
   targetAlloc?: Record<string, number>
+  bucketOverrides?: Record<string, 'Growth' | 'CEFs' | 'High Yield' | 'Leveraged'>
   // Auto-tagging rules applied to existing + future transactions.
   tagRules?: TagRule[]
   // Daily portfolio value series for time-weighted return (built at sync time).

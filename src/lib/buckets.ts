@@ -58,9 +58,20 @@ function classifyByName(name: string): Bucket {
 }
 
 export function bucketOf(p: Position): Bucket {
+  if (p.allocationBucket) return p.allocationBucket
   const key = normTicker(p.isOption && p.underlying ? p.underlying : p.symbol)
   if (MAP[key]) return MAP[key]
   return classifyByName(p.name || p.symbol)
+}
+
+export type BucketClassificationMethod = 'Manual override' | 'Ticker map' | 'Name heuristic' | 'Underlying ticker' | 'Growth fallback'
+export function bucketClassification(p: Position): { bucket: Bucket; method: BucketClassificationMethod } {
+  if (p.allocationBucket) return { bucket: p.allocationBucket, method: 'Manual override' }
+  const inherited = !!(p.isOption && p.underlying)
+  const key = normTicker(inherited ? p.underlying! : p.symbol)
+  if (MAP[key]) return { bucket: MAP[key], method: inherited ? 'Underlying ticker' : 'Ticker map' }
+  const bucket = classifyByName(p.name || p.symbol)
+  return { bucket, method: bucket === 'Growth' ? 'Growth fallback' : 'Name heuristic' }
 }
 
 export interface BucketStat {

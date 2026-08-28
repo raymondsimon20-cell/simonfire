@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "target": "ES2022", "module": "CommonJS", "moduleResolution": "Node", "ignoreDeprecations": "6.0", "types": ["node"], "rootDir": "..", "outDir": "/tmp/simonfire-hedge-tests", "esModuleInterop": true, "skipLibCheck": true, "strict": true },
+  "include": ["test-hedge.ts", "../src/lib/hedge.ts"]
+}

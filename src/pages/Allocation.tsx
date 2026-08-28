@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
-import { Target, Wand2, Eraser, Percent, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList, ShieldCheck, LoaderCircle, ListChecks, CircleAlert, Lock, Unlock, Scale, SlidersHorizontal, Eye, ShoppingCart } from 'lucide-react'
+import { Target, Wand2, Eraser, Percent, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList, ShieldCheck, LoaderCircle, ListChecks, CircleAlert, Lock, Unlock, Scale, SlidersHorizontal, Eye, ShoppingCart, ChevronRight } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
 import { bucketOf, bucketStats, bucketClassification, BUCKETS, BUCKET_COLOR, type Bucket } from '../lib/buckets'
 import { normTicker } from '../lib/plan'
@@ -482,7 +482,7 @@ export default function Allocation() {
       <FallbackCorrections rows={classificationRows.filter((r) => r.method === 'Growth fallback')} onSetBucket={setPositionBucket} />
       <RebalanceInsights insights={insights} accName={(id) => data.accounts.find((a) => a.id === id)?.name ?? id} hasData={!!data.insights} />
       </>}
-      {tab === 'hedges' && <ProtectivePutsEngine positions={positions} accounts={data.accounts} />}
+      {tab === 'hedges' && <div className="space-y-4"><ProtectivePutTutorial /><ProtectivePutsEngine positions={positions} accounts={data.accounts} /></div>}
     </div>
   )
 }
@@ -504,6 +504,18 @@ function ClassificationReview({ rows, fallbackCount, accounts: _accounts }: { ro
 function FallbackCorrections({ rows, onSetBucket }: { rows: Array<{ position: Position; bucket: Bucket }>; onSetBucket: (accountId: string, symbol: string, bucket: Bucket) => void }) {
   if (!rows.length) return null
   return <div className="card mt-4 p-5"><div className="flex items-start gap-2"><CircleAlert size={16} className="mt-0.5 text-[#e7c88f]"/><div><h3 className="font-semibold">Resolve Growth Fallbacks</h3><p className="mt-1 text-xs text-faint">Choose the intended bucket. Overrides are saved by account and symbol and reapplied after every sync.</p></div></div><div className="mt-4 space-y-2">{rows.map(({ position }) => <div key={position.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-border-soft bg-surface-2/40 p-3"><div className="min-w-[180px] flex-1"><span className="font-semibold">{position.symbol}</span><div className="truncate text-xs text-faint">{position.name}</div></div>{BUCKETS.map((bucket) => <button key={bucket} onClick={() => onSetBucket(position.accountId, position.symbol, bucket)} className="rounded-lg border px-2.5 py-1.5 text-xs font-medium hover:bg-white/[.04]" style={{ borderColor: `${BUCKET_COLOR[bucket]}35`, color: BUCKET_COLOR[bucket] }}>{bucket}</button>)}</div>)}</div></div>
+}
+
+function ProtectivePutTutorial() {
+  const steps = [
+    ['Choose the holding', 'Select the stock or ETF you want to insure. A standard equity option contract controls 100 shares.'],
+    ['Choose coverage', '100% targets the full holding. Partial coverage lowers premium cost but leaves some shares exposed.'],
+    ['Set your loss tolerance', 'A 15% drawdown suggests a strike about 15% below today’s price. The premium makes the effective loss limit slightly larger.'],
+    ['Find a real contract in Schwab', 'Match the suggested strike and choose an expiration. Enter Schwab’s current ask or a realistic limit price as the premium.'],
+    ['Review the risk', 'Check uncovered shares, maximum modeled loss, break-even, annualized premium drag, and the expiration scenarios.'],
+    ['Verify before trading', 'Copy the ticket, then confirm the multiplier, deliverable, bid/ask spread, open interest, expiration, and total debit in Schwab.'],
+  ]
+  return <details className="card group p-0"><summary className="flex cursor-pointer list-none items-center gap-3 p-5"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#c7a96b]/10 text-[#d8bd7a]"><ClipboardList size={18}/></div><div><h3 className="font-semibold">How to use protective puts</h3><p className="mt-0.5 text-xs text-faint">A six-step walkthrough with an example and Schwab checklist</p></div><ChevronRight size={17} className="ml-auto text-faint transition-transform group-open:rotate-90"/></summary><div className="border-t border-border-soft p-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{steps.map(([title, body], i) => <div key={title} className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="mb-2 flex items-center gap-2"><span className="grid h-6 w-6 place-items-center rounded-full bg-brand/10 text-xs font-bold text-brand">{i + 1}</span><span className="text-sm font-semibold">{title}</span></div><p className="text-xs leading-5 text-muted">{body}</p></div>)}</div><div className="mt-4 grid gap-4 lg:grid-cols-2"><div className="rounded-xl border border-[#c7a96b]/20 bg-[#c7a96b]/5 p-4"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-[#cbb77f]">Example</div><p className="mt-2 text-sm leading-6 text-muted">You own 250 shares at $100 and want protection below $85. Rounding down buys 2 puts and protects 200 shares; 50 remain exposed. At a $2 premium, the hedge costs $400. Your protected shares have an $83 effective floor before taxes and fees.</p></div><div className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-faint">What the hedge does—and does not do</div><p className="mt-2 text-sm leading-6 text-muted">A put establishes a downside payoff through its expiration while preserving stock upside, minus premium. It can expire worthless, loses time value, and does not guarantee the displayed outcome if sold early. This engine models expiration value only and does not use live Greeks or option quotes.</p></div></div><div className="mt-4 rounded-lg border border-[#5a3a16] bg-[#38240f]/55 p-3 text-xs leading-5 text-[#e7c88f]">Educational planning tool—not individualized investment advice. Options involve risk. Confirm approval level and contract details with Schwab before placing an order.</div></div></details>
 }
 
 function ProtectivePutsEngine({ positions, accounts }: { positions: Position[]; accounts: Account[] }) {

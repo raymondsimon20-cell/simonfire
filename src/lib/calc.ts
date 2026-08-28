@@ -272,6 +272,9 @@ export interface DividendStats {
   yieldOnCost: number
   distributionYield: number
   symbolCount: number
+  schwabForwardIncome: number
+  historicalEstimateIncome: number
+  forwardCoverage: number
   future: { month: string; amount: number }[]
   bySymbol: SymbolDividend[]
 }
@@ -287,6 +290,7 @@ export interface SymbolDividend {
   payments12m: number
   avgPayment: number
   lastPayment: string
+  estimateSource: 'Schwab forward' | 'Historical run rate' | 'No current holding'
 }
 
 export function dividendStats(
@@ -344,6 +348,7 @@ export function dividendStats(
   const valueBySym = new Map<string, number>()
   const currentSharesByAccountSym = new Map<string, number>()
   const currentSharesBySym = new Map<string, number>()
+  const forwardAnnualBySym = new Map<string, number>()
   for (const p of positions) {
     if (p.isOption || p.shares <= 0) continue
     const sym = normTicker(p.symbol)
@@ -352,6 +357,8 @@ export function dividendStats(
     valueBySym.set(sym, (valueBySym.get(sym) ?? 0) + p.shares * p.lastPrice)
     currentSharesByAccountSym.set(`${p.accountId}|${sym}`, (currentSharesByAccountSym.get(`${p.accountId}|${sym}`) ?? 0) + p.shares)
     currentSharesBySym.set(sym, (currentSharesBySym.get(sym) ?? 0) + p.shares)
+    if (p.annualDividend != null && p.annualDividend > 0)
+      forwardAnnualBySym.set(sym, (forwardAnnualBySym.get(sym) ?? 0) + p.shares * p.annualDividend)
   }
 
   // Reconstruct shares held on a payment date from today's shares and all later
@@ -412,10 +419,14 @@ export function dividendStats(
     return 'Annual'
   }
   const bySymbol: SymbolDividend[] = []
-  const payingSymbols = new Set<string>([...ttmBySym.keys()])
+  // Include newly purchased payers even before their first cash payment reaches
+  // the ledger when Schwab supplies a forward annual distribution.
+  const payingSymbols = new Set<string>([...ttmBySym.keys(), ...forwardAnnualBySym.keys()])
   for (const sym of payingSymbols) {
     const ttm = ttmBySym.get(sym) ?? 0
     const projected = projectedBySym.get(sym) ?? 0
+    const forward = forwardAnnualBySym.get(sym)
+    const estimate = forward ?? projected
     const pays = count12mBySym.get(sym) ?? 0
     const cost = costBySym.get(sym) ?? 0
     const value = valueBySym.get(sym) ?? 0
@@ -424,12 +435,15 @@ export function dividendStats(
       cadence: inferCadence(datesBySym.get(sym) ?? []),
       ttm,
       availableIncome: availableBySym.get(sym) ?? 0,
-      projAnnual: projected,
-      yoc: cost >= FLOOR ? Math.min(projected / cost, CAP) : 0,
-      distributionYield: value >= FLOOR ? Math.min(projected / value, CAP) : 0,
+      projAnnual: estimate,
+      yoc: cost >= FLOOR ? Math.min(estimate / cost, CAP) : 0,
+      distributionYield: value >= FLOOR ? Math.min(estimate / value, CAP) : 0,
       payments12m: pays,
       avgPayment: pays ? ttm / pays : 0,
       lastPayment: lastPayBySym.get(sym) ?? '',
+      estimateSource: currentSharesBySym.get(sym)
+        ? forward != null ? 'Schwab forward' : 'Historical run rate'
+        : 'No current holding',
     })
   }
   bySymbol.sort((a, b) => b.ttm - a.ttm)
@@ -438,6 +452,8 @@ export function dividendStats(
   let estAnnual = 0
   let payerCost = 0
   let payerValue = 0
+  let schwabForwardIncome = 0
+  let historicalEstimateIncome = 0
   for (const b of bySymbol) {
     const value = valueBySym.get(b.symbol) ?? 0
     const cost = costBySym.get(b.symbol) ?? 0
@@ -446,6 +462,8 @@ export function dividendStats(
       estAnnual += b.projAnnual
       payerCost += cost
       payerValue += value
+      if (b.estimateSource === 'Schwab forward') schwabForwardIncome += b.projAnnual
+      else historicalEstimateIncome += b.projAnnual
     }
   }
   const estMonthly = estAnnual / 12
@@ -474,6 +492,9 @@ export function dividendStats(
     yieldOnCost: payerCost > 0 ? Math.min(estAnnual / payerCost, CAP) : 0,
     distributionYield: payerValue > 0 ? Math.min(estAnnual / payerValue, CAP) : 0,
     symbolCount: payerSet.size,
+    schwabForwardIncome,
+    historicalEstimateIncome,
+    forwardCoverage: estAnnual > 0 ? schwabForwardIncome / estAnnual : 0,
     future,
     bySymbol,
   }

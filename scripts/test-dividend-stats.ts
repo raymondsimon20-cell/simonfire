@@ -60,4 +60,16 @@ const quarterlyTransactions = ['2025-09-01', '2025-12-01', '2026-03-01', '2026-0
 const quarterly = dividendStats(positions.slice(0, 1), quarterlyTransactions, '2026-08-27')
 assert.equal(quarterly.bySymbol[0]?.cadence, 'Quarterly')
 
+const forwardPosition: Position = {
+  ...positions[0], id: 'new-payer', symbol: 'NEW', shares: 50, avgCost: 20, lastPrice: 25,
+  annualDividend: 2,
+}
+const forward = dividendStats([forwardPosition], [], '2026-08-27')
+assert.equal(forward.estAnnual, 100)
+assert.equal(forward.schwabForwardIncome, 100)
+assert.equal(forward.historicalEstimateIncome, 0)
+assert.equal(forward.forwardCoverage, 1)
+assert.equal(forward.bySymbol[0]?.estimateSource, 'Schwab forward')
+assert.equal(forward.distributionYield, 100 / 1250)
+
 console.log('dividendStats tests passed')

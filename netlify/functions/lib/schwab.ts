@@ -200,6 +200,40 @@ function isOptionSymbol(sym?: string) {
   return !!sym && OSI_RE.test(String(sym).replace(/\s+/g, ''))
 }
 
+async function fetchDividendFundamentals(symbols: string[], token: string) {
+  const result = new Map<string, { annualDividend?: number; indicatedYield?: number; lastDividend?: number; dividendPayDate?: string }>()
+  for (let offset = 0; offset < symbols.length; offset += 200) {
+    const batch = symbols.slice(offset, offset + 200)
+    if (!batch.length) continue
+    const params = new URLSearchParams({ symbols: batch.join(','), fields: 'fundamental' })
+    try {
+      const res = await fetch(`${MARKET_BASE}/quotes?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      })
+      if (!res.ok) continue
+      const quotes: any = await res.json()
+      for (const symbol of batch) {
+        const quote = quotes[symbol] ?? quotes[symbol.toUpperCase()]
+        const f = quote?.fundamental
+        if (!f) continue
+        const annualDividend = num(f.divAmount)
+        const indicatedYieldPct = num(f.divYield)
+        const lastDividend = num(f.divPayAmount)
+        const rawPayDate = String(f.divPayDate ?? '')
+        result.set(symbol, {
+          annualDividend: annualDividend > 0 ? annualDividend : undefined,
+          indicatedYield: indicatedYieldPct > 0 ? indicatedYieldPct / 100 : undefined,
+          lastDividend: lastDividend > 0 ? lastDividend : undefined,
+          dividendPayDate: /^\d{4}-\d{2}-\d{2}/.test(rawPayDate) ? rawPayDate.slice(0, 10) : undefined,
+        })
+      }
+    } catch {
+      // Fundamentals improve estimates but must never prevent account sync.
+    }
+  }
+  return result
+}
+
 // Daily closing prices for one symbol over [startMs, endMs]. Returns date→close.
 async function fetchDailyCloses(
   symbol: string,
@@ -479,6 +513,17 @@ export async function fetchPortfolio(token: string) {
       ).catch(() => [])
       for (const t of txns) transactions.push(mapTxn(accId, t))
     }
+  }
+
+  // Schwab's income view is based on indicated/forward distributions rather
+  // than cash received in the last year. Enrich equity positions with the same
+  // security-level fundamentals when Market Data is available.
+  const equitySymbols = [...new Set(positions.filter((p) => !p.isOption).map((p) => String(p.symbol).toUpperCase()).filter(Boolean))]
+  const dividendFundamentals = await fetchDividendFundamentals(equitySymbols, token)
+  for (const p of positions) {
+    if (p.isOption) continue
+    const fundamental = dividendFundamentals.get(String(p.symbol).toUpperCase())
+    if (fundamental) Object.assign(p, fundamental)
   }
 
   // Dividend/interest transactions often carry only the cash leg, so the ticker

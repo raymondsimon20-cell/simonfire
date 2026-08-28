@@ -44,6 +44,13 @@ export interface Position {
   expiration?: string // ISO yyyy-mm-dd
   underlying?: string
   allocationBucket?: 'Growth' | 'CEFs' | 'High Yield' | 'Leveraged'
+  // Schwab market-data fundamentals. annualDividend is the current indicated
+  // annual distribution per share; these fields may be absent for unsupported
+  // securities or when market data is temporarily unavailable.
+  annualDividend?: number
+  indicatedYield?: number
+  lastDividend?: number
+  dividendPayDate?: string
 }
 
 export type TxnType =

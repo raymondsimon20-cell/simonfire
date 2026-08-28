@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { protectivePutOutcome, protectivePutPlan } from '../src/lib/hedge'
+import { protectivePutOutcome, protectivePutPlan, rankProtectivePut } from '../src/lib/hedge'
 
 const full = protectivePutPlan({ shares: 250, sharePrice: 100, coveragePct: 100, maxDrawdownPct: 15, premiumPerShare: 2 })
 assert.equal(full.contracts, 3)
@@ -35,5 +35,11 @@ const quoted = protectivePutPlan({ shares: 100, sharePrice: 100, coveragePct: 10
 assert.equal(quoted.suggestedStrike, 85)
 assert.equal(quoted.strike, 82.5)
 assert.equal(quoted.effectiveFloor, 79.5)
+
+const liquidFit = rankProtectivePut({ strike: 87, ask: 2, mark: 1.9, bid: 1.8, last: 1.9, daysToExpiration: 91, openInterest: 1200, volume: 200 }, 100, 15, 90)
+const thinFit = rankProtectivePut({ strike: 87, ask: 4, mark: 2.5, bid: 1, last: 2, daysToExpiration: 180, openInterest: 0, volume: 0 }, 100, 15, 90)
+assert.equal(liquidFit.effectiveFloor, 85)
+assert.ok(liquidFit.score > thinFit.score)
+assert.ok(liquidFit.reasons.includes('tight spread'))
 
 console.log('protective put tests passed')

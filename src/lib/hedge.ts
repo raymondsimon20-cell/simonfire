@@ -61,3 +61,48 @@ export function protectivePutOutcome(
   const pnl = terminalValue - plan.positionValue - plan.premiumCost
   return { expirationPrice: price, terminalValue, pnl, returnPct: plan.positionValue ? pnl / plan.positionValue : 0 }
 }
+
+export interface PutQuoteCandidate {
+  strike: number
+  ask: number | null
+  mark: number | null
+  last: number | null
+  bid: number | null
+  daysToExpiration: number | null
+  openInterest: number | null
+  volume: number | null
+}
+
+export function rankProtectivePut<T extends PutQuoteCandidate>(
+  quote: T,
+  sharePrice: number,
+  targetDrawdownPct: number,
+  targetDays: number,
+) {
+  const premium = quote.ask ?? quote.mark ?? quote.last ?? quote.bid ?? 0
+  const bid = quote.bid ?? 0
+  const ask = quote.ask ?? premium
+  const midpoint = Math.max((bid + ask) / 2, 0.01)
+  const spreadPct = ask > 0 ? Math.max(0, ask - bid) / midpoint : 1
+  const targetFloor = sharePrice * (1 - Math.max(0, Math.min(100, targetDrawdownPct)) / 100)
+  const effectiveFloor = quote.strike - premium
+  const floorGapPct = sharePrice > 0 ? Math.abs(effectiveFloor - targetFloor) / sharePrice : 1
+  const dte = quote.daysToExpiration ?? targetDays
+  const dteGap = targetDays > 0 ? Math.abs(dte - targetDays) / targetDays : 0
+  const oi = quote.openInterest ?? 0
+  const volume = quote.volume ?? 0
+  const floorPenalty = Math.min(38, floorGapPct * 240)
+  const spreadPenalty = Math.min(24, spreadPct * 35)
+  const dtePenalty = Math.min(16, dteGap * 12)
+  const liquidityPenalty = oi >= 500 ? 0 : oi >= 100 ? 4 : oi > 0 ? 9 : 14
+  const volumePenalty = volume >= 50 ? 0 : volume >= 10 ? 2 : volume > 0 ? 5 : 8
+  const premiumPenalty = sharePrice > 0 ? Math.min(8, premium / sharePrice * 50) : 8
+  const score = Math.max(0, Math.round(100 - floorPenalty - spreadPenalty - dtePenalty - liquidityPenalty - volumePenalty - premiumPenalty))
+  const protectionPct = sharePrice > 0 ? (1 - effectiveFloor / sharePrice) * 100 : 0
+  const reasons = [
+    `${protectionPct.toFixed(1)}% effective protection floor`,
+    spreadPct <= 0.12 ? 'tight spread' : spreadPct <= 0.3 ? 'moderate spread' : 'wide spread',
+    oi >= 500 ? 'strong open interest' : oi >= 100 ? 'useful open interest' : 'thin open interest',
+  ]
+  return { score, premium, effectiveFloor, targetFloor, floorGapPct, spreadPct, reasons }
+}

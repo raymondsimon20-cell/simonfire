@@ -509,13 +509,33 @@ function FallbackCorrections({ rows, onSetBucket }: { rows: Array<{ position: Po
 function ProtectivePutTutorial() {
   const steps = [
     ['Choose the holding', 'Select the stock or ETF you want to insure. A standard equity option contract controls 100 shares.'],
-    ['Choose coverage', '100% targets the full holding. Partial coverage lowers premium cost but leaves some shares exposed.'],
-    ['Set your loss tolerance', 'A 15% drawdown suggests a strike about 15% below today’s price. The premium makes the effective loss limit slightly larger.'],
-    ['Find a real contract in Schwab', 'Match the suggested strike and choose an expiration. Enter Schwab’s current ask or a realistic limit price as the premium.'],
-    ['Review the risk', 'Check uncovered shares, maximum modeled loss, break-even, annualized premium drag, and the expiration scenarios.'],
-    ['Verify before trading', 'Copy the ticket, then confirm the multiplier, deliverable, bid/ask spread, open interest, expiration, and total debit in Schwab.'],
+    ['Choose coverage', 'Full coverage targets every share. Partial coverage costs less but leaves some downside exposed. Use contract rounding deliberately for odd lots.'],
+    ['Set your loss tolerance', 'A 15% drawdown suggests a strike near 15% below today’s price. Premium means the effective loss limit is slightly larger.'],
+    ['Load the Schwab chain', 'Open Schwab option-chain quotes, choose the same holding, and load puts expiring roughly 7–240 days from now.'],
+    ['Check price and liquidity', 'Compare bid, ask, and mark. Prefer useful open interest and volume with a narrow spread, and note whether the feed is delayed.'],
+    ['Use a quote', 'Choose a contract near the target strike. Use quote sends its actual strike, expiration, and ask into the engine. The ask is conservative, not a guaranteed fill.'],
+    ['Review the hedge', 'Check uncovered shares, maximum loss, break-even, annualized premium drag, Greeks, implied volatility, and expiration scenarios.'],
+    ['Verify before trading', 'Copy the ticket and confirm the option symbol, multiplier, deliverable, limit price, expiration, liquidity, and total debit in Schwab.'],
   ]
-  return <details className="card group p-0"><summary className="flex cursor-pointer list-none items-center gap-3 p-5"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#c7a96b]/10 text-[#d8bd7a]"><ClipboardList size={18}/></div><div><h3 className="font-semibold">How to use protective puts</h3><p className="mt-0.5 text-xs text-faint">A six-step walkthrough with an example and Schwab checklist</p></div><ChevronRight size={17} className="ml-auto text-faint transition-transform group-open:rotate-90"/></summary><div className="border-t border-border-soft p-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{steps.map(([title, body], i) => <div key={title} className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="mb-2 flex items-center gap-2"><span className="grid h-6 w-6 place-items-center rounded-full bg-brand/10 text-xs font-bold text-brand">{i + 1}</span><span className="text-sm font-semibold">{title}</span></div><p className="text-xs leading-5 text-muted">{body}</p></div>)}</div><div className="mt-4 grid gap-4 lg:grid-cols-2"><div className="rounded-xl border border-[#c7a96b]/20 bg-[#c7a96b]/5 p-4"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-[#cbb77f]">Example</div><p className="mt-2 text-sm leading-6 text-muted">You own 250 shares at $100 and want protection below $85. Rounding down buys 2 puts and protects 200 shares; 50 remain exposed. At a $2 premium, the hedge costs $400. Your protected shares have an $83 effective floor before taxes and fees.</p></div><div className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-faint">What the hedge does—and does not do</div><p className="mt-2 text-sm leading-6 text-muted">A put establishes a downside payoff through its expiration while preserving stock upside, minus premium. It can expire worthless, loses time value, and does not guarantee the displayed outcome if sold early. This engine models expiration value only and does not use live Greeks or option quotes.</p></div></div><div className="mt-4 rounded-lg border border-[#5a3a16] bg-[#38240f]/55 p-3 text-xs leading-5 text-[#e7c88f]">Educational planning tool—not individualized investment advice. Options involve risk. Confirm approval level and contract details with Schwab before placing an order.</div></div></details>
+  return (
+    <details className="card group p-0">
+      <summary className="flex cursor-pointer list-none items-center gap-3 p-5">
+        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#c7a96b]/10 text-[#d8bd7a]"><ClipboardList size={18}/></div>
+        <div><h3 className="font-semibold">How to use protective puts</h3><p className="mt-0.5 text-xs text-faint">An eight-step live-quote walkthrough with an example and Schwab checklist</p></div>
+        <ChevronRight size={17} className="ml-auto text-faint transition-transform group-open:rotate-90"/>
+      </summary>
+      <div className="border-t border-border-soft p-5">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {steps.map(([title, body], i) => <div key={title} className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="mb-2 flex items-center gap-2"><span className="grid h-6 w-6 place-items-center rounded-full bg-brand/10 text-xs font-bold text-brand">{i + 1}</span><span className="text-sm font-semibold">{title}</span></div><p className="text-xs leading-5 text-muted">{body}</p></div>)}
+        </div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-xl border border-[#c7a96b]/20 bg-[#c7a96b]/5 p-4"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-[#cbb77f]">Live-quote example</div><p className="mt-2 text-sm leading-6 text-muted">You own 250 shares at $100 and target protection below $85. Load the chain and select an $85 put offered at $2. Rounding down buys 2 contracts for $400, protects 200 shares, leaves 50 uncovered, and creates an $83 effective floor on protected shares before taxes and fees.</p></div>
+          <div className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-faint">Reading the quote</div><p className="mt-2 text-sm leading-6 text-muted">Bid is what buyers currently offer; ask is what sellers request; mark is generally between them. Delta estimates price sensitivity, theta estimates daily time decay, and implied volatility reflects option pricing—not a forecast. Quotes and Greeks can move quickly and may be delayed.</p></div>
+        </div>
+        <div className="mt-4 rounded-lg border border-[#5a3a16] bg-[#38240f]/55 p-3 text-xs leading-5 text-[#e7c88f]">The scenario table models intrinsic value at expiration. It does not predict early-sale value or include dividends, taxes, commissions, volatility changes, or assignment mechanics. Educational planning tool—not individualized investment advice.</div>
+      </div>
+    </details>
+  )
 }
 
 function LivePutQuotes({ positions, accounts }: { positions: Position[]; accounts: Account[] }) {

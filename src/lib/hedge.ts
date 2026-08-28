@@ -5,6 +5,7 @@ export interface ProtectivePutInput {
   maxDrawdownPct: number
   premiumPerShare: number
   contractRounding?: 'down' | 'nearest' | 'up'
+  strikePrice?: number
 }
 
 export function protectivePutPlan(input: ProtectivePutInput) {
@@ -22,7 +23,8 @@ export function protectivePutPlan(input: ProtectivePutInput) {
   const coveredShares = Math.min(shares, contractShares)
   const uncoveredShares = Math.max(0, shares - contractShares)
   const overhedgedShares = Math.max(0, contractShares - shares)
-  const strike = +(sharePrice * (1 - drawdownPct / 100)).toFixed(2)
+  const suggestedStrike = +(sharePrice * (1 - drawdownPct / 100)).toFixed(2)
+  const strike = input.strikePrice != null && input.strikePrice > 0 ? input.strikePrice : suggestedStrike
   const premiumCost = premiumPerShare * 100 * contracts
   const protectedNotional = strike * coveredShares
   const positionValue = shares * sharePrice
@@ -38,6 +40,7 @@ export function protectivePutPlan(input: ProtectivePutInput) {
     overhedgedShares,
     actualCoveragePct: shares ? coveredShares / shares : 0,
     strike,
+    suggestedStrike,
     premiumCost,
     protectedNotional,
     effectiveFloor: Math.max(0, strike - premiumPerShare),

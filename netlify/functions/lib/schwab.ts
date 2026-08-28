@@ -7,7 +7,7 @@ import { classifySchwabTransaction } from '../../../src/lib/transaction-classifi
 const TOKEN_URL = 'https://api.schwabapi.com/v1/oauth/token'
 const AUTH_URL = 'https://api.schwabapi.com/v1/oauth/authorize'
 const API_BASE = 'https://api.schwabapi.com/trader/v1'
-const MARKET_BASE = 'https://api.schwabapi.com/marketdata/v1'
+export const MARKET_BASE = 'https://api.schwabapi.com/marketdata/v1'
 
 export function env() {
   return {

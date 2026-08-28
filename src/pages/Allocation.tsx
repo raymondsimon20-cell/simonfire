@@ -5,10 +5,10 @@ import { useScoped, useStore } from '../lib/store'
 import { bucketOf, bucketStats, bucketClassification, BUCKETS, BUCKET_COLOR, type Bucket } from '../lib/buckets'
 import { normTicker } from '../lib/plan'
 import { buildInsights, SIGNAL_STYLE, ACTION_STYLE, type HoldingInsight } from '../lib/insights'
-import { usd, pct, intfmt } from '../lib/format'
+import { usd, pct, intfmt, shortDate } from '../lib/format'
 import { PageHeader, Button } from '../components/ui'
 import { Modal } from '../components/Modal'
-import { schwabOrderStatus, schwabPlaceOrder, schwabPreviewOrder, type EquityOrder } from '../lib/api'
+import { schwabOrderStatus, schwabPlaceOrder, schwabPreviewOrder, schwabPutChain, type EquityOrder, type PutQuote } from '../lib/api'
 import { marginCapacity, type MarginCapacity } from '../lib/margin'
 import clsx from 'clsx'
 import type { Account, Position } from '../lib/types'
@@ -482,7 +482,7 @@ export default function Allocation() {
       <FallbackCorrections rows={classificationRows.filter((r) => r.method === 'Growth fallback')} onSetBucket={setPositionBucket} />
       <RebalanceInsights insights={insights} accName={(id) => data.accounts.find((a) => a.id === id)?.name ?? id} hasData={!!data.insights} />
       </>}
-      {tab === 'hedges' && <div className="space-y-4"><ProtectivePutTutorial /><ProtectivePutsEngine positions={positions} accounts={data.accounts} /></div>}
+      {tab === 'hedges' && <div className="space-y-4"><ProtectivePutTutorial /><LivePutQuotes positions={positions} accounts={data.accounts} /><ProtectivePutsEngine positions={positions} accounts={data.accounts} /></div>}
     </div>
   )
 }
@@ -518,6 +518,34 @@ function ProtectivePutTutorial() {
   return <details className="card group p-0"><summary className="flex cursor-pointer list-none items-center gap-3 p-5"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#c7a96b]/10 text-[#d8bd7a]"><ClipboardList size={18}/></div><div><h3 className="font-semibold">How to use protective puts</h3><p className="mt-0.5 text-xs text-faint">A six-step walkthrough with an example and Schwab checklist</p></div><ChevronRight size={17} className="ml-auto text-faint transition-transform group-open:rotate-90"/></summary><div className="border-t border-border-soft p-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{steps.map(([title, body], i) => <div key={title} className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="mb-2 flex items-center gap-2"><span className="grid h-6 w-6 place-items-center rounded-full bg-brand/10 text-xs font-bold text-brand">{i + 1}</span><span className="text-sm font-semibold">{title}</span></div><p className="text-xs leading-5 text-muted">{body}</p></div>)}</div><div className="mt-4 grid gap-4 lg:grid-cols-2"><div className="rounded-xl border border-[#c7a96b]/20 bg-[#c7a96b]/5 p-4"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-[#cbb77f]">Example</div><p className="mt-2 text-sm leading-6 text-muted">You own 250 shares at $100 and want protection below $85. Rounding down buys 2 puts and protects 200 shares; 50 remain exposed. At a $2 premium, the hedge costs $400. Your protected shares have an $83 effective floor before taxes and fees.</p></div><div className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-faint">What the hedge does—and does not do</div><p className="mt-2 text-sm leading-6 text-muted">A put establishes a downside payoff through its expiration while preserving stock upside, minus premium. It can expire worthless, loses time value, and does not guarantee the displayed outcome if sold early. This engine models expiration value only and does not use live Greeks or option quotes.</p></div></div><div className="mt-4 rounded-lg border border-[#5a3a16] bg-[#38240f]/55 p-3 text-xs leading-5 text-[#e7c88f]">Educational planning tool—not individualized investment advice. Options involve risk. Confirm approval level and contract details with Schwab before placing an order.</div></div></details>
 }
 
+function LivePutQuotes({ positions, accounts }: { positions: Position[]; accounts: Account[] }) {
+  const eligible = useMemo(() => positions.filter((p) => !p.isOption && p.shares > 0 && p.lastPrice > 0), [positions])
+  const [positionId, setPositionId] = useState(() => eligible[0]?.id ?? '')
+  const [quotes, setQuotes] = useState<PutQuote[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [meta, setMeta] = useState<{ fetchedAt?: string; delayed?: boolean; underlyingPrice?: number | null }>({})
+  const position = eligible.find((p) => p.id === positionId) ?? eligible[0]
+  const load = async () => {
+    if (!position) return
+    setLoading(true); setError('')
+    const from = new Date(); from.setDate(from.getDate() + 7)
+    const to = new Date(); to.setDate(to.getDate() + 240)
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    const result = await schwabPutChain(position.symbol, iso(from), iso(to))
+    setLoading(false)
+    if (!result.ok) { setQuotes([]); setError(result.error === 'not_connected' || result.error === 'refresh_expired' ? 'Connect or reconnect Schwab to load option quotes.' : result.error || 'Quotes unavailable.'); return }
+    setQuotes(result.contracts ?? [])
+    setMeta({ fetchedAt: result.fetchedAt, delayed: result.delayed, underlyingPrice: result.underlyingPrice })
+  }
+  const useQuote = (quote: PutQuote) => {
+    const premium = quote.ask ?? quote.mark ?? quote.last ?? quote.bid ?? 0
+    window.dispatchEvent(new CustomEvent('simonfire:put-quote', { detail: { positionId: position?.id, strike: quote.strike, expiration: quote.expiration, premium } }))
+    document.getElementById('protective-put-inputs')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+  return <details className="card group p-0"><summary className="flex cursor-pointer list-none items-center gap-3 p-5"><Activity size={19} className="text-pos"/><div><h3 className="font-semibold">Schwab option-chain quotes</h3><p className="mt-0.5 text-xs text-faint">Load puts and send a contract’s strike, expiration, and premium into the engine</p></div><ChevronRight size={17} className="ml-auto text-faint transition-transform group-open:rotate-90"/></summary><div className="border-t border-border-soft p-5"><div className="flex flex-wrap items-end gap-3"><label className="min-w-[240px] flex-1 text-xs text-muted"><span>Underlying position</span><select value={position?.id ?? ''} onChange={(e) => { setPositionId(e.target.value); setQuotes([]); setError('') }} className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm text-ink">{eligible.map((p) => <option key={p.id} value={p.id}>{p.symbol} · {p.shares} shares · {accounts.find((a) => a.id === p.accountId)?.name}</option>)}</select></label><Button onClick={load} disabled={loading || !position}>{loading ? <LoaderCircle size={14} className="animate-spin"/> : <Activity size={14}/>} {loading ? 'Loading quotes' : 'Load Schwab quotes'}</Button></div>{error && <div className="mt-4 rounded-lg border border-neg/30 bg-neg/10 p-3 text-xs text-neg">{error}</div>}{quotes.length > 0 && <><div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-faint"><span>{quotes.length} puts</span>{meta.underlyingPrice != null && <span>Underlying {usd(meta.underlyingPrice)}</span>}<span>{meta.delayed ? 'Delayed market data' : 'Schwab market data'}</span>{meta.fetchedAt && <span>Fetched {new Date(meta.fetchedAt).toLocaleTimeString()}</span>}</div><div className="mt-3 max-h-[420px] overflow-auto rounded-xl border border-border-soft"><table className="w-full min-w-[900px] text-sm"><thead className="sticky top-0 bg-surface"><tr className="text-xs text-muted"><th className="px-3 py-2 text-left">Expiration</th><th className="px-3 py-2 text-right">DTE</th><th className="px-3 py-2 text-right">Strike</th><th className="px-3 py-2 text-right">Bid</th><th className="px-3 py-2 text-right">Ask</th><th className="px-3 py-2 text-right">Mark</th><th className="px-3 py-2 text-right">IV</th><th className="px-3 py-2 text-right">Delta</th><th className="px-3 py-2 text-right">Theta</th><th className="px-3 py-2 text-right">Volume</th><th className="px-3 py-2 text-right">Open interest</th><th className="px-3 py-2"></th></tr></thead><tbody>{quotes.map((q) => <tr key={q.symbol} className="border-t border-border-soft"><td className="px-3 py-2">{shortDate(q.expiration)}</td><td className="num px-3 py-2 text-right text-muted">{q.daysToExpiration ?? '—'}</td><td className="num px-3 py-2 text-right font-semibold">{usd(q.strike)}</td><td className="num px-3 py-2 text-right">{q.bid == null ? '—' : usd(q.bid)}</td><td className="num px-3 py-2 text-right">{q.ask == null ? '—' : usd(q.ask)}</td><td className="num px-3 py-2 text-right">{q.mark == null ? '—' : usd(q.mark)}</td><td className="num px-3 py-2 text-right text-muted">{q.volatility == null ? '—' : pct(q.volatility)}</td><td className="num px-3 py-2 text-right text-muted">{q.delta?.toFixed(3) ?? '—'}</td><td className="num px-3 py-2 text-right text-muted">{q.theta?.toFixed(3) ?? '—'}</td><td className="num px-3 py-2 text-right text-muted">{intfmt(q.volume ?? 0)}</td><td className="num px-3 py-2 text-right text-muted">{intfmt(q.openInterest ?? 0)}</td><td className="px-3 py-2 text-right"><Button onClick={() => useQuote(q)} disabled={q.ask == null && q.mark == null && q.last == null && q.bid == null}>Use quote</Button></td></tr>)}</tbody></table></div><p className="mt-3 text-xs text-faint">“Use quote” conservatively uses the ask first, then mark, last, or bid. Review the limit price in Schwab; displayed data can move or be delayed.</p></>}</div></details>
+}
+
 function ProtectivePutsEngine({ positions, accounts }: { positions: Position[]; accounts: Account[] }) {
   const eligible = useMemo(() => positions.filter((p) => !p.isOption && p.shares > 0 && p.lastPrice > 0).sort((a, b) => b.shares * b.lastPrice - a.shares * a.lastPrice), [positions])
   const [positionId, setPositionId] = useState(() => eligible[0]?.id ?? '')
@@ -526,10 +554,22 @@ function ProtectivePutsEngine({ positions, accounts }: { positions: Position[]; 
   const [premium, setPremium] = useState(0)
   const [expiry, setExpiry] = useState('')
   const [rounding, setRounding] = useState<'down' | 'nearest' | 'up'>('down')
+  const [quoteStrike, setQuoteStrike] = useState<number | undefined>()
   const [copied, setCopied] = useState(false)
   const p = eligible.find((row) => row.id === positionId) ?? eligible[0]
+  useEffect(() => {
+    const applyQuote = (event: Event) => {
+      const detail = (event as CustomEvent<{ positionId?: string; strike: number; expiration: string; premium: number }>).detail
+      if (detail.positionId) setPositionId(detail.positionId)
+      setQuoteStrike(detail.strike)
+      setExpiry(detail.expiration)
+      setPremium(detail.premium)
+    }
+    window.addEventListener('simonfire:put-quote', applyQuote)
+    return () => window.removeEventListener('simonfire:put-quote', applyQuote)
+  }, [])
   if (!p) return <div className="card p-10 text-center text-sm text-muted">No eligible long equity positions are available to hedge.</div>
-  const hedge = protectivePutPlan({ shares: p.shares, sharePrice: p.lastPrice, coveragePct: coverage, maxDrawdownPct: drawdown, premiumPerShare: premium, contractRounding: rounding })
+  const hedge = protectivePutPlan({ shares: p.shares, sharePrice: p.lastPrice, coveragePct: coverage, maxDrawdownPct: drawdown, premiumPerShare: premium, contractRounding: rounding, strikePrice: quoteStrike })
   const { contracts, coveredShares, uncoveredShares, overhedgedShares, strike, premiumCost, protectedNotional: protectedValue, positionValue, effectiveFloor, premiumDrag, breakEvenPrice, maxLoss, maxLossPct } = hedge
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const expiryDate = expiry ? new Date(`${expiry}T00:00:00`) : null

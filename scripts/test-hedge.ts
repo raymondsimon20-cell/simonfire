@@ -31,4 +31,9 @@ const rally = protectivePutOutcome(oddLot, 125)
 assert.equal(rally.terminalValue, 31250)
 assert.equal(rally.pnl, 5850)
 
+const quoted = protectivePutPlan({ shares: 100, sharePrice: 100, coveragePct: 100, maxDrawdownPct: 15, premiumPerShare: 3, strikePrice: 82.5 })
+assert.equal(quoted.suggestedStrike, 85)
+assert.equal(quoted.strike, 82.5)
+assert.equal(quoted.effectiveFloor, 79.5)
+
 console.log('protective put tests passed')

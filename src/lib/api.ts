@@ -100,3 +100,43 @@ export const schwabPlaceOrder = (accountId: string, requestId: string, order: Eq
 
 export const schwabOrderStatus = (accountId: string, orderId: string) =>
   orderRequest({ action: 'status', accountId, orderId })
+
+export interface PutQuote {
+  symbol: string
+  expiration: string
+  daysToExpiration: number | null
+  strike: number
+  bid: number | null
+  ask: number | null
+  mark: number | null
+  last: number | null
+  delta: number | null
+  theta: number | null
+  volatility: number | null
+  openInterest: number | null
+  volume: number | null
+  quoteTime: number | null
+  multiplier: number | null
+}
+
+export interface PutChainResult {
+  ok: boolean
+  error?: string
+  symbol?: string
+  underlyingPrice?: number | null
+  delayed?: boolean
+  fetchedAt?: string
+  contracts?: PutQuote[]
+}
+
+export async function schwabPutChain(symbol: string, fromDate?: string, toDate?: string): Promise<PutChainResult> {
+  try {
+    const params = new URLSearchParams({ symbol })
+    if (fromDate) params.set('fromDate', fromDate)
+    if (toDate) params.set('toDate', toDate)
+    const response = await fetch(`${FN}/schwab-options?${params}`)
+    return await response.json() as PutChainResult
+  } catch {
+    return { ok: false, error: 'unreachable' }
+  }
+}

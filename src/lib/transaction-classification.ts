@@ -26,6 +26,14 @@ export function classifySchwabTransaction({
   if (/MARGIN INTEREST|INTEREST CHARGED|MARGIN INT\b|INT CHARGE|MARGININT/.test(text))
     return 'Interest'
 
+  // Fractional shares liquidated during a split are real sale proceeds. Match
+  // this before the broader split/corporate-action rule.
+  if (/\bCASH IN LIEU(?: OF FRACTIONAL SHARES?)?\b|\bCIL FRACTIONAL SHARES?\b/.test(text))
+    return 'Sell'
+
+  if (/\bREVERSE (?:STOCK )?SPLIT\b|\bFORWARD (?:STOCK )?SPLIT\b|\bSTOCK SPLIT\b|\bMANDATORY REORG(?:ANIZATION)?\b|\bSHARE ADJUSTMENT\b|\bSPLIT ADJUSTMENT\b/.test(text))
+    return 'Corporate Action'
+
   const internalTransfer =
     /\bTRF FUNDS\b|\bTRANSFER OF FUNDS\b|\bJOURNAL/.test(desc) && /\bTYPE ?[12]\b/.test(desc)
   if (internalTransfer) return 'Transfer'

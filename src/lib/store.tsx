@@ -33,6 +33,9 @@ function applyRulesTo(d: AppData, extraManaged?: Iterable<string>) {
     const desc = t.description.toLowerCase()
     for (const r of active) {
       if (!desc.includes(r.contains.toLowerCase())) continue
+      if (r.amountDirection === 'positive' && t.amount <= 0) continue
+      if (r.amountDirection === 'negative' && t.amount >= 0) continue
+      if (r.amountDirection === 'zero' && t.amount !== 0) continue
       if (r.tag && !t.tags.includes(r.tag)) t.tags.push(r.tag)
       if (r.setType) t.type = r.setType
     }

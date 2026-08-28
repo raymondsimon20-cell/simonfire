@@ -502,7 +502,7 @@ export async function fetchPortfolio(token: string) {
     return undefined
   }
   for (const t of transactions) {
-    if (!t.symbol && (t.type === 'Dividend' || t.type === 'Other')) {
+    if (!t.symbol && (t.type === 'Dividend' || t.type === 'Sell' || t.type === 'Corporate Action' || t.type === 'Other')) {
       const sym = resolveSym(t.description)
       if (sym) t.symbol = sym
     }

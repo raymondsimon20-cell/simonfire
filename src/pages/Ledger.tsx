@@ -8,7 +8,7 @@ import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Transaction, TxnType } from '../lib/types'
 import clsx from 'clsx'
 
-const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Buy', 'Sell', 'Other']
+const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action', 'Buy', 'Sell', 'Other']
 
 export default function Ledger() {
   const { transactions, accounts } = useScoped()
@@ -143,7 +143,7 @@ function normalizePattern(desc: string) {
     .trim()
 }
 
-const CLEANUP_CATS: TxnType[] = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding']
+const CLEANUP_CATS: TxnType[] = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action']
 
 // Surfaces every transaction still sitting in the catch-all "Other" category,
 // grouped by description pattern, and lets you categorize each group in one
@@ -152,19 +152,26 @@ function CategoryCleanup() {
   const { data, addRule } = useStore()
   const [open, setOpen] = useState(false)
   const [edits, setEdits] = useState<Record<string, { contains: string; type: string }>>({})
+  const [direction, setDirection] = useState<'all' | 'positive' | 'negative' | 'zero'>('all')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkType, setBulkType] = useState('')
 
   const groups = useMemo(() => {
-    const m = new Map<string, { pattern: string; count: number; total: number }>()
+    const m = new Map<string, { key: string; pattern: string; direction: 'positive' | 'negative' | 'zero'; count: number; total: number }>()
     for (const t of data.transactions) {
       if (t.type !== 'Other') continue
-      const key = normalizePattern(t.description) || t.description.toUpperCase()
-      const g = m.get(key) ?? { pattern: key, count: 0, total: 0 }
+      const pattern = normalizePattern(t.description) || t.description.toUpperCase()
+      const cashDirection = t.amount > 0 ? 'positive' : t.amount < 0 ? 'negative' : 'zero'
+      const key = `${cashDirection}|${pattern}`
+      const g = m.get(key) ?? { key, pattern, direction: cashDirection, count: 0, total: 0 }
       g.count++
       g.total += t.amount
       m.set(key, g)
     }
-    return [...m.values()].sort((a, b) => b.count - a.count)
+    return [...m.values()].sort((a, b) => b.count - a.count || Math.abs(b.total) - Math.abs(a.total))
   }, [data.transactions])
+
+  const visibleGroups = direction === 'all' ? groups : groups.filter((g) => g.direction === direction)
 
   const totalOther = groups.reduce((s, g) => s + g.count, 0)
 
@@ -174,16 +181,28 @@ function CategoryCleanup() {
       return { ...prev, [pattern]: { ...base, ...patch } }
     })
 
-  const apply = (pattern: string) => {
-    const e = edits[pattern] ?? { contains: pattern, type: '' }
-    const contains = (e.contains || pattern).trim()
-    if (!contains || !e.type) return
-    addRule({ contains, tag: '', setType: e.type as TxnType, enabled: true })
+  const apply = (g: (typeof groups)[number], forcedType?: string) => {
+    const e = edits[g.key] ?? { contains: g.pattern, type: '' }
+    const contains = (e.contains || g.pattern).trim()
+    const nextType = forcedType || e.type
+    if (!contains || !nextType) return
+    addRule({ contains, tag: '', setType: nextType as TxnType, amountDirection: g.direction, enabled: true })
     setEdits((prev) => {
       const n = { ...prev }
-      delete n[pattern]
+      delete n[g.key]
       return n
     })
+    setSelected((prev) => {
+      const n = new Set(prev)
+      n.delete(g.key)
+      return n
+    })
+  }
+
+  const applySelected = () => {
+    if (!bulkType) return
+    groups.filter((g) => selected.has(g.key)).forEach((g) => apply(g, bulkType))
+    setBulkType('')
   }
 
   return (
@@ -209,24 +228,44 @@ function CategoryCleanup() {
           ) : (
             <>
               <p className="mb-4 text-xs text-faint">
-                Each row is a group of “Other” transactions sharing a description. Pick a category and hit Apply — it re-tags them all now and creates a rule so future syncs stay clean. Tweak the match text if it's too broad or narrow.
+                Groups are split by description and cash direction, so the same Schwab label can be treated differently when money comes in or goes out. Select several rows to label them together.
               </p>
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                {(['all', 'positive', 'negative', 'zero'] as const).map((d) => (
+                  <button key={d} onClick={() => setDirection(d)} className={clsx('rounded-lg border px-3 py-1.5 text-xs capitalize', direction === d ? 'border-brand bg-brand/10 text-ink' : 'border-border text-muted hover:bg-surface-2')}>
+                    {d === 'all' ? 'All' : d === 'positive' ? 'Inflows +' : d === 'negative' ? 'Outflows −' : 'Zero cash'}
+                  </button>
+                ))}
+                <span className="ml-auto text-xs text-faint">{visibleGroups.length} groups</span>
+              </div>
+              {selected.size > 0 && (
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-brand/40 bg-brand/5 p-3">
+                  <span className="text-sm font-medium">{selected.size} selected</span>
+                  <select value={bulkType} onChange={(e) => setBulkType(e.target.value)} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-ink outline-none">
+                    <option value="">Set category…</option>
+                    {CLEANUP_CATS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <Button variant="primary" onClick={applySelected}>Apply to selected</Button>
+                  <button onClick={() => setSelected(new Set())} className="text-xs text-muted hover:text-ink">Clear</button>
+                </div>
+              )}
               <div className="space-y-2">
-                {groups.map((g) => {
-                  const e = edits[g.pattern] ?? { contains: g.pattern, type: '' }
+                {visibleGroups.map((g) => {
+                  const e = edits[g.key] ?? { contains: g.pattern, type: '' }
                   return (
-                    <div key={g.pattern} className="flex flex-wrap items-center gap-3 rounded-lg border border-border-soft bg-surface-2/40 px-3 py-2.5 text-sm">
+                    <div key={g.key} className={clsx('flex flex-wrap items-center gap-3 rounded-lg border bg-surface-2/40 px-3 py-2.5 text-sm', selected.has(g.key) ? 'border-brand/60' : 'border-border-soft')}>
+                      <input type="checkbox" checked={selected.has(g.key)} onChange={() => setSelected((prev) => { const n = new Set(prev); if (n.has(g.key)) n.delete(g.key); else n.add(g.key); return n })} className="h-4 w-4 rounded-full accent-[#3b82f6]" aria-label={`Select ${g.pattern}`} />
                       <span className="rounded-md bg-surface px-2 py-0.5 text-xs text-muted">{g.count}×</span>
                       <span className={clsx('num text-xs', g.total >= 0 ? 'text-pos' : 'text-neg')}>{usd(g.total, { sign: true })}</span>
                       <input
                         value={e.contains}
-                        onChange={(ev) => setEdit(g.pattern, { contains: ev.target.value })}
+                        onChange={(ev) => setEdit(g.key, { contains: ev.target.value })}
                         className="min-w-[220px] flex-1 rounded-lg border border-border bg-surface px-2.5 py-1.5 font-mono text-xs text-ink outline-none focus:border-brand"
                       />
                       <span className="text-faint">→</span>
                       <select
                         value={e.type}
-                        onChange={(ev) => setEdit(g.pattern, { type: ev.target.value })}
+                        onChange={(ev) => setEdit(g.key, { type: ev.target.value })}
                         className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-ink outline-none"
                       >
                         <option value="">Set category…</option>
@@ -234,7 +273,7 @@ function CategoryCleanup() {
                           <option key={c} value={c}>{c}</option>
                         ))}
                       </select>
-                      <Button variant="primary" onClick={() => apply(g.pattern)}>Apply</Button>
+                      <Button variant="primary" onClick={() => apply(g)}>Apply</Button>
                     </div>
                   )
                 })}
@@ -329,13 +368,14 @@ function RulesPanel({ presetContains, matchCount }: { presetContains: string; ma
                   <span className="text-faint">→</span>
                   {r.tag && <span className="rounded-md bg-[#123024] px-2 py-0.5 text-xs font-medium text-[#3fd88a]">{r.tag}</span>}
                   {r.setType && <span className="text-xs text-muted">set <Badge>{r.setType}</Badge></span>}
+                  {r.amountDirection && <span className="rounded-md bg-surface px-2 py-0.5 text-xs capitalize text-faint">{r.amountDirection} amounts only</span>}
                   <button onClick={() => removeRule(r.id)} className="ml-auto text-faint hover:text-neg"><Trash2 size={14} /></button>
                 </div>
               ))}
             </div>
           )}
           <p className="mt-3 text-xs text-faint">
-            Rules match on the transaction description (case-insensitive) and apply everywhere the tag or category shows — automatically, on every sync.
+            Rules match on the transaction description (case-insensitive) and apply automatically on every sync. Rules created in category cleanup also preserve the selected cash direction.
           </p>
         </div>
       )}

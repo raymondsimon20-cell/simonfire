@@ -542,5 +542,6 @@ export const TXN_TYPES: TxnType[] = [
   'Transfer',
   'Fee',
   'Tax Withholding',
+  'Corporate Action',
   'Other',
 ]

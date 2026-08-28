@@ -56,6 +56,7 @@ export type TxnType =
   | 'Transfer'
   | 'Fee'
   | 'Tax Withholding'
+  | 'Corporate Action'
   | 'Other'
 
 export interface Transaction {
@@ -146,5 +147,6 @@ export interface TagRule {
   contains: string // case-insensitive match on the transaction description
   tag: string // tag/label to apply to matching transactions
   setType?: TxnType // optionally re-categorize matching transactions
+  amountDirection?: 'positive' | 'negative' | 'zero' // optional cash-direction guard
   enabled: boolean
 }

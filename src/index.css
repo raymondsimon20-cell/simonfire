@@ -5,19 +5,19 @@
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Menlo', monospace;
 
   /* Surface palette (dark) */
-  --color-bg: #0a0e17;
-  --color-surface: #111725;
-  --color-surface-2: #161d2d;
-  --color-border: #222c3f;
-  --color-border-soft: #1b2432;
+  --color-bg: #080b10;
+  --color-surface: #0e131b;
+  --color-surface-2: #141a24;
+  --color-border: #252c37;
+  --color-border-soft: #1a202a;
 
-  --color-ink: #e8edf5;
-  --color-muted: #8a97ad;
-  --color-faint: #5c6a80;
+  --color-ink: #f1f3f5;
+  --color-muted: #929cab;
+  --color-faint: #626d7c;
 
   --color-pos: #34d17d;
   --color-neg: #f2607a;
-  --color-brand: #3b82f6;
+  --color-brand: #c7a96b;
 
   --color-tile-green: #123024;
   --color-tile-blue: #10233f;
@@ -46,6 +46,8 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  background-image: radial-gradient(circle at 75% -10%, rgba(199, 169, 107, 0.07), transparent 28rem);
+  background-attachment: fixed;
 }
 
 /* Number cells: tabular, mono */
@@ -73,10 +75,20 @@ body {
 
 /* Utility: subtle card */
 .card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-soft);
-  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(17, 23, 32, 0.96), rgba(12, 16, 23, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 18px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.025);
 }
+
+button, a, input, select { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid rgba(199, 169, 107, 0.7);
+  outline-offset: 2px;
+}
+table thead { background: rgba(255, 255, 255, 0.012); }
+table tbody tr { transition: background-color 140ms ease; }
+::selection { background: rgba(199, 169, 107, 0.28); color: #fff; }
 
 .hairline {
   border-color: var(--color-border-soft);
@@ -93,5 +105,9 @@ body {
   }
 }
 .fadein {
-  animation: fadein 0.25s ease both;
+  animation: fadein 0.35s ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

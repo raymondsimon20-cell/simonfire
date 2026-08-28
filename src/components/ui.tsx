@@ -31,10 +31,10 @@ export function KpiCard({
   valueClass?: string
 }) {
   return (
-    <div className="card p-5 fadein">
+    <div className="card group p-5 fadein transition-transform duration-200 hover:-translate-y-0.5">
       <div className="flex items-start justify-between">
         {icon && (
-          <div className={clsx('grid h-11 w-11 place-items-center rounded-xl', tileBg[tile])}>
+          <div className={clsx('grid h-10 w-10 place-items-center rounded-xl opacity-90 ring-1 ring-white/[0.04]', tileBg[tile])}>
             {icon}
           </div>
         )}
@@ -47,8 +47,8 @@ export function KpiCard({
           </span>
         )}
       </div>
-      <div className="mt-4 text-sm text-muted">{label}</div>
-      <div className={clsx('num mt-1 text-2xl font-semibold', valueClass)}>{value}</div>
+      <div className="mt-5 text-[11px] font-medium uppercase tracking-[0.09em] text-muted">{label}</div>
+      <div className={clsx('num mt-1.5 text-[25px] font-medium tracking-[-0.04em]', valueClass)}>{value}</div>
       {sub && <div className="mt-1 text-xs text-faint">{sub}</div>}
     </div>
   )
@@ -76,7 +76,7 @@ export function PageHeader({
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
+        <h1 className="text-[29px] font-semibold tracking-[-0.035em] text-ink sm:text-[34px]">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
       </div>
       {right && <div className="flex items-center gap-2">{right}</div>}
@@ -132,10 +132,10 @@ export function Button({
       onClick={onClick}
       disabled={disabled}
       className={clsx(
-        'inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors',
+        'inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition-all',
         variant === 'primary'
-          ? 'bg-brand text-white hover:bg-[#2f74e6]'
-          : 'border border-border bg-surface-2 text-ink hover:bg-[#1c2740]',
+          ? 'bg-gradient-to-b from-[#d1b574] to-[#a98747] text-[#111318] shadow-[0_6px_20px_rgba(169,135,71,0.18)] hover:brightness-110'
+          : 'border border-border bg-white/[0.025] text-ink hover:border-[#c7a96b]/30 hover:bg-white/[0.05]',
         'disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}

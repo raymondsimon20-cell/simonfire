@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
-import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload } from 'lucide-react'
+import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { relTime } from '../lib/format'
@@ -12,8 +12,8 @@ function LogoMark({ size = 34 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 34 34" fill="none" aria-hidden>
       <defs>
         <linearGradient id="sf-mark" x1="0" y1="0" x2="34" y2="34" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#34d17d" />
-          <stop offset="1" stopColor="#3fd6c8" />
+          <stop stopColor="#d8bd7a" />
+          <stop offset="1" stopColor="#9c7a3d" />
         </linearGradient>
       </defs>
       <rect width="34" height="34" rx="9" fill="url(#sf-mark)" />
@@ -34,9 +34,9 @@ function Logo() {
   return (
     <NavLink to="/" className="flex shrink-0 items-center gap-2.5 pr-1">
       <LogoMark />
-      <span className="hidden text-[17px] font-bold tracking-tight sm:block">
+      <span className="text-[17px] font-semibold tracking-[-0.03em]">
         <span className="text-ink">Simon</span>
-        <span className="bg-gradient-to-r from-[#34d17d] to-[#3fd6c8] bg-clip-text text-transparent">
+        <span className="bg-gradient-to-r from-[#e1c887] to-[#a98343] bg-clip-text text-transparent">
           FIRE
         </span>
       </span>
@@ -45,15 +45,15 @@ function Logo() {
 }
 
 const NAV = [
-  { to: '/', label: 'Dashboard', end: true },
-  { to: '/positions', label: 'Positions' },
-  { to: '/transactions', label: 'Transactions' },
-  { to: '/cash-flow', label: 'Cash Flow' },
-  { to: '/dividends', label: 'Dividends' },
-  { to: '/month-close', label: 'Month Close' },
-  { to: '/ledger', label: 'Ledger' },
-  { to: '/allocation', label: 'Allocation' },
-  { to: '/connections', label: 'Connections' },
+  { to: '/', label: 'Overview', end: true, icon: LayoutDashboard },
+  { to: '/positions', label: 'Positions', icon: ChartNoAxesCombined },
+  { to: '/transactions', label: 'Transactions', icon: ReceiptText },
+  { to: '/cash-flow', label: 'Cash Flow', icon: Landmark },
+  { to: '/dividends', label: 'Dividends', icon: Coins },
+  { to: '/month-close', label: 'Month Close', icon: CalendarCheck },
+  { to: '/ledger', label: 'Ledger', icon: BookOpenText },
+  { to: '/allocation', label: 'Allocation', icon: Goal },
+  { to: '/connections', label: 'Connections', icon: Cable },
 ]
 
 // A single compact pill that folds "where the data came from" and "how fresh it
@@ -76,7 +76,7 @@ function StatusPill({
         : { dot: 'bg-[#f0a94a]', text: 'text-[#f0a94a]', icon: <FlaskConical size={11} />, label: 'Sample' }
 
   return (
-    <div className="hidden items-center gap-2 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs md:flex">
+    <div className="flex items-center gap-2 rounded-full border border-border bg-white/[0.025] px-3 py-1.5 text-xs">
       <span className={clsx('flex items-center gap-1.5 font-medium', cfg.text)}>
         {cfg.icon}
         {cfg.label}
@@ -105,7 +105,7 @@ function AvatarMenu({ onReset }: { onReset: () => void }) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-[#3b82f6] to-[#7c3aed] text-xs font-bold text-white outline-none ring-offset-2 ring-offset-bg hover:ring-2 hover:ring-border"
+        className="grid h-9 w-9 place-items-center rounded-full border border-[#b99550]/30 bg-gradient-to-br from-[#3a3122] to-[#171a20] text-xs font-semibold text-[#e1c887] outline-none ring-offset-2 ring-offset-bg hover:ring-2 hover:ring-[#b99550]/30"
       >
         RS
       </button>
@@ -141,7 +141,7 @@ function AccountScope() {
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm hover:bg-[#1c2740]"
+        className="flex w-full items-center gap-2 rounded-xl border border-border bg-white/[0.025] px-3 py-2.5 text-sm hover:bg-white/[0.05]"
       >
         <Layers size={15} className="text-brand" />
         <span className="font-medium">{current}</span>
@@ -235,10 +235,44 @@ export default function Layout() {
 
   return (
     <div className="min-h-full">
-      <header className="sticky top-0 z-20 border-b border-border-soft bg-bg/90 backdrop-blur">
-        <div className="mx-auto flex max-w-[1360px] items-center gap-4 px-4 py-3 lg:px-8">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-white/[0.06] bg-[#090c11]/95 px-4 py-5 backdrop-blur-xl lg:flex">
+        <div className="px-2"><Logo /></div>
+        <div className="mt-8 flex items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint">
+          <Sparkles size={11} className="text-[#c7a96b]" /> Portfolio
+        </div>
+        <nav className="mt-3 flex flex-1 flex-col gap-1">
+          {NAV.map((n) => {
+            const Icon = n.icon
+            return (
+              <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => clsx('group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-all', isActive ? 'bg-gradient-to-r from-[#c7a96b]/15 to-transparent text-[#e4cc8e] shadow-[inset_1px_0_0_#c7a96b]' : 'text-muted hover:bg-white/[0.035] hover:text-ink')}>
+                <Icon size={17} strokeWidth={1.7} /> {n.label}
+              </NavLink>
+            )
+          })}
+        </nav>
+        <div className="space-y-3 border-t border-white/[0.06] pt-4">
+          <AccountScope />
+          <StatusPill source={data.source} lastSyncAt={data.lastSyncAt} syncing={autoSyncing} />
+          <div className="flex items-center gap-2">
+            <button onClick={doSync} className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-white/[0.025] px-3 py-2.5 text-sm font-medium hover:bg-white/[0.05]">
+              <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} /> Sync
+            </button>
+            <AvatarMenu onReset={handleReset} />
+          </div>
+        </div>
+      </aside>
+
+      <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-bg/85 backdrop-blur-xl lg:hidden">
+        <div className="flex items-center gap-3 px-4 py-3">
           <Logo />
-          <nav className="flex flex-1 items-center gap-0.5 overflow-x-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={doSync} className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-surface" title="Sync now">
+              <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+            </button>
+            <AvatarMenu onReset={handleReset} />
+          </div>
+        </div>
+        <nav className="flex items-center gap-1 overflow-x-auto px-3 pb-2">
             {NAV.map((n) => (
               <NavLink
                 key={n.to}
@@ -246,9 +280,9 @@ export default function Layout() {
                 end={n.end}
                 className={({ isActive }) =>
                   clsx(
-                    'whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                    'whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
                     isActive
-                      ? 'bg-surface-2 text-[#3fd6a8]'
+                      ? 'bg-[#c7a96b]/15 text-[#e1c887]'
                       : 'text-muted hover:bg-surface-2 hover:text-ink',
                   )
                 }
@@ -256,24 +290,11 @@ export default function Layout() {
                 {n.label}
               </NavLink>
             ))}
-          </nav>
-          <div className="flex shrink-0 items-center gap-2">
-            <StatusPill source={data.source} lastSyncAt={data.lastSyncAt} syncing={autoSyncing} />
-            <button
-              onClick={doSync}
-              className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-medium hover:bg-[#1c2740]"
-              title="Sync now"
-            >
-              <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
-              <span className="hidden sm:inline">Sync</span>
-            </button>
-            <AvatarMenu onReset={handleReset} />
-          </div>
-        </div>
+        </nav>
       </header>
 
-      <main className="mx-auto max-w-[1360px] px-4 py-8 lg:px-8">
-        <div className="mb-4 flex justify-end">
+      <main className="mx-auto max-w-[1480px] px-4 py-7 sm:px-6 lg:ml-[248px] lg:px-10 lg:py-9 xl:px-12">
+        <div className="mb-5 flex justify-end lg:hidden">
           <AccountScope />
         </div>
         <Outlet />

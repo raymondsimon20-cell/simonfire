@@ -139,21 +139,23 @@ function AccountScope({ placement = 'bottom' }: { placement?: 'top' | 'bottom' }
       ? `All Accounts (${data.accounts.length})`
       : data.accounts.find((a) => a.id === scope)?.name ?? 'Account'
   return (
-    <div className="relative">
+    <div className="relative min-w-0 max-w-full">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 rounded-xl border border-border bg-white/[0.025] px-3 py-2.5 text-sm hover:bg-white/[0.05]"
+        className="flex min-w-0 max-w-full items-center gap-2 rounded-xl border border-border bg-white/[0.025] px-3 py-2.5 text-sm hover:bg-white/[0.05]"
       >
         <Layers size={15} className="text-brand" />
-        <span className="font-medium">{current}</span>
-        <ChevronDown size={15} className="text-faint" />
+        <span className="min-w-0 truncate font-medium">{current}</span>
+        <ChevronDown size={15} className="shrink-0 text-faint" />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className={clsx(
-            'absolute right-0 z-20 w-64 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-border bg-surface shadow-xl',
-            placement === 'top' ? 'bottom-full mb-2 max-h-[min(28rem,calc(100vh-8rem))]' : 'top-full mt-1 max-h-[min(28rem,calc(100vh-10rem))]',
+            'absolute z-20 overflow-y-auto rounded-xl border border-border bg-surface shadow-xl',
+            placement === 'top'
+              ? 'bottom-full left-0 mb-2 w-full max-h-[min(28rem,calc(100vh-8rem))]'
+              : 'right-0 top-full mt-1 w-[min(16rem,calc(100vw-2rem))] max-h-[min(28rem,calc(100vh-10rem))]',
           )}>
             <button
               className={clsx(

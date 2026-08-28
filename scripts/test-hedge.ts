@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { protectivePutPlan } from '../src/lib/hedge'
+import { protectivePutOutcome, protectivePutPlan } from '../src/lib/hedge'
 
 const full = protectivePutPlan({ shares: 250, sharePrice: 100, coveragePct: 100, maxDrawdownPct: 15, premiumPerShare: 2 })
 assert.equal(full.contracts, 3)
@@ -15,5 +15,20 @@ assert.equal(partial.contracts, 1)
 assert.equal(partial.coveredShares, 100)
 assert.equal(partial.actualCoveragePct, 0.4)
 assert.equal(partial.strike, 32)
+
+const oddLot = protectivePutPlan({ shares: 250, sharePrice: 100, coveragePct: 100, maxDrawdownPct: 15, premiumPerShare: 2, contractRounding: 'down' })
+assert.equal(oddLot.contracts, 2)
+assert.equal(oddLot.coveredShares, 200)
+assert.equal(oddLot.uncoveredShares, 50)
+assert.equal(oddLot.overhedgedShares, 0)
+assert.equal(oddLot.breakEvenPrice, 101.6)
+assert.equal(oddLot.maxLoss, 8400)
+assert.equal(oddLot.maxLossPct, 8400 / 25000)
+const crash = protectivePutOutcome(oddLot, 0)
+assert.equal(crash.terminalValue, 17000)
+assert.equal(crash.pnl, -8400)
+const rally = protectivePutOutcome(oddLot, 125)
+assert.equal(rally.terminalValue, 31250)
+assert.equal(rally.pnl, 5850)
 
 console.log('protective put tests passed')

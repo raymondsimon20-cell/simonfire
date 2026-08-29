@@ -8,6 +8,32 @@ export interface ProtectivePutInput {
   strikePrice?: number
 }
 
+const osiOptionSymbolPattern = /^[A-Z]{1,6}\d{6}[CP]\d{8}$/
+
+export function buildPutPreviewOrder(optionSymbol: string, contracts: number, premiumPerShare: number) {
+  const symbol = optionSymbol.trim().toUpperCase()
+  const optionKey = symbol.replace(/\s+/g, '')
+  if (!osiOptionSymbolPattern.test(optionKey)) return null
+  if (!Number.isSafeInteger(contracts) || contracts < 1 || contracts > 100) return null
+  if (!Number.isFinite(premiumPerShare) || premiumPerShare <= 0 || premiumPerShare > 1_000_000) return null
+  return {
+    session: 'NORMAL' as const,
+    duration: 'DAY' as const,
+    orderType: 'LIMIT' as const,
+    price: premiumPerShare.toFixed(2),
+    orderStrategyType: 'SINGLE' as const,
+    orderLegCollection: [{
+      instruction: 'BUY_TO_OPEN' as const,
+      quantity: contracts,
+      instrument: { symbol, assetType: 'OPTION' as const },
+    }] as [{
+      instruction: 'BUY_TO_OPEN'
+      quantity: number
+      instrument: { symbol: string; assetType: 'OPTION' }
+    }],
+  }
+}
+
 export function protectivePutPlan(input: ProtectivePutInput) {
   const shares = Math.max(0, input.shares)
   const sharePrice = Math.max(0, input.sharePrice)

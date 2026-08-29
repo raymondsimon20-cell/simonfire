@@ -70,6 +70,19 @@ export interface EquityOrder {
   }]
 }
 
+export interface OptionOrder {
+  session: 'NORMAL'
+  duration: 'DAY'
+  orderType: 'LIMIT'
+  price: string
+  orderStrategyType: 'SINGLE'
+  orderLegCollection: [{
+    instruction: 'BUY_TO_OPEN'
+    quantity: number
+    instrument: { symbol: string; assetType: 'OPTION' }
+  }]
+}
+
 export interface SchwabOrderResult {
   ok: boolean
   error?: unknown
@@ -92,7 +105,10 @@ async function orderRequest(body: Record<string, unknown>): Promise<SchwabOrderR
   }
 }
 
-export const schwabPreviewOrder = (accountId: string, requestId: string, order: EquityOrder) =>
+export const schwabPreviewOrder = (accountId: string, requestId: string, order: EquityOrder | OptionOrder) =>
+  orderRequest({ action: 'preview', accountId, requestId, order })
+
+export const schwabPreviewOption = (accountId: string, requestId: string, order: OptionOrder) =>
   orderRequest({ action: 'preview', accountId, requestId, order })
 
 export const schwabPlaceOrder = (accountId: string, requestId: string, order: EquityOrder) =>

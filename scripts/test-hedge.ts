@@ -1,5 +1,14 @@
 import { strict as assert } from 'node:assert'
-import { portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut } from '../src/lib/hedge'
+import { buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut } from '../src/lib/hedge'
+
+const optionOrder = buildPutPreviewOrder('QQQ   260918P00425000', 3, 8.126)
+assert.deepEqual(optionOrder, {
+  session: 'NORMAL', duration: 'DAY', orderType: 'LIMIT', price: '8.13', orderStrategyType: 'SINGLE',
+  orderLegCollection: [{ instruction: 'BUY_TO_OPEN', quantity: 3, instrument: { symbol: 'QQQ   260918P00425000', assetType: 'OPTION' } }],
+})
+assert.equal(buildPutPreviewOrder('QQQ', 3, 8.13), null)
+assert.equal(buildPutPreviewOrder('QQQ   260918P00425000', 0, 8.13), null)
+assert.equal(buildPutPreviewOrder('QQQ   260918P00425000', 3, 0), null)
 
 const full = protectivePutPlan({ shares: 250, sharePrice: 100, coveragePct: 100, maxDrawdownPct: 15, premiumPerShare: 2 })
 assert.equal(full.contracts, 3)

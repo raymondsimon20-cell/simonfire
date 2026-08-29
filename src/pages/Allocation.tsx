@@ -8,11 +8,11 @@ import { buildInsights, SIGNAL_STYLE, ACTION_STYLE, type HoldingInsight } from '
 import { usd, pct, intfmt, shortDate } from '../lib/format'
 import { PageHeader, Button } from '../components/ui'
 import { Modal } from '../components/Modal'
-import { schwabOrderStatus, schwabPlaceOrder, schwabPreviewOrder, schwabPutChain, type EquityOrder, type PutQuote } from '../lib/api'
+import { schwabOrderStatus, schwabPlaceOrder, schwabPreviewOption, schwabPreviewOrder, schwabPutChain, type EquityOrder, type PutQuote } from '../lib/api'
 import { marginCapacity, type MarginCapacity } from '../lib/margin'
 import clsx from 'clsx'
 import type { Account, HedgeRoll, Position } from '../lib/types'
-import { portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut } from '../lib/hedge'
+import { buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut } from '../lib/hedge'
 
 const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<string, number> => {
   const out: Record<string, number> = {}
@@ -529,15 +529,16 @@ function PortfolioHedgeEngine({ positions }: { positions: Position[] }) {
   const [strike, setStrike] = useState(0)
   const [premium, setPremium] = useState(0)
   const [expiry, setExpiry] = useState('')
+  const [optionSymbol, setOptionSymbol] = useState('')
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     const applyQuote = (event: Event) => {
-      const detail = (event as CustomEvent<{ symbol?: string; underlyingPrice?: number; strike: number; expiration: string; premium: number }>).detail
+      const detail = (event as CustomEvent<{ symbol?: string; optionSymbol?: string; underlyingPrice?: number; strike: number; expiration: string; premium: number }>).detail
       const symbol = normTicker(detail.symbol ?? '')
       if (symbol !== 'QQQ' && symbol !== 'SPY') return
       setHedgeSymbol(symbol)
       if (detail.underlyingPrice) setQqqPrice(detail.underlyingPrice)
-      setStrike(detail.strike); setPremium(detail.premium); setExpiry(detail.expiration)
+      setStrike(detail.strike); setPremium(detail.premium); setExpiry(detail.expiration); setOptionSymbol(detail.optionSymbol ?? '')
     }
     window.addEventListener('simonfire:put-quote', applyQuote)
     return () => window.removeEventListener('simonfire:put-quote', applyQuote)
@@ -548,8 +549,8 @@ function PortfolioHedgeEngine({ positions }: { positions: Position[] }) {
   const nextRoll = new Date(); nextRoll.setDate(nextRoll.getDate() + rollDays)
   const ticket = `BUY TO OPEN ${plan.contracts} ${hedgeSymbol} PUT ${expiry || '[EXPIRY]'} $${strike.toFixed(2)} @ $${premium.toFixed(2)} LIMIT · PORTFOLIO HEDGE · SELL TO CLOSE BY ${nextRoll.toISOString().slice(0, 10)}`
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('simonfire:hedge-plan', { detail: { proxy: hedgeSymbol, contracts: plan.contracts, strike, expiration: expiry, premiumPerShare: premium, grossPremium: plan.grossPremium, rollDate: nextRoll.toISOString().slice(0, 10), ticket } }))
-  }, [hedgeSymbol, plan.contracts, plan.grossPremium, strike, expiry, premium, rollDays, ticket])
+    window.dispatchEvent(new CustomEvent('simonfire:hedge-plan', { detail: { proxy: hedgeSymbol, contracts: plan.contracts, strike, expiration: expiry, premiumPerShare: premium, grossPremium: plan.grossPremium, rollDate: nextRoll.toISOString().slice(0, 10), optionSymbol, ticket } }))
+  }, [hedgeSymbol, plan.contracts, plan.grossPremium, strike, expiry, premium, rollDays, optionSymbol, ticket])
   const copy = async () => { try { await navigator.clipboard.writeText(ticket); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* unavailable */ } }
   return <div className="space-y-4"><div className="card p-5"><div className="flex items-start gap-3"><ShieldCheck size={20} className="text-brand"/><div><h3 className="font-semibold">Portfolio hedge sizing</h3><p className="mt-1 text-xs text-faint">Scenario-based QQQ proxy hedge with a fixed monthly roll discipline.</p></div><span className="ml-auto rounded-md bg-[#c7a96b]/10 px-2 py-1 text-xs text-[#d8bd7a]">Planning only</span></div><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><HedgeInput label="Long market exposure" prefix="$" value={longExposure} disabled/><HedgeInput label="QQQ price" prefix="$" value={qqqPrice} onChange={setQqqPrice}/><HedgeInput label="Estimated portfolio QQQ beta" value={beta} step={.05} onChange={(v) => setBeta(Math.max(0, Math.min(3, v)))}/><HedgeInput label="QQQ crash scenario" suffix="% down" value={decline} onChange={(v) => setDecline(Math.max(1, Math.min(90, v)))}/><HedgeInput label="Loss offset target" suffix="%" value={offset} onChange={(v) => setOffset(Math.max(1, Math.min(100, v)))}/><HedgeInput label="Annual premium budget" suffix="%" value={budget} step={.25} onChange={(v) => setBudget(Math.max(0, Math.min(20, v)))}/><HedgeInput label="Roll interval" suffix="days" value={rollDays} onChange={(v) => setRollDays(Math.max(7, Math.min(60, v)))}/><HedgeInput label="Selected strike" prefix="$" value={strike} onChange={setStrike}/><HedgeInput label="Selected ask" prefix="$" value={premium} step={.01} onChange={setPremium}/><label className="text-xs text-muted"><span>Expiration</span><input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm [color-scheme:dark]"/></label></div>{daysToExpiry != null && daysToExpiry < rollDays && <div className="mt-4 rounded-lg border border-neg/30 bg-neg/10 p-3 text-xs text-neg">This contract expires before the planned {rollDays}-day roll. Choose a longer-dated QQQ put.</div>}</div><div className="card p-5"><div className="grid grid-cols-2 gap-5 lg:grid-cols-4"><SummaryMetric label="Modeled portfolio loss" value={usd(plan.modeledPortfolioLoss)} tone="warn"/><SummaryMetric label="Desired dollar offset" value={usd(plan.desiredOffset)}/><SummaryMetric label="Net payoff / contract" value={usd(plan.netPayoffPerContract)}/><SummaryMetric label="Contracts required" value={String(plan.contracts)}/><SummaryMetric label="Gross premium debit" value={usd(plan.grossPremium)} tone={plan.overMonthlyBudget ? 'warn' : undefined}/><SummaryMetric label="Monthly debit budget" value={usd(plan.monthlyGrossDebitBudget)}/><SummaryMetric label="Modeled net offset" value={usd(plan.modeledNetOffset)}/><SummaryMetric label="Offset achieved" value={pct(plan.offsetAchievedPct * 100)}/><SummaryMetric label="Residual modeled loss" value={usd(plan.residualLoss)} tone="warn"/><SummaryMetric label="QQQ crash price" value={usd(plan.crashPrice)}/><SummaryMetric label="Next roll date" value={shortDate(nextRoll.toISOString().slice(0, 10))}/><SummaryMetric label="Days to expiration" value={daysToExpiry == null ? 'Select contract' : String(daysToExpiry)}/></div>{plan.overMonthlyBudget && <div className="mt-4 rounded-lg border border-[#5a3a16] bg-[#38240f]/55 p-3 text-xs text-[#e7c88f]">The gross purchase debit exceeds one month of the annual premium budget. This is a conservative warning: actual net roll cost depends on proceeds from selling the old put.</div>}</div><div className="card p-5"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-[#cbb77f]">Monthly roll ticket</div><div className="num mt-2 break-words text-sm">{ticket}</div><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-faint">Sell the existing put to close first, record its proceeds, then buy the replacement. Never exercise or leave this proxy hedge unattended into expiration.</p><Button onClick={copy} disabled={!plan.contracts || !expiry}>{copied ? <Check size={14}/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy ticket'}</Button></div></div></div>
 }
@@ -560,6 +561,8 @@ type HedgePlanSnapshot = Omit<HedgeRoll, 'id' | 'createdAt' | 'status' | 'source
 function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts: Account[] }) {
   const { data, addHedgeRoll, updateHedgeRoll, removeHedgeRoll } = useStore()
   const [plan, setPlan] = useState<HedgePlanSnapshot | null>(null)
+  const [orderAccount, setOrderAccount] = useState(() => accounts[0]?.id ?? '')
+  const [previewing, setPreviewing] = useState<string | null>(null)
   useEffect(() => {
     const receive = (event: Event) => setPlan((event as CustomEvent<HedgePlanSnapshot>).detail)
     window.addEventListener('simonfire:hedge-plan', receive)
@@ -567,9 +570,42 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
   }, [])
   const queued = data.hedgeRolls ?? []
   const livePuts = positions.filter((p) => p.isOption && p.optionType === 'Put' && p.shares > 0)
-  const add = () => { if (!plan || !plan.contracts || !plan.expiration) return; const { ticket: _ticket, ...roll } = plan; addHedgeRoll({ ...roll, status: 'queued', source: 'planning' }) }
+  useEffect(() => { if (!accounts.some((account) => account.id === orderAccount)) setOrderAccount(accounts[0]?.id ?? '') }, [accounts, orderAccount])
+  const add = () => { if (!plan || !plan.contracts || !plan.expiration || !plan.optionSymbol || !orderAccount) return; const { ticket: _ticket, ...roll } = plan; addHedgeRoll({ ...roll, accountId: orderAccount, previewState: 'not_previewed', status: 'queued', source: 'planning' }) }
+  const preview = async (roll: HedgeRoll) => {
+    const order = buildPutPreviewOrder(roll.optionSymbol ?? '', roll.contracts, roll.premiumPerShare)
+    if (!order || !roll.accountId) {
+      updateHedgeRoll(roll.id, { previewState: 'rejected', previewedAt: new Date().toISOString(), previewError: 'Select a fresh option quote and Schwab account.' })
+      return
+    }
+    setPreviewing(roll.id)
+    const result = await schwabPreviewOption(roll.accountId, crypto.randomUUID(), order)
+    const error = typeof result.error === 'string' ? result.error : result.error ? JSON.stringify(result.error) : 'Schwab rejected this preview.'
+    updateHedgeRoll(roll.id, { previewState: result.ok ? 'accepted' : 'rejected', previewedAt: new Date().toISOString(), previewError: result.ok ? undefined : error })
+    setPreviewing(null)
+  }
   const statusStyle: Record<HedgeRoll['status'], string> = { queued: 'bg-[#c7a96b]/10 text-[#d8bd7a]', active: 'bg-pos/10 text-pos', rolled: 'bg-[#10233f] text-[#5aa2ff]', closed: 'bg-surface-2 text-muted' }
-  return <div className="space-y-4"><div className="card p-5"><div className="flex flex-wrap items-start gap-3"><ListChecks size={19} className="text-brand"/><div><h3 className="font-semibold">Put order queue</h3><p className="mt-1 text-xs text-faint">Planning queue only. Option orders are not submitted to Schwab from this screen.</p></div><Button className="ml-auto" variant="primary" onClick={add} disabled={!plan?.contracts || !plan?.expiration}>Add current hedge to queue</Button></div>{plan && <div className="mt-4 rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="num text-sm">{plan.ticket}</div><div className="mt-2 text-xs text-faint">Gross debit {usd(plan.grossPremium)} · roll by {shortDate(plan.rollDate)}</div></div>}</div><div className="card overflow-x-auto p-0"><div className="flex items-center gap-3 p-5"><h3 className="font-semibold">Protective put tracker</h3><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">{livePuts.length} live Schwab</span><span className="rounded-md bg-surface-2 px-2 py-1 text-xs text-muted">{queued.length} tracked rolls</span></div><table className="w-full min-w-[900px] text-sm"><thead><tr className="border-y border-border-soft text-xs text-muted"><th className="px-4 py-3 text-left">Source</th><th className="px-4 py-3 text-left">Put</th><th className="px-4 py-3 text-right">Contracts</th><th className="px-4 py-3 text-right">Premium / value</th><th className="px-4 py-3 text-left">Expiration</th><th className="px-4 py-3 text-left">Roll by</th><th className="px-4 py-3 text-left">Status</th><th className="px-4 py-3"></th></tr></thead><tbody>{livePuts.map((p) => <tr key={`live-${p.id}`} className="border-b border-border-soft bg-pos/[.03]"><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Live Schwab</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === p.accountId)?.name ?? p.accountId}</div></td><td className="px-4 py-3 font-semibold">{p.underlying ?? p.symbol} ${p.strike?.toFixed(2) ?? '—'} put</td><td className="num px-4 py-3 text-right">{p.shares}</td><td className="num px-4 py-3 text-right">{usd(p.shares * p.lastPrice)}</td><td className="px-4 py-3">{p.expiration ? shortDate(p.expiration) : '—'}</td><td className="px-4 py-3 text-faint">Set in tracker</td><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Active</span></td><td></td></tr>)}{queued.map((r) => <tr key={r.id} className="border-b border-border-soft"><td className="px-4 py-3"><span className="rounded-md bg-[#c7a96b]/10 px-2 py-1 text-xs text-[#d8bd7a]">Planning</span></td><td className="px-4 py-3 font-semibold">{r.proxy} ${r.strike.toFixed(2)} put</td><td className="num px-4 py-3 text-right">{r.contracts}</td><td className="num px-4 py-3 text-right">{usd(r.grossPremium)}</td><td className="px-4 py-3">{shortDate(r.expiration)}</td><td className={clsx('px-4 py-3', r.status !== 'closed' && r.rollDate <= new Date().toISOString().slice(0, 10) ? 'text-neg' : '')}>{shortDate(r.rollDate)}</td><td className="px-4 py-3"><select value={r.status} onChange={(e) => updateHedgeRoll(r.id, { status: e.target.value as HedgeRoll['status'] })} className={clsx('rounded-md border-0 px-2 py-1 text-xs outline-none', statusStyle[r.status])}><option value="queued">Queued</option><option value="active">Active</option><option value="rolled">Rolled</option><option value="closed">Closed</option></select></td><td className="px-4 py-3 text-right"><button onClick={() => removeHedgeRoll(r.id)} className="text-xs text-faint hover:text-neg">Remove</button></td></tr>)}{!livePuts.length && !queued.length && <tr><td colSpan={8} className="px-5 py-10 text-center text-sm text-faint">No puts are being tracked yet. Select a live quote, size the hedge, and add it to the queue.</td></tr>}</tbody></table></div></div>
+  return <div className="space-y-4">
+    <div className="card p-5">
+      <div className="flex flex-wrap items-end gap-3">
+        <ListChecks size={19} className="mb-2 text-brand"/>
+        <div className="mb-1"><h3 className="font-semibold">Put order queue</h3><p className="mt-1 text-xs text-faint">Schwab preview validates the exact option ticket. Live option placement remains disabled.</p></div>
+        <label className="ml-auto text-xs text-muted"><span>Schwab account</span><select value={orderAccount} onChange={(e) => setOrderAccount(e.target.value)} className="mt-1 block rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink"><option value="">Select account</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+        <Button variant="primary" onClick={add} disabled={!plan?.contracts || !plan?.expiration || !plan?.optionSymbol || !orderAccount}>Add current hedge to queue</Button>
+      </div>
+      {plan && <div className="mt-4 rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="num text-sm">{plan.ticket}</div><div className="mt-2 text-xs text-faint">Gross debit {usd(plan.grossPremium)} · roll by {shortDate(plan.rollDate)} · {plan.optionSymbol ? `contract ${plan.optionSymbol}` : 'select a live quote to capture the contract symbol'}</div></div>}
+    </div>
+    <div className="card overflow-x-auto p-0">
+      <div className="flex items-center gap-3 p-5"><h3 className="font-semibold">Protective put tracker</h3><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">{livePuts.length} live Schwab</span><span className="rounded-md bg-surface-2 px-2 py-1 text-xs text-muted">{queued.length} tracked rolls</span></div>
+      <table className="w-full min-w-[1050px] text-sm"><thead><tr className="border-y border-border-soft text-xs text-muted"><th className="px-4 py-3 text-left">Source</th><th className="px-4 py-3 text-left">Put</th><th className="px-4 py-3 text-right">Contracts</th><th className="px-4 py-3 text-right">Premium / value</th><th className="px-4 py-3 text-left">Expiration</th><th className="px-4 py-3 text-left">Roll by</th><th className="px-4 py-3 text-left">Status</th><th className="px-4 py-3 text-left">Validation</th><th className="px-4 py-3"></th></tr></thead>
+        <tbody>
+          {livePuts.map((p) => <tr key={`live-${p.id}`} className="border-b border-border-soft bg-pos/[.03]"><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Live Schwab</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === p.accountId)?.name ?? p.accountId}</div></td><td className="px-4 py-3 font-semibold">{p.underlying ?? p.symbol} ${p.strike?.toFixed(2) ?? '—'} put</td><td className="num px-4 py-3 text-right">{p.shares}</td><td className="num px-4 py-3 text-right">{usd(p.shares * p.lastPrice)}</td><td className="px-4 py-3">{p.expiration ? shortDate(p.expiration) : '—'}</td><td className="px-4 py-3 text-faint">Set in tracker</td><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Active</span></td><td className="px-4 py-3 text-xs text-faint">Already at Schwab</td><td></td></tr>)}
+          {queued.map((r) => <tr key={r.id} className="border-b border-border-soft"><td className="px-4 py-3"><span className="rounded-md bg-[#c7a96b]/10 px-2 py-1 text-xs text-[#d8bd7a]">Planning</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === r.accountId)?.name ?? 'No account'}</div></td><td className="px-4 py-3 font-semibold">{r.proxy} ${r.strike.toFixed(2)} put<div className="mt-1 font-mono text-[10px] font-normal text-faint">{r.optionSymbol ?? 'Legacy row · quote required'}</div></td><td className="num px-4 py-3 text-right">{r.contracts}</td><td className="num px-4 py-3 text-right">{usd(r.grossPremium)}</td><td className="px-4 py-3">{shortDate(r.expiration)}</td><td className={clsx('px-4 py-3', r.status !== 'closed' && r.rollDate <= new Date().toISOString().slice(0, 10) ? 'text-neg' : '')}>{shortDate(r.rollDate)}</td><td className="px-4 py-3"><select value={r.status} onChange={(e) => updateHedgeRoll(r.id, { status: e.target.value as HedgeRoll['status'] })} className={clsx('rounded-md border-0 px-2 py-1 text-xs outline-none', statusStyle[r.status])}><option value="queued">Queued</option><option value="active">Active</option><option value="rolled">Rolled</option><option value="closed">Closed</option></select></td><td className="max-w-[220px] px-4 py-3"><button onClick={() => preview(r)} disabled={!r.optionSymbol || !r.accountId || r.status === 'closed' || previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">{previewing === r.id ? 'Previewing…' : 'Preview with Schwab'}</button><div className={clsx('mt-1 text-[10px]', r.previewState === 'accepted' ? 'text-pos' : r.previewState === 'rejected' ? 'text-neg' : 'text-faint')}>{r.previewState === 'accepted' ? 'Schwab preview passed' : r.previewState === 'rejected' ? r.previewError : 'Not previewed'}</div></td><td className="px-4 py-3 text-right"><button onClick={() => removeHedgeRoll(r.id)} className="text-xs text-faint hover:text-neg">Remove</button></td></tr>)}
+          {!livePuts.length && !queued.length && <tr><td colSpan={9} className="px-5 py-10 text-center text-sm text-faint">No puts are being tracked yet. Select a live quote, size the hedge, and add it to the queue.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  </div>
 }
 
 export function ProtectivePutTutorial() {
@@ -637,7 +673,7 @@ function LivePutQuotes({ positions, accounts, symbolFilter }: { positions: Posit
   }
   const useQuote = (quote: PutQuote) => {
     const premium = quote.ask ?? quote.mark ?? quote.last ?? quote.bid ?? 0
-    window.dispatchEvent(new CustomEvent('simonfire:put-quote', { detail: { positionId: position?.id, symbol: position?.symbol, underlyingPrice: meta.underlyingPrice ?? position?.lastPrice, strike: quote.strike, expiration: quote.expiration, premium } }))
+    window.dispatchEvent(new CustomEvent('simonfire:put-quote', { detail: { positionId: position?.id, symbol: position?.symbol, optionSymbol: quote.symbol, underlyingPrice: meta.underlyingPrice ?? position?.lastPrice, strike: quote.strike, expiration: quote.expiration, premium } }))
     document.getElementById('protective-put-inputs')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
   return (

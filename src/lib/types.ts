@@ -136,6 +136,11 @@ export interface HedgeRoll {
   createdAt: string
   status: 'queued' | 'active' | 'rolled' | 'closed'
   source: 'planning' | 'manual'
+  optionSymbol?: string
+  accountId?: string
+  previewState?: 'not_previewed' | 'accepted' | 'rejected'
+  previewedAt?: string
+  previewError?: string
 }
 
 export interface SmaSnapshot {

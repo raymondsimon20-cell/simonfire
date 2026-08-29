@@ -16,6 +16,7 @@ type OrderRequest = {
 
 const requestIdPattern = /^[a-f0-9-]{20,64}$/i
 const symbolPattern = /^[A-Z0-9][A-Z0-9./-]{0,14}$/
+const optionSymbolPattern = /^[A-Z]{1,6}\d{6}[CP]\d{8}$/
 
 function sameOrigin(req: Request) {
   const origin = req.headers.get('origin')
@@ -34,10 +35,13 @@ function validateOrder(value: any) {
   const leg = value.orderLegCollection[0]
   const symbol = String(leg?.instrument?.symbol ?? '').trim().toUpperCase()
   const quantity = Number(leg?.quantity)
-  if (leg?.instruction !== 'BUY') throw new Error('BUY_ORDERS_ONLY')
-  if (leg?.instrument?.assetType !== 'EQUITY' || !symbolPattern.test(symbol))
-    throw new Error('INVALID_SYMBOL')
-  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 10_000)
+  const assetType = String(leg?.instrument?.assetType ?? '').toUpperCase()
+  const optionKey = symbol.replace(/\s+/g, '')
+  const isEquity = assetType === 'EQUITY' && leg?.instruction === 'BUY' && symbolPattern.test(symbol)
+  const isOption = assetType === 'OPTION' && leg?.instruction === 'BUY_TO_OPEN' && optionSymbolPattern.test(optionKey)
+  if (!isEquity && !isOption) throw new Error('INVALID_ORDER_LEG')
+  if (isOption && value.orderType !== 'LIMIT') throw new Error('OPTION_LIMIT_ORDERS_ONLY')
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > (isOption ? 100 : 10_000))
     throw new Error('INVALID_QUANTITY')
 
   const normalized: any = {
@@ -46,9 +50,9 @@ function validateOrder(value: any) {
     orderType: value.orderType,
     orderStrategyType: 'SINGLE',
     orderLegCollection: [{
-      instruction: 'BUY',
+      instruction: isOption ? 'BUY_TO_OPEN' : 'BUY',
       quantity,
-      instrument: { symbol, assetType: 'EQUITY' },
+      instrument: { symbol, assetType },
     }],
   }
   if (value.orderType === 'LIMIT') {
@@ -98,6 +102,7 @@ export default async (req: Request) => {
     if (action !== 'preview' && action !== 'place') return json({ ok: false, error: 'invalid_action' }, 400)
     if (!requestIdPattern.test(String(body.requestId ?? ''))) return json({ ok: false, error: 'invalid_request_id' }, 400)
     const order = validateOrder(body.order)
+    const isOptionOrder = order.orderLegCollection[0]?.instrument?.assetType === 'OPTION'
     const digest = fingerprint(body.accountId, order)
     const orderStore = getStore('schwab-orders')
 
@@ -114,6 +119,7 @@ export default async (req: Request) => {
       return json({ ok: true, preview })
     }
 
+    if (isOptionOrder) return json({ ok: false, error: 'option_placement_disabled_preview_only' }, 503)
     if (process.env.SCHWAB_ORDER_PLACEMENT_ENABLED !== 'true')
       return json({ ok: false, error: 'placement_disabled' }, 503)
     if (body.confirm !== true) return json({ ok: false, error: 'confirmation_required' }, 400)

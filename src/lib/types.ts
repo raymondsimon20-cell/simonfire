@@ -141,6 +141,10 @@ export interface HedgeRoll {
   previewState?: 'not_previewed' | 'accepted' | 'rejected'
   previewedAt?: string
   previewError?: string
+  previewRequestId?: string
+  orderId?: string
+  orderStatus?: string
+  placedAt?: string
 }
 
 export interface SmaSnapshot {

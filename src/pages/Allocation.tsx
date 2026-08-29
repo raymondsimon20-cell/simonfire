@@ -8,7 +8,7 @@ import { buildInsights, SIGNAL_STYLE, ACTION_STYLE, type HoldingInsight } from '
 import { usd, pct, intfmt, shortDate } from '../lib/format'
 import { PageHeader, Button } from '../components/ui'
 import { Modal } from '../components/Modal'
-import { schwabOrderStatus, schwabPlaceOrder, schwabPreviewOption, schwabPreviewOrder, schwabPutChain, type EquityOrder, type PutQuote } from '../lib/api'
+import { schwabOrderStatus, schwabPlaceOption, schwabPlaceOrder, schwabPreviewOption, schwabPreviewOrder, schwabPutChain, type EquityOrder, type PutQuote } from '../lib/api'
 import { marginCapacity, type MarginCapacity } from '../lib/margin'
 import clsx from 'clsx'
 import type { Account, HedgeRoll, Position } from '../lib/types'
@@ -563,6 +563,9 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
   const [plan, setPlan] = useState<HedgePlanSnapshot | null>(null)
   const [orderAccount, setOrderAccount] = useState(() => accounts[0]?.id ?? '')
   const [previewing, setPreviewing] = useState<string | null>(null)
+  const [confirmRoll, setConfirmRoll] = useState<HedgeRoll | null>(null)
+  const [confirmationText, setConfirmationText] = useState('')
+  const [placing, setPlacing] = useState(false)
   useEffect(() => {
     const receive = (event: Event) => setPlan((event as CustomEvent<HedgePlanSnapshot>).detail)
     window.addEventListener('simonfire:hedge-plan', receive)
@@ -579,17 +582,41 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
       return
     }
     setPreviewing(roll.id)
-    const result = await schwabPreviewOption(roll.accountId, crypto.randomUUID(), order)
+    const requestId = crypto.randomUUID()
+    const result = await schwabPreviewOption(roll.accountId, requestId, order)
     const error = typeof result.error === 'string' ? result.error : result.error ? JSON.stringify(result.error) : 'Schwab rejected this preview.'
-    updateHedgeRoll(roll.id, { previewState: result.ok ? 'accepted' : 'rejected', previewedAt: new Date().toISOString(), previewError: result.ok ? undefined : error })
+    updateHedgeRoll(roll.id, { previewState: result.ok ? 'accepted' : 'rejected', previewedAt: new Date().toISOString(), previewRequestId: result.ok ? requestId : undefined, previewError: result.ok ? undefined : error })
     setPreviewing(null)
   }
+  const openPlacement = (roll: HedgeRoll) => { setConfirmRoll(roll); setConfirmationText('') }
+  const place = async () => {
+    if (!confirmRoll?.accountId || !confirmRoll.previewRequestId || confirmationText !== 'PLACE') return
+    const order = buildPutPreviewOrder(confirmRoll.optionSymbol ?? '', confirmRoll.contracts, confirmRoll.premiumPerShare)
+    if (!order) return
+    setPlacing(true)
+    const result = await schwabPlaceOption(confirmRoll.accountId, confirmRoll.previewRequestId, order)
+    if (!result.ok || !result.orderId) {
+      const error = typeof result.error === 'string' ? result.error.replaceAll('_', ' ') : result.error ? JSON.stringify(result.error) : 'Schwab rejected the order.'
+      updateHedgeRoll(confirmRoll.id, { previewState: 'rejected', previewError: error })
+      setPlacing(false)
+      setConfirmRoll((current) => current ? { ...current, previewState: 'rejected', previewError: error } : current)
+      return
+    }
+    const orderId = result.orderId
+    updateHedgeRoll(confirmRoll.id, { status: 'active', orderId, orderStatus: result.status ?? 'ACCEPTED', placedAt: new Date().toISOString(), previewError: undefined })
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+    const status = await schwabOrderStatus(confirmRoll.accountId, orderId)
+    if (status.ok) updateHedgeRoll(confirmRoll.id, { orderStatus: status.status ?? 'UNKNOWN' })
+    setPlacing(false)
+    setConfirmRoll(null)
+  }
+  const previewIsCurrent = (roll: HedgeRoll) => roll.previewState === 'accepted' && !!roll.previewRequestId && !!roll.previewedAt && Date.now() - new Date(roll.previewedAt).getTime() < 10 * 60_000
   const statusStyle: Record<HedgeRoll['status'], string> = { queued: 'bg-[#c7a96b]/10 text-[#d8bd7a]', active: 'bg-pos/10 text-pos', rolled: 'bg-[#10233f] text-[#5aa2ff]', closed: 'bg-surface-2 text-muted' }
   return <div className="space-y-4">
     <div className="card p-5">
       <div className="flex flex-wrap items-end gap-3">
         <ListChecks size={19} className="mb-2 text-brand"/>
-        <div className="mb-1"><h3 className="font-semibold">Put order queue</h3><p className="mt-1 text-xs text-faint">Schwab preview validates the exact option ticket. Live option placement remains disabled.</p></div>
+        <div className="mb-1"><h3 className="font-semibold">Put order queue</h3><p className="mt-1 text-xs text-faint">Preview the exact ticket with Schwab, then separately confirm any live submission.</p></div>
         <label className="ml-auto text-xs text-muted"><span>Schwab account</span><select value={orderAccount} onChange={(e) => setOrderAccount(e.target.value)} className="mt-1 block rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink"><option value="">Select account</option>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
         <Button variant="primary" onClick={add} disabled={!plan?.contracts || !plan?.expiration || !plan?.optionSymbol || !orderAccount}>Add current hedge to queue</Button>
       </div>
@@ -600,11 +627,14 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
       <table className="w-full min-w-[1050px] text-sm"><thead><tr className="border-y border-border-soft text-xs text-muted"><th className="px-4 py-3 text-left">Source</th><th className="px-4 py-3 text-left">Put</th><th className="px-4 py-3 text-right">Contracts</th><th className="px-4 py-3 text-right">Premium / value</th><th className="px-4 py-3 text-left">Expiration</th><th className="px-4 py-3 text-left">Roll by</th><th className="px-4 py-3 text-left">Status</th><th className="px-4 py-3 text-left">Validation</th><th className="px-4 py-3"></th></tr></thead>
         <tbody>
           {livePuts.map((p) => <tr key={`live-${p.id}`} className="border-b border-border-soft bg-pos/[.03]"><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Live Schwab</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === p.accountId)?.name ?? p.accountId}</div></td><td className="px-4 py-3 font-semibold">{p.underlying ?? p.symbol} ${p.strike?.toFixed(2) ?? '—'} put</td><td className="num px-4 py-3 text-right">{p.shares}</td><td className="num px-4 py-3 text-right">{usd(p.shares * p.lastPrice)}</td><td className="px-4 py-3">{p.expiration ? shortDate(p.expiration) : '—'}</td><td className="px-4 py-3 text-faint">Set in tracker</td><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Active</span></td><td className="px-4 py-3 text-xs text-faint">Already at Schwab</td><td></td></tr>)}
-          {queued.map((r) => <tr key={r.id} className="border-b border-border-soft"><td className="px-4 py-3"><span className="rounded-md bg-[#c7a96b]/10 px-2 py-1 text-xs text-[#d8bd7a]">Planning</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === r.accountId)?.name ?? 'No account'}</div></td><td className="px-4 py-3 font-semibold">{r.proxy} ${r.strike.toFixed(2)} put<div className="mt-1 font-mono text-[10px] font-normal text-faint">{r.optionSymbol ?? 'Legacy row · quote required'}</div></td><td className="num px-4 py-3 text-right">{r.contracts}</td><td className="num px-4 py-3 text-right">{usd(r.grossPremium)}</td><td className="px-4 py-3">{shortDate(r.expiration)}</td><td className={clsx('px-4 py-3', r.status !== 'closed' && r.rollDate <= new Date().toISOString().slice(0, 10) ? 'text-neg' : '')}>{shortDate(r.rollDate)}</td><td className="px-4 py-3"><select value={r.status} onChange={(e) => updateHedgeRoll(r.id, { status: e.target.value as HedgeRoll['status'] })} className={clsx('rounded-md border-0 px-2 py-1 text-xs outline-none', statusStyle[r.status])}><option value="queued">Queued</option><option value="active">Active</option><option value="rolled">Rolled</option><option value="closed">Closed</option></select></td><td className="max-w-[220px] px-4 py-3"><button onClick={() => preview(r)} disabled={!r.optionSymbol || !r.accountId || r.status === 'closed' || previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">{previewing === r.id ? 'Previewing…' : 'Preview with Schwab'}</button><div className={clsx('mt-1 text-[10px]', r.previewState === 'accepted' ? 'text-pos' : r.previewState === 'rejected' ? 'text-neg' : 'text-faint')}>{r.previewState === 'accepted' ? 'Schwab preview passed' : r.previewState === 'rejected' ? r.previewError : 'Not previewed'}</div></td><td className="px-4 py-3 text-right"><button onClick={() => removeHedgeRoll(r.id)} className="text-xs text-faint hover:text-neg">Remove</button></td></tr>)}
+          {queued.map((r) => <tr key={r.id} className="border-b border-border-soft"><td className="px-4 py-3"><span className="rounded-md bg-[#c7a96b]/10 px-2 py-1 text-xs text-[#d8bd7a]">Planning</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === r.accountId)?.name ?? 'No account'}</div></td><td className="px-4 py-3 font-semibold">{r.proxy} ${r.strike.toFixed(2)} put<div className="mt-1 font-mono text-[10px] font-normal text-faint">{r.optionSymbol ?? 'Legacy row · quote required'}</div>{r.orderId && <div className="mt-1 text-[10px] font-normal text-pos">Schwab #{r.orderId} · {r.orderStatus ?? 'ACCEPTED'}</div>}</td><td className="num px-4 py-3 text-right">{r.contracts}</td><td className="num px-4 py-3 text-right">{usd(r.grossPremium)}</td><td className="px-4 py-3">{shortDate(r.expiration)}</td><td className={clsx('px-4 py-3', r.status !== 'closed' && r.rollDate <= new Date().toISOString().slice(0, 10) ? 'text-neg' : '')}>{shortDate(r.rollDate)}</td><td className="px-4 py-3"><select value={r.status} onChange={(e) => updateHedgeRoll(r.id, { status: e.target.value as HedgeRoll['status'] })} className={clsx('rounded-md border-0 px-2 py-1 text-xs outline-none', statusStyle[r.status])}><option value="queued">Queued</option><option value="active">Active</option><option value="rolled">Rolled</option><option value="closed">Closed</option></select></td><td className="max-w-[220px] px-4 py-3"><div className="flex flex-wrap gap-1"><button onClick={() => preview(r)} disabled={!r.optionSymbol || !r.accountId || r.status === 'closed' || !!r.orderId || previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">{previewing === r.id ? 'Previewing…' : previewIsCurrent(r) ? 'Preview again' : 'Preview with Schwab'}</button>{previewIsCurrent(r) && !r.orderId && <button onClick={() => openPlacement(r)} className="rounded-md bg-neg px-2 py-1 text-xs font-semibold text-white hover:brightness-110">Place live order</button>}</div><div className={clsx('mt-1 text-[10px]', r.previewState === 'accepted' ? 'text-pos' : r.previewState === 'rejected' ? 'text-neg' : 'text-faint')}>{r.orderId ? `Submitted ${r.placedAt ? shortDate(r.placedAt) : ''}` : r.previewState === 'accepted' ? previewIsCurrent(r) ? 'Schwab preview passed · expires in 10 minutes' : 'Preview expired · preview again' : r.previewState === 'rejected' ? r.previewError : 'Not previewed'}</div></td><td className="px-4 py-3 text-right"><button onClick={() => removeHedgeRoll(r.id)} disabled={placing} className="text-xs text-faint hover:text-neg disabled:opacity-40">Remove</button></td></tr>)}
           {!livePuts.length && !queued.length && <tr><td colSpan={9} className="px-5 py-10 text-center text-sm text-faint">No puts are being tracked yet. Select a live quote, size the hedge, and add it to the queue.</td></tr>}
         </tbody>
       </table>
     </div>
+    <Modal open={!!confirmRoll} onClose={() => !placing && setConfirmRoll(null)} title="Place live protective put" subtitle="This sends a real buy-to-open option order to Schwab." footer={confirmRoll ? <><Button onClick={() => setConfirmRoll(null)} disabled={placing}>Cancel</Button><Button variant="primary" onClick={place} disabled={placing || confirmationText !== 'PLACE'}>{placing ? <><LoaderCircle size={14} className="animate-spin"/> Submitting…</> : 'Place live order'}</Button></> : undefined}>
+      {confirmRoll && <div className="space-y-4 text-sm"><div className="rounded-xl border border-border-soft bg-surface-2/50 p-4"><div className="flex justify-between gap-4"><span className="text-muted">Account</span><span>{accounts.find((a) => a.id === confirmRoll.accountId)?.name ?? confirmRoll.accountId}</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Action</span><span className="font-semibold text-pos">BUY TO OPEN</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Contract</span><span className="break-all font-mono text-right">{confirmRoll.optionSymbol}</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Quantity</span><span className="num font-semibold">{confirmRoll.contracts} contract{confirmRoll.contracts === 1 ? '' : 's'}</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Limit debit</span><span className="num font-semibold">${confirmRoll.premiumPerShare.toFixed(2)} per share</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Maximum debit</span><span className="num font-semibold text-neg">{usd(confirmRoll.grossPremium)}</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Timing</span><span>Day · Regular session</span></div></div><div className="rounded-lg border border-neg/40 bg-neg/10 p-3 text-xs leading-5 text-neg">A fill can occur immediately after Schwab accepts the order. Confirm the account, OSI symbol, expiration, strike, quantity, and maximum debit above.</div>{confirmRoll.previewError && <div className="rounded-lg border border-neg/40 bg-neg/10 p-3 text-xs text-neg">{confirmRoll.previewError}</div>}<label className="block text-xs text-muted"><span>Type <strong className="text-ink">PLACE</strong> to authorize this live order</span><input autoFocus value={confirmationText} onChange={(e) => setConfirmationText(e.target.value.toUpperCase())} disabled={placing} className="mt-2 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 font-mono text-sm text-ink outline-none focus:border-neg"/></label></div>}
+    </Modal>
   </div>
 }
 

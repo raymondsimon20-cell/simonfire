@@ -102,7 +102,6 @@ export default async (req: Request) => {
     if (action !== 'preview' && action !== 'place') return json({ ok: false, error: 'invalid_action' }, 400)
     if (!requestIdPattern.test(String(body.requestId ?? ''))) return json({ ok: false, error: 'invalid_request_id' }, 400)
     const order = validateOrder(body.order)
-    const isOptionOrder = order.orderLegCollection[0]?.instrument?.assetType === 'OPTION'
     const digest = fingerprint(body.accountId, order)
     const orderStore = getStore('schwab-orders')
 
@@ -119,7 +118,6 @@ export default async (req: Request) => {
       return json({ ok: true, preview })
     }
 
-    if (isOptionOrder) return json({ ok: false, error: 'option_placement_disabled_preview_only' }, 503)
     if (process.env.SCHWAB_ORDER_PLACEMENT_ENABLED !== 'true')
       return json({ ok: false, error: 'placement_disabled' }, 503)
     if (body.confirm !== true) return json({ ok: false, error: 'confirmation_required' }, 400)
@@ -156,7 +154,7 @@ export default async (req: Request) => {
     return json({ ok: true, orderId, status: 'ACCEPTED' }, 201)
   } catch (e: any) {
     const message = String(e?.message ?? e)
-    const known = ['INVALID_ACCOUNT', 'ACCOUNT_NOT_FOUND', 'AMBIGUOUS_ACCOUNT', 'INVALID_ORDER', 'UNSUPPORTED_ORDER', 'BUY_ORDERS_ONLY', 'INVALID_SYMBOL', 'INVALID_QUANTITY', 'INVALID_PRICE']
+    const known = ['INVALID_ACCOUNT', 'ACCOUNT_NOT_FOUND', 'AMBIGUOUS_ACCOUNT', 'INVALID_ORDER', 'UNSUPPORTED_ORDER', 'INVALID_ORDER_LEG', 'OPTION_LIMIT_ORDERS_ONLY', 'BUY_ORDERS_ONLY', 'INVALID_SYMBOL', 'INVALID_QUANTITY', 'INVALID_PRICE']
     if (known.includes(message)) return json({ ok: false, error: message.toLowerCase() }, 400)
     if (message.includes('NOT_CONNECTED')) return json({ ok: false, error: 'not_connected' }, 401)
     if (message.includes('REFRESH_EXPIRED')) return json({ ok: false, error: 'refresh_expired' }, 401)

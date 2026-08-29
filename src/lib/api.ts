@@ -114,6 +114,9 @@ export const schwabPreviewOption = (accountId: string, requestId: string, order:
 export const schwabPlaceOrder = (accountId: string, requestId: string, order: EquityOrder) =>
   orderRequest({ action: 'place', accountId, requestId, order, confirm: true })
 
+export const schwabPlaceOption = (accountId: string, requestId: string, order: OptionOrder) =>
+  orderRequest({ action: 'place', accountId, requestId, order, confirm: true })
+
 export const schwabOrderStatus = (accountId: string, orderId: string) =>
   orderRequest({ action: 'status', accountId, orderId })
 

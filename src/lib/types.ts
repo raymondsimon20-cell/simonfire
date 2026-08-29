@@ -121,6 +121,21 @@ export interface AppData {
   twr?: TwrSeries
   // Moving-average (50/100/200 SMA) snapshot per holding, for rebalance insights.
   insights?: Insights
+  hedgeRolls?: HedgeRoll[]
+}
+
+export interface HedgeRoll {
+  id: string
+  proxy: 'QQQ' | 'SPY'
+  contracts: number
+  strike: number
+  expiration: string
+  premiumPerShare: number
+  grossPremium: number
+  rollDate: string
+  createdAt: string
+  status: 'queued' | 'active' | 'rolled' | 'closed'
+  source: 'planning' | 'manual'
 }
 
 export interface SmaSnapshot {

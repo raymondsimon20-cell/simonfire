@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { Account, AppData, Connection, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
+import type { Account, AppData, Connection, HedgeRoll, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern } from './transaction-classification'
@@ -153,6 +153,9 @@ interface StoreCtx {
   addRule: (rule: Omit<TagRule, 'id'>) => void
   updateRule: (id: string, patch: Partial<TagRule>) => void
   removeRule: (id: string) => void
+  addHedgeRoll: (roll: Omit<HedgeRoll, 'id' | 'createdAt'>) => void
+  updateHedgeRoll: (id: string, patch: Partial<HedgeRoll>) => void
+  removeHedgeRoll: (id: string) => void
 }
 
 export interface ImportPayload {
@@ -479,6 +482,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [mutate],
   )
 
+  const addHedgeRoll: StoreCtx['addHedgeRoll'] = useCallback(
+    (roll) => mutate((d) => { d.hedgeRolls = [...(d.hedgeRolls ?? []), { ...roll, id: uid(), createdAt: new Date().toISOString() }]; return d }),
+    [mutate],
+  )
+  const updateHedgeRoll: StoreCtx['updateHedgeRoll'] = useCallback(
+    (id, patch) => mutate((d) => { d.hedgeRolls = (d.hedgeRolls ?? []).map((r) => r.id === id ? { ...r, ...patch } : r); return d }),
+    [mutate],
+  )
+  const removeHedgeRoll: StoreCtx['removeHedgeRoll'] = useCallback(
+    (id) => mutate((d) => { d.hedgeRolls = (d.hedgeRolls ?? []).filter((r) => r.id !== id); return d }),
+    [mutate],
+  )
+
   const value = useMemo<StoreCtx>(
     () => ({
       data,
@@ -504,6 +520,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addRule,
       updateRule,
       removeRule,
+      addHedgeRoll,
+      updateHedgeRoll,
+      removeHedgeRoll,
     }),
     [
       data,
@@ -528,6 +547,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addRule,
       updateRule,
       removeRule,
+      addHedgeRoll,
+      updateHedgeRoll,
+      removeHedgeRoll,
     ],
   )
 

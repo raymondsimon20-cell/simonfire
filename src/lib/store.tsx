@@ -10,7 +10,7 @@ import {
 import type { Account, AppData, Connection, HedgeRoll, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
-import { classifySchwabTransaction, normalizeTransactionPattern } from './transaction-classification'
+import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -33,9 +33,8 @@ function applyRulesTo(d: AppData, extraManaged?: Iterable<string>) {
     if (managed.size && t.tags.some((tg) => managed.has(tg))) {
       t.tags = t.tags.filter((tg) => !managed.has(tg))
     }
-    const desc = t.description.toLowerCase()
     for (const r of active) {
-      if (!desc.includes(r.contains.toLowerCase())) continue
+      if (!transactionPatternMatches(t.description, r.contains)) continue
       if (r.amountDirection === 'positive' && t.amount <= 0) continue
       if (r.amountDirection === 'negative' && t.amount >= 0) continue
       if (r.amountDirection === 'zero' && t.amount !== 0) continue

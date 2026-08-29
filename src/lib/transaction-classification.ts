@@ -18,6 +18,18 @@ export function normalizeTransactionPattern(description: string) {
     .trim()
 }
 
+// Rules created from normalized Schwab descriptions must also match against a
+// normalized transaction. A literal substring check fails when a changing
+// account/reference number sat between otherwise stable words.
+export function transactionPatternMatches(description: string, contains: string) {
+  const rawNeedle = contains.trim().toUpperCase()
+  if (!rawNeedle) return false
+  const rawDescription = description.toUpperCase()
+  if (rawDescription.includes(rawNeedle)) return true
+  const normalizedNeedle = normalizeTransactionPattern(rawNeedle)
+  return !!normalizedNeedle && normalizeTransactionPattern(rawDescription).includes(normalizedNeedle)
+}
+
 // Schwab's API types are intentionally broad. JOURNAL, for example, can mean an
 // internal transfer, withholding, an adjustment, or a corporate action. Prefer
 // distinctive description text before falling back to the API/CSV action.

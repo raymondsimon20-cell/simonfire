@@ -77,7 +77,7 @@ export interface OptionOrder {
   price: string
   orderStrategyType: 'SINGLE'
   orderLegCollection: [{
-    instruction: 'BUY_TO_OPEN'
+    instruction: 'BUY_TO_OPEN' | 'SELL_TO_CLOSE'
     quantity: number
     instrument: { symbol: string; assetType: 'OPTION' }
   }]

@@ -38,7 +38,8 @@ function validateOrder(value: any) {
   const assetType = String(leg?.instrument?.assetType ?? '').toUpperCase()
   const optionKey = symbol.replace(/\s+/g, '')
   const isEquity = assetType === 'EQUITY' && leg?.instruction === 'BUY' && symbolPattern.test(symbol)
-  const isOption = assetType === 'OPTION' && leg?.instruction === 'BUY_TO_OPEN' && optionSymbolPattern.test(optionKey)
+  const optionInstruction = leg?.instruction === 'BUY_TO_OPEN' || leg?.instruction === 'SELL_TO_CLOSE'
+  const isOption = assetType === 'OPTION' && optionInstruction && optionSymbolPattern.test(optionKey)
   if (!isEquity && !isOption) throw new Error('INVALID_ORDER_LEG')
   if (isOption && value.orderType !== 'LIMIT') throw new Error('OPTION_LIMIT_ORDERS_ONLY')
   if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > (isOption ? 100 : 10_000))
@@ -50,7 +51,7 @@ function validateOrder(value: any) {
     orderType: value.orderType,
     orderStrategyType: 'SINGLE',
     orderLegCollection: [{
-      instruction: isOption ? 'BUY_TO_OPEN' : 'BUY',
+      instruction: isOption ? leg.instruction : 'BUY',
       quantity,
       instrument: { symbol, assetType },
     }],

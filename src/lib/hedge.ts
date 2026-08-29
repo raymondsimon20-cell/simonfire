@@ -10,7 +10,7 @@ export interface ProtectivePutInput {
 
 const osiOptionSymbolPattern = /^[A-Z]{1,6}\d{6}[CP]\d{8}$/
 
-export function buildPutPreviewOrder(optionSymbol: string, contracts: number, premiumPerShare: number) {
+function buildPutOrder(optionSymbol: string, contracts: number, premiumPerShare: number, instruction: 'BUY_TO_OPEN' | 'SELL_TO_CLOSE') {
   const symbol = optionSymbol.trim().toUpperCase()
   const optionKey = symbol.replace(/\s+/g, '')
   if (!osiOptionSymbolPattern.test(optionKey)) return null
@@ -23,16 +23,22 @@ export function buildPutPreviewOrder(optionSymbol: string, contracts: number, pr
     price: premiumPerShare.toFixed(2),
     orderStrategyType: 'SINGLE' as const,
     orderLegCollection: [{
-      instruction: 'BUY_TO_OPEN' as const,
+      instruction,
       quantity: contracts,
       instrument: { symbol, assetType: 'OPTION' as const },
     }] as [{
-      instruction: 'BUY_TO_OPEN'
+      instruction: 'BUY_TO_OPEN' | 'SELL_TO_CLOSE'
       quantity: number
       instrument: { symbol: string; assetType: 'OPTION' }
     }],
   }
 }
+
+export const buildPutPreviewOrder = (optionSymbol: string, contracts: number, premiumPerShare: number) =>
+  buildPutOrder(optionSymbol, contracts, premiumPerShare, 'BUY_TO_OPEN')
+
+export const buildPutCloseOrder = (optionSymbol: string, contracts: number, limitCredit: number) =>
+  buildPutOrder(optionSymbol, contracts, limitCredit, 'SELL_TO_CLOSE')
 
 export function protectivePutPlan(input: ProtectivePutInput) {
   const shares = Math.max(0, input.shares)
@@ -131,6 +137,30 @@ export function rankProtectivePut<T extends PutQuoteCandidate>(
     oi >= 500 ? 'strong open interest' : oi >= 100 ? 'useful open interest' : 'thin open interest',
   ]
   return { score, premium, effectiveFloor, targetFloor, floorGapPct, spreadPct, reasons }
+}
+
+export function recommendPutRoll<T extends PutQuoteCandidate & { symbol: string }>(
+  current: T,
+  candidates: T[],
+  underlyingPrice: number,
+  contracts: number,
+  targetDays = 60,
+) {
+  const targetDrawdownPct = underlyingPrice > 0 ? Math.max(1, Math.min(90, (1 - current.strike / underlyingPrice) * 100)) : 15
+  const closeCredit = current.bid ?? 0
+  const ranked = candidates
+    .filter((quote) => quote.symbol !== current.symbol && (quote.daysToExpiration ?? 0) >= 30 && (quote.daysToExpiration ?? 0) <= 120 && (quote.ask ?? 0) > 0)
+    .map((quote) => ({ quote, fit: rankProtectivePut(quote, underlyingPrice, targetDrawdownPct, targetDays) }))
+    .sort((a, b) => b.fit.score - a.fit.score)
+  const best = ranked[0]
+  if (!best || closeCredit <= 0 || contracts < 1) return null
+  return {
+    ...best,
+    closeCredit,
+    openDebit: best.fit.premium,
+    estimatedNetDebit: Math.round((best.fit.premium - closeCredit) * 100 * contracts * 100) / 100,
+    targetDrawdownPct,
+  }
 }
 
 export interface PortfolioPutHedgeInput {

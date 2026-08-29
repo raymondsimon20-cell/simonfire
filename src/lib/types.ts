@@ -145,6 +145,14 @@ export interface HedgeRoll {
   orderId?: string
   orderStatus?: string
   placedAt?: string
+  closeOptionSymbol?: string
+  closeContracts?: number
+  closeLimitCredit?: number
+  closePreviewRequestId?: string
+  closePreviewState?: 'not_previewed' | 'accepted' | 'rejected'
+  closeOrderId?: string
+  closeOrderStatus?: string
+  closePlacedAt?: string
 }
 
 export interface SmaSnapshot {

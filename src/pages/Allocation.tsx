@@ -12,7 +12,7 @@ import { schwabOrderStatus, schwabPlaceOption, schwabPlaceOrder, schwabPreviewOp
 import { marginCapacity, type MarginCapacity } from '../lib/margin'
 import clsx from 'clsx'
 import type { Account, HedgeRoll, Position } from '../lib/types'
-import { buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut } from '../lib/hedge'
+import { buildPutCloseOrder, buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut, recommendPutRoll } from '../lib/hedge'
 
 const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<string, number> => {
   const out: Record<string, number> = {}
@@ -566,6 +566,9 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
   const [confirmRoll, setConfirmRoll] = useState<HedgeRoll | null>(null)
   const [confirmationText, setConfirmationText] = useState('')
   const [placing, setPlacing] = useState(false)
+  const [rollSource, setRollSource] = useState<{ optionSymbol: string; contracts: number; limitCredit: number; accountId: string; replacementSymbol: string; estimatedNetDebit: number } | null>(null)
+  const [recommending, setRecommending] = useState<string | null>(null)
+  const [rollError, setRollError] = useState('')
   useEffect(() => {
     const receive = (event: Event) => setPlan((event as CustomEvent<HedgePlanSnapshot>).detail)
     window.addEventListener('simonfire:hedge-plan', receive)
@@ -574,7 +577,25 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
   const queued = data.hedgeRolls ?? []
   const livePuts = positions.filter((p) => p.isOption && p.optionType === 'Put' && p.shares > 0)
   useEffect(() => { if (!accounts.some((account) => account.id === orderAccount)) setOrderAccount(accounts[0]?.id ?? '') }, [accounts, orderAccount])
-  const add = () => { if (!plan || !plan.contracts || !plan.expiration || !plan.optionSymbol || !orderAccount) return; const { ticket: _ticket, ...roll } = plan; addHedgeRoll({ ...roll, accountId: orderAccount, previewState: 'not_previewed', status: 'queued', source: 'planning' }) }
+  const add = () => { if (!plan || !plan.contracts || !plan.expiration || !plan.optionSymbol || !orderAccount) return; const { ticket: _ticket, ...roll } = plan; const close = rollSource?.replacementSymbol === plan.optionSymbol && rollSource.accountId === orderAccount ? { closeOptionSymbol: rollSource.optionSymbol, closeContracts: rollSource.contracts, closeLimitCredit: rollSource.limitCredit, closePreviewState: 'not_previewed' as const } : {}; addHedgeRoll({ ...roll, ...close, accountId: orderAccount, previewState: 'not_previewed', status: 'queued', source: 'planning' }); setRollSource(null) }
+  const startRoll = async (position: Position) => {
+    const underlying = normTicker(position.underlying ?? '')
+    if ((underlying !== 'QQQ' && underlying !== 'SPY') || !position.accountId) return
+    setRecommending(position.id); setRollError('')
+    const from = new Date(); const to = new Date(); to.setDate(to.getDate() + 240)
+    const result = await schwabPutChain(underlying, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10))
+    setRecommending(null)
+    if (!result.ok) { setRollError(result.error ?? 'Unable to refresh the Schwab option chain.'); return }
+    const key = (symbol: string) => symbol.replace(/\s+/g, '').toUpperCase()
+    const current = (result.contracts ?? []).find((quote) => key(quote.symbol) === key(position.symbol))
+    if (!current) { setRollError('The existing contract was not present in Schwab’s current chain. Sync Schwab and try again.'); return }
+    const recommendation = recommendPutRoll(current, result.contracts ?? [], result.underlyingPrice ?? 0, Math.trunc(position.shares), 60)
+    if (!recommendation) { setRollError('No liquid 30–120 DTE replacement with a valid current bid and ask was found.'); return }
+    setOrderAccount(position.accountId)
+    setRollSource({ optionSymbol: current.symbol, contracts: Math.trunc(position.shares), limitCredit: recommendation.closeCredit, accountId: position.accountId, replacementSymbol: recommendation.quote.symbol, estimatedNetDebit: recommendation.estimatedNetDebit })
+    window.dispatchEvent(new CustomEvent('simonfire:put-quote', { detail: { symbol: underlying, optionSymbol: recommendation.quote.symbol, underlyingPrice: result.underlyingPrice, strike: recommendation.quote.strike, expiration: recommendation.quote.expiration, premium: recommendation.openDebit } }))
+    document.getElementById('protective-put-inputs')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
   const preview = async (roll: HedgeRoll) => {
     const order = buildPutPreviewOrder(roll.optionSymbol ?? '', roll.contracts, roll.premiumPerShare)
     if (!order || !roll.accountId) {
@@ -582,15 +603,48 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
       return
     }
     setPreviewing(roll.id)
+    let closeRequestId: string | undefined
+    if (roll.closeOptionSymbol && !roll.closeOrderId && roll.closeContracts && roll.closeLimitCredit) {
+      const closeOrder = buildPutCloseOrder(roll.closeOptionSymbol, roll.closeContracts, roll.closeLimitCredit)
+      if (!closeOrder) { setPreviewing(null); updateHedgeRoll(roll.id, { closePreviewState: 'rejected', previewError: 'The close-leg payload is invalid.' }); return }
+      closeRequestId = crypto.randomUUID()
+      const closeResult = await schwabPreviewOption(roll.accountId, closeRequestId, closeOrder)
+      if (!closeResult.ok) {
+        const closeError = typeof closeResult.error === 'string' ? closeResult.error : closeResult.error ? JSON.stringify(closeResult.error) : 'Schwab rejected the close leg.'
+        updateHedgeRoll(roll.id, { closePreviewState: 'rejected', previewState: 'rejected', previewError: `Close preview: ${closeError}` })
+        setPreviewing(null)
+        return
+      }
+    }
     const requestId = crypto.randomUUID()
     const result = await schwabPreviewOption(roll.accountId, requestId, order)
     const error = typeof result.error === 'string' ? result.error : result.error ? JSON.stringify(result.error) : 'Schwab rejected this preview.'
-    updateHedgeRoll(roll.id, { previewState: result.ok ? 'accepted' : 'rejected', previewedAt: new Date().toISOString(), previewRequestId: result.ok ? requestId : undefined, previewError: result.ok ? undefined : error })
+    updateHedgeRoll(roll.id, { previewState: result.ok ? 'accepted' : 'rejected', closePreviewState: closeRequestId ? 'accepted' : roll.closePreviewState, closePreviewRequestId: result.ok ? closeRequestId : undefined, previewedAt: new Date().toISOString(), previewRequestId: result.ok ? requestId : undefined, previewError: result.ok ? undefined : error })
     setPreviewing(null)
   }
   const openPlacement = (roll: HedgeRoll) => { setConfirmRoll(roll); setConfirmationText('') }
   const place = async () => {
     if (!confirmRoll?.accountId || !confirmRoll.previewRequestId || confirmationText !== 'PLACE') return
+    if (confirmRoll.closeOptionSymbol && !confirmRoll.closeOrderId) {
+      const closeOrder = buildPutCloseOrder(confirmRoll.closeOptionSymbol, confirmRoll.closeContracts ?? 0, confirmRoll.closeLimitCredit ?? 0)
+      if (!closeOrder || !confirmRoll.closePreviewRequestId) return
+      setPlacing(true)
+      const closeResult = await schwabPlaceOption(confirmRoll.accountId, confirmRoll.closePreviewRequestId, closeOrder)
+      if (!closeResult.ok || !closeResult.orderId) {
+        const error = typeof closeResult.error === 'string' ? closeResult.error.replaceAll('_', ' ') : 'Schwab rejected the close order.'
+        updateHedgeRoll(confirmRoll.id, { closePreviewState: 'rejected', previewError: `Close order: ${error}` })
+        setPlacing(false); setConfirmRoll((current) => current ? { ...current, previewError: `Close order: ${error}` } : current)
+        return
+      }
+      const closeOrderId = closeResult.orderId
+      updateHedgeRoll(confirmRoll.id, { closeOrderId, closeOrderStatus: closeResult.status ?? 'ACCEPTED', closePlacedAt: new Date().toISOString() })
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      const closeStatus = await schwabOrderStatus(confirmRoll.accountId, closeOrderId)
+      if (closeStatus.ok) updateHedgeRoll(confirmRoll.id, { closeOrderStatus: closeStatus.status ?? 'UNKNOWN' })
+      setPlacing(false); setConfirmRoll(null)
+      return
+    }
+    if (confirmRoll.closeOrderId && confirmRoll.closeOrderStatus !== 'FILLED') return
     const order = buildPutPreviewOrder(confirmRoll.optionSymbol ?? '', confirmRoll.contracts, confirmRoll.premiumPerShare)
     if (!order) return
     setPlacing(true)
@@ -610,7 +664,20 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
     setPlacing(false)
     setConfirmRoll(null)
   }
-  const previewIsCurrent = (roll: HedgeRoll) => roll.previewState === 'accepted' && !!roll.previewRequestId && !!roll.previewedAt && Date.now() - new Date(roll.previewedAt).getTime() < 10 * 60_000
+  const refreshCloseStatus = async (roll: HedgeRoll) => {
+    if (!roll.accountId || !roll.closeOrderId) return
+    setPreviewing(roll.id)
+    const result = await schwabOrderStatus(roll.accountId, roll.closeOrderId)
+    if (result.ok) updateHedgeRoll(roll.id, { closeOrderStatus: result.status ?? 'UNKNOWN' })
+    else updateHedgeRoll(roll.id, { previewError: `Close status: ${String(result.error ?? 'unavailable')}` })
+    setPreviewing(null)
+  }
+  const previewIsCurrent = (roll: HedgeRoll) => roll.previewState === 'accepted' && (!roll.closeOptionSymbol || roll.closeOrderStatus === 'FILLED' || roll.closePreviewState === 'accepted') && !!roll.previewRequestId && !!roll.previewedAt && Date.now() - new Date(roll.previewedAt).getTime() < 10 * 60_000
+  const confirmingClose = !!confirmRoll?.closeOptionSymbol && !confirmRoll.closeOrderId
+  const confirmSymbol = confirmingClose ? confirmRoll?.closeOptionSymbol : confirmRoll?.optionSymbol
+  const confirmContracts = confirmingClose ? confirmRoll?.closeContracts : confirmRoll?.contracts
+  const confirmLimit = confirmingClose ? confirmRoll?.closeLimitCredit : confirmRoll?.premiumPerShare
+  const confirmTotal = (confirmContracts ?? 0) * (confirmLimit ?? 0) * 100
   const statusStyle: Record<HedgeRoll['status'], string> = { queued: 'bg-[#c7a96b]/10 text-[#d8bd7a]', active: 'bg-pos/10 text-pos', rolled: 'bg-[#10233f] text-[#5aa2ff]', closed: 'bg-surface-2 text-muted' }
   return <div className="space-y-4">
     <div className="card p-5">
@@ -621,19 +688,40 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
         <Button variant="primary" onClick={add} disabled={!plan?.contracts || !plan?.expiration || !plan?.optionSymbol || !orderAccount}>Add current hedge to queue</Button>
       </div>
       {plan && <div className="mt-4 rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="num text-sm">{plan.ticket}</div><div className="mt-2 text-xs text-faint">Gross debit {usd(plan.grossPremium)} · roll by {shortDate(plan.rollDate)} · {plan.optionSymbol ? `contract ${plan.optionSymbol}` : 'select a live quote to capture the contract symbol'}</div></div>}
+      {rollSource && <div className="mt-3 rounded-xl border border-[#c7a96b]/30 bg-[#c7a96b]/5 p-4 text-xs"><div className="font-semibold text-[#d8bd7a]">Roll recommendation loaded</div><div className="mt-1 text-muted">Sell to close {rollSource.contracts} × {rollSource.optionSymbol} at ${rollSource.limitCredit.toFixed(2)} credit, then buy the selected replacement. Estimated net roll {rollSource.estimatedNetDebit >= 0 ? 'debit' : 'credit'}: <span className="num">{usd(Math.abs(rollSource.estimatedNetDebit))}</span>.</div></div>}
+      {rollError && <div className="mt-3 rounded-lg border border-neg/30 bg-neg/10 p-3 text-xs text-neg">{rollError}</div>}
     </div>
     <div className="card overflow-x-auto p-0">
       <div className="flex items-center gap-3 p-5"><h3 className="font-semibold">Protective put tracker</h3><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">{livePuts.length} live Schwab</span><span className="rounded-md bg-surface-2 px-2 py-1 text-xs text-muted">{queued.length} tracked rolls</span></div>
       <table className="w-full min-w-[1050px] text-sm"><thead><tr className="border-y border-border-soft text-xs text-muted"><th className="px-4 py-3 text-left">Source</th><th className="px-4 py-3 text-left">Put</th><th className="px-4 py-3 text-right">Contracts</th><th className="px-4 py-3 text-right">Premium / value</th><th className="px-4 py-3 text-left">Expiration</th><th className="px-4 py-3 text-left">Roll by</th><th className="px-4 py-3 text-left">Status</th><th className="px-4 py-3 text-left">Validation</th><th className="px-4 py-3"></th></tr></thead>
         <tbody>
-          {livePuts.map((p) => <tr key={`live-${p.id}`} className="border-b border-border-soft bg-pos/[.03]"><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Live Schwab</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === p.accountId)?.name ?? p.accountId}</div></td><td className="px-4 py-3 font-semibold">{p.underlying ?? p.symbol} ${p.strike?.toFixed(2) ?? '—'} put</td><td className="num px-4 py-3 text-right">{p.shares}</td><td className="num px-4 py-3 text-right">{usd(p.shares * p.lastPrice)}</td><td className="px-4 py-3">{p.expiration ? shortDate(p.expiration) : '—'}</td><td className="px-4 py-3 text-faint">Set in tracker</td><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Active</span></td><td className="px-4 py-3 text-xs text-faint">Already at Schwab</td><td></td></tr>)}
-          {queued.map((r) => <tr key={r.id} className="border-b border-border-soft"><td className="px-4 py-3"><span className="rounded-md bg-[#c7a96b]/10 px-2 py-1 text-xs text-[#d8bd7a]">Planning</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === r.accountId)?.name ?? 'No account'}</div></td><td className="px-4 py-3 font-semibold">{r.proxy} ${r.strike.toFixed(2)} put<div className="mt-1 font-mono text-[10px] font-normal text-faint">{r.optionSymbol ?? 'Legacy row · quote required'}</div>{r.orderId && <div className="mt-1 text-[10px] font-normal text-pos">Schwab #{r.orderId} · {r.orderStatus ?? 'ACCEPTED'}</div>}</td><td className="num px-4 py-3 text-right">{r.contracts}</td><td className="num px-4 py-3 text-right">{usd(r.grossPremium)}</td><td className="px-4 py-3">{shortDate(r.expiration)}</td><td className={clsx('px-4 py-3', r.status !== 'closed' && r.rollDate <= new Date().toISOString().slice(0, 10) ? 'text-neg' : '')}>{shortDate(r.rollDate)}</td><td className="px-4 py-3"><select value={r.status} onChange={(e) => updateHedgeRoll(r.id, { status: e.target.value as HedgeRoll['status'] })} className={clsx('rounded-md border-0 px-2 py-1 text-xs outline-none', statusStyle[r.status])}><option value="queued">Queued</option><option value="active">Active</option><option value="rolled">Rolled</option><option value="closed">Closed</option></select></td><td className="max-w-[220px] px-4 py-3"><div className="flex flex-wrap gap-1"><button onClick={() => preview(r)} disabled={!r.optionSymbol || !r.accountId || r.status === 'closed' || !!r.orderId || previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">{previewing === r.id ? 'Previewing…' : previewIsCurrent(r) ? 'Preview again' : 'Preview with Schwab'}</button>{previewIsCurrent(r) && !r.orderId && <button onClick={() => openPlacement(r)} className="rounded-md bg-neg px-2 py-1 text-xs font-semibold text-white hover:brightness-110">Place live order</button>}</div><div className={clsx('mt-1 text-[10px]', r.previewState === 'accepted' ? 'text-pos' : r.previewState === 'rejected' ? 'text-neg' : 'text-faint')}>{r.orderId ? `Submitted ${r.placedAt ? shortDate(r.placedAt) : ''}` : r.previewState === 'accepted' ? previewIsCurrent(r) ? 'Schwab preview passed · expires in 10 minutes' : 'Preview expired · preview again' : r.previewState === 'rejected' ? r.previewError : 'Not previewed'}</div></td><td className="px-4 py-3 text-right"><button onClick={() => removeHedgeRoll(r.id)} disabled={placing} className="text-xs text-faint hover:text-neg disabled:opacity-40">Remove</button></td></tr>)}
+          {livePuts.map((p) => <tr key={`live-${p.id}`} className="border-b border-border-soft bg-pos/[.03]"><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Live Schwab</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === p.accountId)?.name ?? p.accountId}</div></td><td className="px-4 py-3 font-semibold">{p.underlying ?? p.symbol} ${p.strike?.toFixed(2) ?? '—'} put<div className="mt-1 font-mono text-[10px] font-normal text-faint">{p.symbol}</div></td><td className="num px-4 py-3 text-right">{p.shares}</td><td className="num px-4 py-3 text-right">{usd(p.shares * p.lastPrice)}</td><td className="px-4 py-3">{p.expiration ? shortDate(p.expiration) : '—'}</td><td className="px-4 py-3 text-faint">{p.expiration ? `${Math.ceil((new Date(`${p.expiration}T00:00:00`).getTime() - Date.now()) / 86_400_000)} DTE` : 'Set in tracker'}</td><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Active</span></td><td className="px-4 py-3"><button onClick={() => startRoll(p)} disabled={recommending === p.id || !['QQQ', 'SPY'].includes(normTicker(p.underlying ?? ''))} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">{recommending === p.id ? 'Refreshing quotes…' : 'Recommend roll'}</button></td><td></td></tr>)}
+          {queued.map((r) => <tr key={r.id} className="border-b border-border-soft"><td className="px-4 py-3"><span className="rounded-md bg-[#c7a96b]/10 px-2 py-1 text-xs text-[#d8bd7a]">{r.closeOptionSymbol ? 'Roll' : 'Planning'}</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === r.accountId)?.name ?? 'No account'}</div></td><td className="px-4 py-3 font-semibold">{r.proxy} ${r.strike.toFixed(2)} replacement<div className="mt-1 font-mono text-[10px] font-normal text-faint">{r.optionSymbol ?? 'Legacy row · quote required'}</div>{r.closeOptionSymbol && <div className="mt-1 font-mono text-[10px] font-normal text-[#d8bd7a]">Close: {r.closeOptionSymbol} @ ${r.closeLimitCredit?.toFixed(2)}</div>}{r.closeOrderId && <div className="mt-1 text-[10px] font-normal text-muted">Close #{r.closeOrderId} · {r.closeOrderStatus ?? 'ACCEPTED'}</div>}{r.orderId && <div className="mt-1 text-[10px] font-normal text-pos">Open #{r.orderId} · {r.orderStatus ?? 'ACCEPTED'}</div>}</td><td className="num px-4 py-3 text-right">{r.contracts}</td><td className="num px-4 py-3 text-right">{usd(r.grossPremium)}</td><td className="px-4 py-3">{shortDate(r.expiration)}</td><td className={clsx('px-4 py-3', r.status !== 'closed' && r.rollDate <= new Date().toISOString().slice(0, 10) ? 'text-neg' : '')}>{shortDate(r.rollDate)}</td><td className="px-4 py-3"><select value={r.status} onChange={(e) => updateHedgeRoll(r.id, { status: e.target.value as HedgeRoll['status'] })} className={clsx('rounded-md border-0 px-2 py-1 text-xs outline-none', statusStyle[r.status])}><option value="queued">Queued</option><option value="active">Active</option><option value="rolled">Rolled</option><option value="closed">Closed</option></select></td><td className="max-w-[240px] px-4 py-3"><div className="flex flex-wrap gap-1"><button onClick={() => preview(r)} disabled={!r.optionSymbol || !r.accountId || r.status === 'closed' || !!r.orderId || previewing === r.id || (!!r.closeOrderId && r.closeOrderStatus !== 'FILLED')} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">{previewing === r.id ? 'Working…' : previewIsCurrent(r) ? 'Preview again' : 'Preview with Schwab'}</button>{r.closeOrderId && r.closeOrderStatus !== 'FILLED' && <button onClick={() => refreshCloseStatus(r)} disabled={previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted hover:border-brand hover:text-brand disabled:opacity-40">Refresh close status</button>}{previewIsCurrent(r) && !r.orderId && (!r.closeOrderId || r.closeOrderStatus === 'FILLED') && <button onClick={() => openPlacement(r)} className="rounded-md bg-neg px-2 py-1 text-xs font-semibold text-white hover:brightness-110">{r.closeOptionSymbol && !r.closeOrderId ? 'Place close leg' : r.closeOrderStatus === 'FILLED' ? 'Place replacement' : 'Place live order'}</button>}</div><div className={clsx('mt-1 text-[10px]', r.previewState === 'accepted' ? 'text-pos' : r.previewState === 'rejected' ? 'text-neg' : 'text-faint')}>{r.orderId ? `Replacement submitted ${r.placedAt ? shortDate(r.placedAt) : ''}` : r.closeOrderId && r.closeOrderStatus !== 'FILLED' ? 'Waiting for close fill before replacement' : r.closeOrderStatus === 'FILLED' && !previewIsCurrent(r) ? 'Close filled · preview replacement again' : r.previewState === 'accepted' ? previewIsCurrent(r) ? r.closeOptionSymbol && !r.closeOrderId ? 'Both legs previewed · close submits first' : 'Schwab preview passed · expires in 10 minutes' : 'Preview expired · preview again' : r.previewState === 'rejected' ? r.previewError : 'Not previewed'}</div></td><td className="px-4 py-3 text-right"><button onClick={() => removeHedgeRoll(r.id)} disabled={placing} className="text-xs text-faint hover:text-neg disabled:opacity-40">Remove</button></td></tr>)}
           {!livePuts.length && !queued.length && <tr><td colSpan={9} className="px-5 py-10 text-center text-sm text-faint">No puts are being tracked yet. Select a live quote, size the hedge, and add it to the queue.</td></tr>}
         </tbody>
       </table>
     </div>
-    <Modal open={!!confirmRoll} onClose={() => !placing && setConfirmRoll(null)} title="Place live protective put" subtitle="This sends a real buy-to-open option order to Schwab." footer={confirmRoll ? <><Button onClick={() => setConfirmRoll(null)} disabled={placing}>Cancel</Button><Button variant="primary" onClick={place} disabled={placing || confirmationText !== 'PLACE'}>{placing ? <><LoaderCircle size={14} className="animate-spin"/> Submitting…</> : 'Place live order'}</Button></> : undefined}>
-      {confirmRoll && <div className="space-y-4 text-sm"><div className="rounded-xl border border-border-soft bg-surface-2/50 p-4"><div className="flex justify-between gap-4"><span className="text-muted">Account</span><span>{accounts.find((a) => a.id === confirmRoll.accountId)?.name ?? confirmRoll.accountId}</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Action</span><span className="font-semibold text-pos">BUY TO OPEN</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Contract</span><span className="break-all font-mono text-right">{confirmRoll.optionSymbol}</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Quantity</span><span className="num font-semibold">{confirmRoll.contracts} contract{confirmRoll.contracts === 1 ? '' : 's'}</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Limit debit</span><span className="num font-semibold">${confirmRoll.premiumPerShare.toFixed(2)} per share</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Maximum debit</span><span className="num font-semibold text-neg">{usd(confirmRoll.grossPremium)}</span></div><div className="mt-2 flex justify-between gap-4"><span className="text-muted">Timing</span><span>Day · Regular session</span></div></div><div className="rounded-lg border border-neg/40 bg-neg/10 p-3 text-xs leading-5 text-neg">A fill can occur immediately after Schwab accepts the order. Confirm the account, OSI symbol, expiration, strike, quantity, and maximum debit above.</div>{confirmRoll.previewError && <div className="rounded-lg border border-neg/40 bg-neg/10 p-3 text-xs text-neg">{confirmRoll.previewError}</div>}<label className="block text-xs text-muted"><span>Type <strong className="text-ink">PLACE</strong> to authorize this live order</span><input autoFocus value={confirmationText} onChange={(e) => setConfirmationText(e.target.value.toUpperCase())} disabled={placing} className="mt-2 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 font-mono text-sm text-ink outline-none focus:border-neg"/></label></div>}
+    <Modal
+      open={!!confirmRoll}
+      onClose={() => !placing && setConfirmRoll(null)}
+      title={confirmingClose ? 'Place roll close leg' : confirmRoll?.closeOrderStatus === 'FILLED' ? 'Place roll replacement' : 'Place live protective put'}
+      subtitle={confirmingClose ? 'The replacement stays blocked until Schwab reports this close order filled.' : 'This sends a real buy-to-open option order to Schwab.'}
+      footer={confirmRoll ? <><Button onClick={() => setConfirmRoll(null)} disabled={placing}>Cancel</Button><Button variant="primary" onClick={place} disabled={placing || confirmationText !== 'PLACE'}>{placing ? <><LoaderCircle size={14} className="animate-spin"/> Submitting…</> : confirmingClose ? 'Place close leg' : confirmRoll.closeOrderStatus === 'FILLED' ? 'Place replacement' : 'Place live order'}</Button></> : undefined}
+    >
+      {confirmRoll && <div className="space-y-4 text-sm">
+        <div className="rounded-xl border border-border-soft bg-surface-2/50 p-4">
+          <div className="flex justify-between gap-4"><span className="text-muted">Account</span><span>{accounts.find((a) => a.id === confirmRoll.accountId)?.name ?? confirmRoll.accountId}</span></div>
+          <div className="mt-2 flex justify-between gap-4"><span className="text-muted">Action</span><span className="font-semibold text-pos">{confirmingClose ? 'SELL TO CLOSE' : 'BUY TO OPEN'}</span></div>
+          <div className="mt-2 flex justify-between gap-4"><span className="text-muted">Contract</span><span className="break-all font-mono text-right">{confirmSymbol}</span></div>
+          <div className="mt-2 flex justify-between gap-4"><span className="text-muted">Quantity</span><span className="num font-semibold">{confirmContracts} contract{confirmContracts === 1 ? '' : 's'}</span></div>
+          <div className="mt-2 flex justify-between gap-4"><span className="text-muted">Limit {confirmingClose ? 'credit' : 'debit'}</span><span className="num font-semibold">${confirmLimit?.toFixed(2)} per share</span></div>
+          <div className="mt-2 flex justify-between gap-4"><span className="text-muted">{confirmingClose ? 'Expected credit' : 'Maximum debit'}</span><span className={clsx('num font-semibold', confirmingClose ? 'text-pos' : 'text-neg')}>{usd(confirmTotal)}</span></div>
+          <div className="mt-2 flex justify-between gap-4"><span className="text-muted">Timing</span><span>Day · Regular session</span></div>
+        </div>
+        <div className="rounded-lg border border-neg/40 bg-neg/10 p-3 text-xs leading-5 text-neg">A fill can occur immediately after Schwab accepts this order. Confirm every field above. The app will never submit the replacement until the close is reported filled.</div>
+        {confirmRoll.previewError && <div className="rounded-lg border border-neg/40 bg-neg/10 p-3 text-xs text-neg">{confirmRoll.previewError}</div>}
+        <label className="block text-xs text-muted"><span>Type <strong className="text-ink">PLACE</strong> to authorize this live order</span><input autoFocus value={confirmationText} onChange={(e) => setConfirmationText(e.target.value.toUpperCase())} disabled={placing} className="mt-2 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 font-mono text-sm text-ink outline-none focus:border-neg"/></label>
+      </div>}
     </Modal>
   </div>
 }

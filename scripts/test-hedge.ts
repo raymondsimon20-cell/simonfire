@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut } from '../src/lib/hedge'
+import { buildPutCloseOrder, buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut, recommendPutRoll } from '../src/lib/hedge'
 
 const optionOrder = buildPutPreviewOrder('QQQ   260918P00425000', 3, 8.126)
 assert.deepEqual(optionOrder, {
@@ -9,6 +9,17 @@ assert.deepEqual(optionOrder, {
 assert.equal(buildPutPreviewOrder('QQQ', 3, 8.13), null)
 assert.equal(buildPutPreviewOrder('QQQ   260918P00425000', 0, 8.13), null)
 assert.equal(buildPutPreviewOrder('QQQ   260918P00425000', 3, 0), null)
+assert.deepEqual(buildPutCloseOrder('QQQ   260918P00425000', 3, 7.2)?.orderLegCollection[0], {
+  instruction: 'SELL_TO_CLOSE', quantity: 3, instrument: { symbol: 'QQQ   260918P00425000', assetType: 'OPTION' },
+})
+const roll = recommendPutRoll(
+  { symbol: 'QQQ  260918P00425000', strike: 425, bid: 7, ask: 7.2, mark: 7.1, last: 7, daysToExpiration: 20, openInterest: 500, volume: 50 },
+  [{ symbol: 'QQQ  261120P00425000', strike: 425, bid: 8, ask: 8.2, mark: 8.1, last: 8, daysToExpiration: 82, openInterest: 1000, volume: 100 }],
+  500, 2,
+)
+assert.equal(roll?.closeCredit, 7)
+assert.equal(roll?.openDebit, 8.2)
+assert.equal(roll?.estimatedNetDebit, 240)
 
 const full = protectivePutPlan({ shares: 250, sharePrice: 100, coveragePct: 100, maxDrawdownPct: 15, premiumPerShare: 2 })
 assert.equal(full.contracts, 3)

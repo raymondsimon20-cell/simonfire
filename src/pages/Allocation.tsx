@@ -482,7 +482,7 @@ export default function Allocation() {
       <FallbackCorrections rows={classificationRows.filter((r) => r.method === 'Growth fallback')} onSetBucket={setPositionBucket} />
       <RebalanceInsights insights={insights} accName={(id) => data.accounts.find((a) => a.id === id)?.name ?? id} hasData={!!data.insights} />
       </>}
-      {tab === 'hedges' && <div className="space-y-4"><PortfolioHedgeGuide /><LivePutQuotes positions={positions} accounts={data.accounts} symbolFilter="QQQ" /><PortfolioHedgeEngine positions={positions} /></div>}
+      {tab === 'hedges' && <div className="space-y-4"><PortfolioHedgeGuide /><LivePutQuotes positions={positions} accounts={data.accounts} symbolFilter="QQQ,SPY" /><PortfolioHedgeEngine positions={positions} /></div>}
     </div>
   )
 }
@@ -507,17 +507,19 @@ function FallbackCorrections({ rows, onSetBucket }: { rows: Array<{ position: Po
 }
 
 function PortfolioHedgeGuide() {
-  return <details className="card group p-0" open><summary className="flex cursor-pointer list-none items-center gap-3 p-5"><ShieldCheck size={19} className="text-brand"/><div><h3 className="font-semibold">Portfolio QQQ hedge · monthly roll plan</h3><p className="mt-0.5 text-xs text-faint">The put is sized against portfolio risk—not your three QQQ shares</p></div><ChevronRight size={17} className="ml-auto text-faint transition-transform group-open:rotate-90"/></summary><div className="border-t border-border-soft p-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{[
-    ['1 · Estimate exposure', 'Use total long market exposure and a conservative estimate of how strongly the portfolio moves with QQQ. Beta is a planning assumption until enough clean portfolio history exists.'],
-    ['2 · Define the crash', 'Choose the QQQ decline to insure and the percentage of the modeled portfolio loss you want the put payoff to offset.'],
-    ['3 · Select a live QQQ put', 'Load QQQ quotes, then choose a liquid 60–90 DTE contract. The selected ask, strike, and expiration feed the portfolio model.'],
-    ['4 · Roll every 30 days', 'Sell-to-close the existing put before buying the replacement. Do not allow it to expire: three QQQ shares cannot deliver against a 100-share put exercise.'],
-  ].map(([title, body]) => <div key={title} className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="text-sm font-semibold">{title}</div><p className="mt-2 text-xs leading-5 text-muted">{body}</p></div>)}</div><div className="mt-4 rounded-lg border border-[#5a3a16] bg-[#38240f]/55 p-3 text-xs leading-5 text-[#e7c88f]">A QQQ put has basis risk: it may not offset losses in CEFs, credit funds, or non-Nasdaq holdings. Gross premium is not the same as net monthly roll cost because the old put may retain value when sold.</div></div></details>
+  const steps = [
+    ['1 · Choose QQQ or SPY', 'QQQ is a technology-heavy proxy; SPY is broader. Select the one whose risk most closely resembles the portfolio exposure you intend to offset.'],
+    ['2 · Estimate exposure', 'Use total long market exposure and a conservative beta to the selected proxy. Beta remains a planning assumption until clean portfolio history supports it.'],
+    ['3 · Select a live put', 'Load the selected proxy’s chain and choose a liquid 60–90 DTE contract. Its ask, strike, and expiration feed the sizing model.'],
+    ['4 · Roll every 30 days', 'Sell-to-close the existing put before buying its replacement. Do not rely on exercise unless you intentionally hold 100 deliverable shares per contract.'],
+  ]
+  return <details className="card group p-0" open><summary className="flex cursor-pointer list-none items-center gap-3 p-5"><ShieldCheck size={19} className="text-brand"/><div><h3 className="font-semibold">Portfolio QQQ / SPY hedge · monthly roll plan</h3><p className="mt-0.5 text-xs text-faint">Size index puts against portfolio risk—not the number of index shares owned</p></div><ChevronRight size={17} className="ml-auto text-faint transition-transform group-open:rotate-90"/></summary><div className="border-t border-border-soft p-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{steps.map(([title, body]) => <div key={title} className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="text-sm font-semibold">{title}</div><p className="mt-2 text-xs leading-5 text-muted">{body}</p></div>)}</div><div className="mt-4 rounded-lg border border-[#5a3a16] bg-[#38240f]/55 p-3 text-xs leading-5 text-[#e7c88f]">Both proxies have basis risk and may not offset CEF, credit, or non-equity losses. Gross premium is not net roll cost because the old put may retain value when sold.</div></div></details>
 }
 
 function PortfolioHedgeEngine({ positions }: { positions: Position[] }) {
   const longExposure = positions.filter((p) => !p.isOption && p.shares > 0).reduce((sum, p) => sum + p.shares * p.lastPrice, 0)
-  const heldQqq = positions.find((p) => !p.isOption && normTicker(p.symbol) === 'QQQ')
+  const [hedgeSymbol, setHedgeSymbol] = useState<'QQQ' | 'SPY'>('QQQ')
+  const heldQqq = positions.find((p) => !p.isOption && normTicker(p.symbol) === hedgeSymbol)
   const [qqqPrice, setQqqPrice] = useState(heldQqq?.lastPrice ?? 0)
   const [beta, setBeta] = useState(.8)
   const [decline, setDecline] = useState(25)
@@ -531,7 +533,9 @@ function PortfolioHedgeEngine({ positions }: { positions: Position[] }) {
   useEffect(() => {
     const applyQuote = (event: Event) => {
       const detail = (event as CustomEvent<{ symbol?: string; underlyingPrice?: number; strike: number; expiration: string; premium: number }>).detail
-      if (normTicker(detail.symbol ?? '') !== 'QQQ') return
+      const symbol = normTicker(detail.symbol ?? '')
+      if (symbol !== 'QQQ' && symbol !== 'SPY') return
+      setHedgeSymbol(symbol)
       if (detail.underlyingPrice) setQqqPrice(detail.underlyingPrice)
       setStrike(detail.strike); setPremium(detail.premium); setExpiry(detail.expiration)
     }
@@ -542,7 +546,7 @@ function PortfolioHedgeEngine({ positions }: { positions: Position[] }) {
   const expiryDate = expiry ? new Date(`${expiry}T00:00:00`) : null
   const daysToExpiry = expiryDate ? Math.ceil((expiryDate.getTime() - Date.now()) / 86_400_000) : null
   const nextRoll = new Date(); nextRoll.setDate(nextRoll.getDate() + rollDays)
-  const ticket = `BUY TO OPEN ${plan.contracts} QQQ PUT ${expiry || '[EXPIRY]'} $${strike.toFixed(2)} @ $${premium.toFixed(2)} LIMIT · PORTFOLIO HEDGE · SELL TO CLOSE BY ${nextRoll.toISOString().slice(0, 10)}`
+  const ticket = `BUY TO OPEN ${plan.contracts} ${hedgeSymbol} PUT ${expiry || '[EXPIRY]'} $${strike.toFixed(2)} @ $${premium.toFixed(2)} LIMIT · PORTFOLIO HEDGE · SELL TO CLOSE BY ${nextRoll.toISOString().slice(0, 10)}`
   const copy = async () => { try { await navigator.clipboard.writeText(ticket); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* unavailable */ } }
   return <div className="space-y-4"><div className="card p-5"><div className="flex items-start gap-3"><ShieldCheck size={20} className="text-brand"/><div><h3 className="font-semibold">Portfolio hedge sizing</h3><p className="mt-1 text-xs text-faint">Scenario-based QQQ proxy hedge with a fixed monthly roll discipline.</p></div><span className="ml-auto rounded-md bg-[#c7a96b]/10 px-2 py-1 text-xs text-[#d8bd7a]">Planning only</span></div><div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><HedgeInput label="Long market exposure" prefix="$" value={longExposure} disabled/><HedgeInput label="QQQ price" prefix="$" value={qqqPrice} onChange={setQqqPrice}/><HedgeInput label="Estimated portfolio QQQ beta" value={beta} step={.05} onChange={(v) => setBeta(Math.max(0, Math.min(3, v)))}/><HedgeInput label="QQQ crash scenario" suffix="% down" value={decline} onChange={(v) => setDecline(Math.max(1, Math.min(90, v)))}/><HedgeInput label="Loss offset target" suffix="%" value={offset} onChange={(v) => setOffset(Math.max(1, Math.min(100, v)))}/><HedgeInput label="Annual premium budget" suffix="%" value={budget} step={.25} onChange={(v) => setBudget(Math.max(0, Math.min(20, v)))}/><HedgeInput label="Roll interval" suffix="days" value={rollDays} onChange={(v) => setRollDays(Math.max(7, Math.min(60, v)))}/><HedgeInput label="Selected strike" prefix="$" value={strike} onChange={setStrike}/><HedgeInput label="Selected ask" prefix="$" value={premium} step={.01} onChange={setPremium}/><label className="text-xs text-muted"><span>Expiration</span><input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm [color-scheme:dark]"/></label></div>{daysToExpiry != null && daysToExpiry < rollDays && <div className="mt-4 rounded-lg border border-neg/30 bg-neg/10 p-3 text-xs text-neg">This contract expires before the planned {rollDays}-day roll. Choose a longer-dated QQQ put.</div>}</div><div className="card p-5"><div className="grid grid-cols-2 gap-5 lg:grid-cols-4"><SummaryMetric label="Modeled portfolio loss" value={usd(plan.modeledPortfolioLoss)} tone="warn"/><SummaryMetric label="Desired dollar offset" value={usd(plan.desiredOffset)}/><SummaryMetric label="Net payoff / contract" value={usd(plan.netPayoffPerContract)}/><SummaryMetric label="Contracts required" value={String(plan.contracts)}/><SummaryMetric label="Gross premium debit" value={usd(plan.grossPremium)} tone={plan.overMonthlyBudget ? 'warn' : undefined}/><SummaryMetric label="Monthly debit budget" value={usd(plan.monthlyGrossDebitBudget)}/><SummaryMetric label="Modeled net offset" value={usd(plan.modeledNetOffset)}/><SummaryMetric label="Offset achieved" value={pct(plan.offsetAchievedPct * 100)}/><SummaryMetric label="Residual modeled loss" value={usd(plan.residualLoss)} tone="warn"/><SummaryMetric label="QQQ crash price" value={usd(plan.crashPrice)}/><SummaryMetric label="Next roll date" value={shortDate(nextRoll.toISOString().slice(0, 10))}/><SummaryMetric label="Days to expiration" value={daysToExpiry == null ? 'Select contract' : String(daysToExpiry)}/></div>{plan.overMonthlyBudget && <div className="mt-4 rounded-lg border border-[#5a3a16] bg-[#38240f]/55 p-3 text-xs text-[#e7c88f]">The gross purchase debit exceeds one month of the annual premium budget. This is a conservative warning: actual net roll cost depends on proceeds from selling the old put.</div>}</div><div className="card p-5"><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-[#cbb77f]">Monthly roll ticket</div><div className="num mt-2 break-words text-sm">{ticket}</div><div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-faint">Sell the existing put to close first, record its proceeds, then buy the replacement. Never exercise or leave this proxy hedge unattended into expiration.</p><Button onClick={copy} disabled={!plan.contracts || !expiry}>{copied ? <Check size={14}/> : <Copy size={14}/>} {copied ? 'Copied' : 'Copy ticket'}</Button></div></div></div>
 }
@@ -582,7 +586,12 @@ export function ProtectivePutTutorial() {
 }
 
 function LivePutQuotes({ positions, accounts, symbolFilter }: { positions: Position[]; accounts: Account[]; symbolFilter?: string }) {
-  const eligible = useMemo(() => positions.filter((p) => !p.isOption && p.shares > 0 && p.lastPrice > 0 && (!symbolFilter || normTicker(p.symbol) === normTicker(symbolFilter))), [positions, symbolFilter])
+  const eligible = useMemo(() => {
+    const allowed = symbolFilter?.split(',').map(normTicker)
+    const rows = positions.filter((p) => !p.isOption && p.shares > 0 && p.lastPrice > 0 && (!allowed || allowed.includes(normTicker(p.symbol))))
+    for (const symbol of allowed ?? []) if (!rows.some((p) => normTicker(p.symbol) === symbol)) rows.push({ id: `proxy-${symbol}`, accountId: '', symbol, name: `${symbol} hedge proxy`, shares: 0, avgCost: 0, lastPrice: 0, prevClose: 0, dividendsReceived: 0 })
+    return rows
+  }, [positions, symbolFilter])
   const [positionId, setPositionId] = useState(() => eligible[0]?.id ?? '')
   const [quotes, setQuotes] = useState<PutQuote[]>([])
   const [loading, setLoading] = useState(false)
@@ -592,7 +601,7 @@ function LivePutQuotes({ positions, accounts, symbolFilter }: { positions: Posit
   const [meta, setMeta] = useState<{ fetchedAt?: string; delayed?: boolean; underlyingPrice?: number | null }>({})
   const position = eligible.find((p) => p.id === positionId) ?? eligible[0]
   const rankedQuotes = useMemo(() => quotes
-    .map((quote) => ({ quote, fit: rankProtectivePut(quote, position?.lastPrice ?? 0, targetDrawdown, targetDays) }))
+    .map((quote) => ({ quote, fit: rankProtectivePut(quote, meta.underlyingPrice ?? position?.lastPrice ?? 0, targetDrawdown, targetDays) }))
     .filter(({ fit }) => fit.premium > 0)
     .sort((a, b) => b.fit.score - a.fit.score), [quotes, position?.lastPrice, targetDrawdown, targetDays])
   const load = async () => {
@@ -617,7 +626,7 @@ function LivePutQuotes({ positions, accounts, symbolFilter }: { positions: Posit
       <summary className="flex cursor-pointer list-none items-center gap-3 p-5"><Activity size={19} className="text-pos"/><div><h3 className="font-semibold">Schwab option-chain quotes</h3><p className="mt-0.5 text-xs text-faint">Rank contracts against your protection floor, time horizon, cost, and liquidity</p></div><ChevronRight size={17} className="ml-auto text-faint transition-transform group-open:rotate-90"/></summary>
       <div className="border-t border-border-soft p-5">
         <div className="grid items-end gap-3 md:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_160px_160px_auto]">
-          <label className="text-xs text-muted"><span>Underlying position</span><select value={position?.id ?? ''} onChange={(e) => { setPositionId(e.target.value); setQuotes([]); setError('') }} className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm text-ink">{eligible.map((p) => <option key={p.id} value={p.id}>{p.symbol} · {p.shares} shares · {accounts.find((a) => a.id === p.accountId)?.name}</option>)}</select></label>
+          <label className="text-xs text-muted"><span>Hedge proxy</span><select value={position?.id ?? ''} onChange={(e) => { setPositionId(e.target.value); setQuotes([]); setError(''); setMeta({}) }} className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm text-ink">{eligible.map((p) => <option key={p.id} value={p.id}>{p.symbol}{p.shares > 0 ? ` · ${p.shares} shares · ${accounts.find((a) => a.id === p.accountId)?.name ?? 'Account'}` : ' · portfolio hedge proxy'}</option>)}</select></label>
           <label className="text-xs text-muted"><span>Protection begins near</span><div className="mt-1 flex rounded-xl border border-border bg-surface-2 px-3"><input type="number" min={1} max={90} value={targetDrawdown} onChange={(e) => setTargetDrawdown(Math.max(1, Math.min(90, +e.target.value)))} className="num w-full bg-transparent py-2.5 outline-none"/><span className="my-auto">% down</span></div></label>
           <label className="text-xs text-muted"><span>Target horizon</span><div className="mt-1 flex rounded-xl border border-border bg-surface-2 px-3"><input type="number" min={7} max={240} value={targetDays} onChange={(e) => setTargetDays(Math.max(7, Math.min(240, +e.target.value)))} className="num w-full bg-transparent py-2.5 outline-none"/><span className="my-auto">days</span></div></label>
           <Button onClick={load} disabled={loading || !position}>{loading ? <LoaderCircle size={14} className="animate-spin"/> : <Activity size={14}/>} {loading ? 'Loading quotes' : 'Load Schwab quotes'}</Button>

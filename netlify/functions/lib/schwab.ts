@@ -325,8 +325,8 @@ async function buildTwrSeries(
   for (const t of transactions) if (t.date >= startISO && t.date <= todayISO) dateSet.add(t.date)
   const dates = [...dateSet].sort()
 
-  const byAccount: Record<string, { date: string; value: number }[]> = {}
-  const combined = new Map<string, number>()
+  const byAccount: Record<string, { date: string; value: number; equity: number }[]> = {}
+  const combined = new Map<string, { value: number; equity: number }>()
 
   for (const acc of accounts) {
     const accTxns = transactions
@@ -349,7 +349,7 @@ async function buildTwrSeries(
       if ((t.type === 'Buy' || t.type === 'Sell') && t.symbol && !isOptionSymbol(t.symbol))
         symUniverse.add(t.symbol)
 
-    const series: { date: string; value: number }[] = []
+    const rawSeries: { date: string; value: number }[] = []
     for (const d of dates) {
       // Cash and post-date share movements reconstructed from txns after day d.
       let cashAfter = 0
@@ -370,20 +370,30 @@ async function buildTwrSeries(
         secD += sh * (px ?? 0)
       }
       const value = cashD + secD
-      series.push({ date: d, value })
-      combined.set(d, (combined.get(d) ?? 0) + value)
+      rawSeries.push({ date: d, value })
+    }
+    const endingValue = rawSeries.at(-1)?.value ?? 0
+    const endingEquity = typeof acc.equity === 'number' ? acc.equity : endingValue - (acc.marginBalance || 0)
+    const debtAnchor = endingValue - endingEquity
+    const series = rawSeries.map(({ date, value }) => ({ date, value, equity: value - debtAnchor }))
+    for (const point of series) {
+      const total = combined.get(point.date) ?? { value: 0, equity: 0 }
+      total.value += point.value
+      total.equity += point.equity
+      combined.set(point.date, total)
     }
     byAccount[acc.id] = series
   }
 
-  const all = dates.map((d) => ({ date: d, value: combined.get(d) ?? 0 }))
+  const all = dates.map((d) => ({ date: d, ...(combined.get(d) ?? { value: 0, equity: 0 }) }))
   const twr = {
     byAccount,
     all,
     generatedAt: new Date().toISOString(),
     note:
       'Time-weighted return covers your equity/ETF holdings, their dividends, and cash. ' +
-      'Option premium is neutralised (historical option prices are unavailable), so option P/L is not marked to market here.',
+      'Option premium is neutralised (historical option prices are unavailable), so option P/L is not marked to market here. ' +
+      'Current equity is broker reported; earlier equity uses the current margin-debt anchor because Schwab does not provide historical margin balances.',
   }
 
   // ---- Moving-average insights for current holdings (reuse fetched closes) ----

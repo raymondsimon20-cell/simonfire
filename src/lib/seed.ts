@@ -428,8 +428,8 @@ function buildSampleTwr(): TwrSeries {
       : 0
 
   const weeks = 53
-  const byAccount: Record<string, { date: string; value: number }[]> = {}
-  const combined = new Map<string, number>()
+  const byAccount: Record<string, { date: string; value: number; equity: number }[]> = {}
+  const combined = new Map<string, { value: number; equity: number }>()
 
   // Week-end dates, oldest → today.
   const dates: string[] = []
@@ -450,21 +450,27 @@ function buildSampleTwr(): TwrSeries {
     // plausible base, then apply weekly returns and the real weekly flows. The
     // client's TWR math recovers the intended returns because flows are baked in.
     let v = Math.max(curEquity - totalFlow, curEquity * 0.5, 5000)
-    const pts: { date: string; value: number }[] = [{ date: dates[0], value: +v.toFixed(2) }]
+    const debt = acc.marginBalance || 0
+    const pts: { date: string; value: number; equity: number }[] = [{ date: dates[0], value: +v.toFixed(2), equity: +(v - debt).toFixed(2) }]
     for (let i = 1; i < dates.length; i++) {
       let flow = 0
       for (const t of accTxns) if (t.date > dates[i - 1] && t.date <= dates[i]) flow += flowOf(t)
       const r = 0.0018 + (rng() - 0.5) * 0.03 // ~9%/yr drift with weekly noise
       v = Math.max(v * (1 + r) + flow, 1)
-      pts.push({ date: dates[i], value: +v.toFixed(2) })
+      pts.push({ date: dates[i], value: +v.toFixed(2), equity: +(v - debt).toFixed(2) })
     }
     byAccount[acc.id] = pts
-    for (const p of pts) combined.set(p.date, (combined.get(p.date) ?? 0) + p.value)
+    for (const p of pts) {
+      const total = combined.get(p.date) ?? { value: 0, equity: 0 }
+      total.value += p.value
+      total.equity += p.equity
+      combined.set(p.date, total)
+    }
   }
 
   const all = [...combined.entries()]
     .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-    .map(([date, value]) => ({ date, value: +value.toFixed(2) }))
+    .map(([date, totals]) => ({ date, value: +totals.value.toFixed(2), equity: +totals.equity.toFixed(2) }))
   return {
     byAccount,
     all,

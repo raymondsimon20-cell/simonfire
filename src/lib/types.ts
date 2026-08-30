@@ -172,6 +172,9 @@ export interface Insights {
 export interface TwrPoint {
   date: string // ISO yyyy-mm-dd
   value: number // portfolio value (securities MV + cash) at close
+  // Net account equity after margin debt. Current-day equity is broker reported;
+  // earlier values are reconstructed because Schwab does not expose debt history.
+  equity?: number
 }
 
 // Per-account (+ combined) daily value series produced at sync time. TWR itself

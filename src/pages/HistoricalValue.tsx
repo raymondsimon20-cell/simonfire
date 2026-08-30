@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { Activity, ArrowDownRight, ArrowUpRight, CalendarDays, Landmark, TrendingUp } from 'lucide-react'
+import { Activity, ArrowDownRight, ArrowUpRight, Landmark, TrendingUp } from 'lucide-react'
 import clsx from 'clsx'
 import { useScoped, useStore } from '../lib/store'
 import { computeTwr, flowsByDate, seriesForScope } from '../lib/twr'
@@ -42,7 +42,8 @@ function ValueTooltip({ active, payload }: any) {
   return (
     <div className="rounded-xl border border-white/10 bg-[#10151d]/95 px-3.5 py-3 text-xs shadow-2xl backdrop-blur-xl">
       <div className="text-muted">{shortDate(row.date)}</div>
-      <div className="num mt-1 text-sm font-semibold text-ink">{usd(row.value)}</div>
+      <div className="mt-2 flex min-w-40 items-center justify-between gap-5"><span className="text-muted">Portfolio value</span><span className="num font-semibold text-[#d8bd7a]">{usd(row.value)}</span></div>
+      <div className="mt-1 flex items-center justify-between gap-5"><span className="text-muted">Equity value</span><span className="num font-semibold text-[#5aa2ff]">{usd(row.equity ?? row.value)}</span></div>
     </div>
   )
 }
@@ -52,14 +53,16 @@ export default function HistoricalValue() {
   const { scope, transactions } = useScoped()
   const [range, setRange] = useState<Range>('1Y')
   const fullSeries = useMemo(() => seriesForScope(data.twr, scope), [data.twr, scope])
+  const marginDebt = useMemo(() => data.accounts.filter((account) => scope === 'all' || account.id === scope).reduce((sum, account) => sum + account.marginBalance, 0), [data.accounts, scope])
+  const normalizedSeries = useMemo(() => fullSeries.map((point) => ({ ...point, equity: point.equity ?? point.value - marginDebt })), [fullSeries, marginDebt])
 
   const visible = useMemo(() => {
-    if (!fullSeries.length || range === 'ALL') return fullSeries
-    const cutoff = startForRange(fullSeries.at(-1)!.date, range)
-    const inRange = fullSeries.filter((point) => point.date >= cutoff)
-    const prior = [...fullSeries].reverse().find((point) => point.date < cutoff)
+    if (!normalizedSeries.length || range === 'ALL') return normalizedSeries
+    const cutoff = startForRange(normalizedSeries.at(-1)!.date, range)
+    const inRange = normalizedSeries.filter((point) => point.date >= cutoff)
+    const prior = [...normalizedSeries].reverse().find((point) => point.date < cutoff)
     return prior ? [prior, ...inRange] : inRange
-  }, [fullSeries, range])
+  }, [normalizedSeries, range])
 
   const scopedFlows = useMemo(() => flowsByDate(transactions), [transactions])
   const performance = useMemo(() => computeTwr(visible, scopedFlows), [visible, scopedFlows])
@@ -115,11 +118,13 @@ export default function HistoricalValue() {
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <KpiCard label="Ending value" value={usd(stats.end.value)} sub={`As of ${shortDate(stats.end.date)}`} icon={<Landmark size={20} />} tile="green" />
+            <KpiCard label="Portfolio value" value={usd(stats.end.value)} sub={`As of ${shortDate(stats.end.date)}`} icon={<Landmark size={20} />} tile="green" />
+            <KpiCard label="Equity value" value={usd(stats.end.equity ?? stats.end.value)} sub={marginDebt ? `${usd(marginDebt)} margin debt` : 'No margin debt'} icon={<Activity size={20} />} tile="blue" />
             <KpiCard label="Value change" value={usd(stats.change, { sign: true })} sub={pct(stats.changePct * 100, { sign: true }) + ' including cash flows'} valueClass={posNeg(stats.change)} icon={stats.change >= 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />} tile={stats.change >= 0 ? 'green' : 'red'} />
             <KpiCard label="Time-weighted return" value={performance.ok ? pct(performance.twrPct * 100, { sign: true }) : '—'} sub={performance.ok ? `${pct(performance.annualizedPct * 100, { sign: true })} annualized` : 'Not enough history'} valueClass={performance.ok ? posNeg(performance.twrPct) : 'text-faint'} icon={<TrendingUp size={20} />} tile="purple" info="Investment performance with contributions and withdrawals removed." />
-            <KpiCard label="Net contributions" value={usd(stats.flow, { sign: true })} sub={`Max drawdown ${pct(stats.maxDrawdown * 100)}`} valueClass={posNeg(stats.flow)} icon={<CalendarDays size={20} />} tile="blue" />
           </div>
+
+          <div className="card mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 text-xs text-muted"><span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-[#d8bd7a]" /> Portfolio value</span><span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-[#5aa2ff]" /> Equity value</span><span className="ml-auto">Net contributions <span className={clsx('num ml-1 font-medium', posNeg(stats.flow))}>{usd(stats.flow, { sign: true })}</span> · Max drawdown <span className="num ml-1 text-neg">{pct(stats.maxDrawdown * 100)}</span></span></div>
 
           <section className="card mt-4 overflow-hidden p-0">
             <div className="flex flex-wrap items-end justify-between gap-3 px-5 py-5 sm:px-6">
@@ -135,6 +140,7 @@ export default function HistoricalValue() {
                   <YAxis domain={['auto', 'auto']} tick={{ fill: '#697485', fontSize: 11 }} tickFormatter={compactUsd} axisLine={false} tickLine={false} width={62} />
                   <Tooltip content={<ValueTooltip />} cursor={{ stroke: '#697485', strokeDasharray: '3 3' }} />
                   <Area type="monotone" dataKey="value" stroke="#d8bd7a" strokeWidth={2.25} fill="url(#history-value-fill)" activeDot={{ r: 4, fill: '#e1c887', stroke: '#10151d', strokeWidth: 2 }} />
+                  <Area type="monotone" dataKey="equity" stroke="#5aa2ff" strokeWidth={2} fill="transparent" activeDot={{ r: 4, fill: '#5aa2ff', stroke: '#10151d', strokeWidth: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -144,8 +150,8 @@ export default function HistoricalValue() {
             <div className="px-5 py-4 sm:px-6"><h2 className="text-lg font-semibold">Month-end values</h2><p className="mt-1 text-xs text-muted">Latest observation available in each month</p></div>
             <div className="max-h-[420px] overflow-auto">
               <table className="w-full min-w-[520px] text-sm">
-                <thead><tr className="border-y border-border-soft text-xs text-muted"><th className="px-5 py-2.5 text-left font-medium sm:px-6">Month</th><th className="px-4 py-2.5 text-right font-medium">Ending value</th><th className="px-4 py-2.5 text-right font-medium">Change</th><th className="px-5 py-2.5 text-right font-medium sm:px-6">Change %</th></tr></thead>
-                <tbody>{months.map((row, index) => <tr key={row.date} className="border-b border-border-soft last:border-0"><td className="px-5 py-3 font-medium sm:px-6">{new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</td><td className="num px-4 py-3 text-right font-semibold">{usd(row.value)}</td><td className={clsx('num px-4 py-3 text-right', index === months.length - 1 ? 'text-faint' : posNeg(row.change))}>{index === months.length - 1 ? '—' : usd(row.change, { sign: true })}</td><td className={clsx('num px-5 py-3 text-right sm:px-6', index === months.length - 1 ? 'text-faint' : posNeg(row.changePct))}>{index === months.length - 1 ? '—' : pct(row.changePct * 100, { sign: true })}</td></tr>)}</tbody>
+                <thead><tr className="border-y border-border-soft text-xs text-muted"><th className="px-5 py-2.5 text-left font-medium sm:px-6">Month</th><th className="px-4 py-2.5 text-right font-medium">Portfolio value</th><th className="px-4 py-2.5 text-right font-medium">Equity value</th><th className="px-4 py-2.5 text-right font-medium">Change</th><th className="px-5 py-2.5 text-right font-medium sm:px-6">Change %</th></tr></thead>
+                <tbody>{months.map((row, index) => <tr key={row.date} className="border-b border-border-soft last:border-0"><td className="px-5 py-3 font-medium sm:px-6">{new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</td><td className="num px-4 py-3 text-right font-semibold">{usd(row.value)}</td><td className="num px-4 py-3 text-right font-semibold text-[#7fb5ff]">{usd(row.equity ?? row.value)}</td><td className={clsx('num px-4 py-3 text-right', index === months.length - 1 ? 'text-faint' : posNeg(row.change))}>{index === months.length - 1 ? '—' : usd(row.change, { sign: true })}</td><td className={clsx('num px-5 py-3 text-right sm:px-6', index === months.length - 1 ? 'text-faint' : posNeg(row.changePct))}>{index === months.length - 1 ? '—' : pct(row.changePct * 100, { sign: true })}</td></tr>)}</tbody>
               </table>
             </div>
           </section>

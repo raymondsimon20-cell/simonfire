@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
-import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles } from 'lucide-react'
+import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles, History } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { relTime } from '../lib/format'
@@ -48,6 +48,7 @@ function Logo() {
 const NAV = [
   { to: '/', label: 'Overview', end: true, icon: LayoutDashboard },
   { to: '/positions', label: 'Positions', icon: ChartNoAxesCombined },
+  { to: '/history', label: 'Historical Value', icon: History },
   { to: '/transactions', label: 'Transactions', icon: ReceiptText },
   { to: '/cash-flow', label: 'Cash Flow', icon: Landmark },
   { to: '/dividends', label: 'Dividends', icon: Coins },

@@ -14,11 +14,13 @@ const Ledger = lazy(() => import('./pages/Ledger'))
 const Connections = lazy(() => import('./pages/Connections'))
 const AccountDetail = lazy(() => import('./pages/AccountDetail'))
 const Allocation = lazy(() => import('./pages/Allocation'))
+const HistoricalValue = lazy(() => import('./pages/HistoricalValue'))
 const page = (node: ReactNode) => <Suspense fallback={<PageSkeleton />}>{node}</Suspense>
 const makeRouter = import.meta.env.VITE_SINGLEFILE ? createHashRouter : createBrowserRouter
 const router = makeRouter([{ path: '/', element: <Layout />, errorElement: <NotFound />, children: [
   { index: true, element: page(<Dashboard />) }, { path: 'positions', element: page(<Positions />) },
   { path: 'account/:id', element: page(<AccountDetail />) }, { path: 'allocation', element: page(<Allocation />) },
+  { path: 'history', element: page(<HistoricalValue />) },
   { path: 'transactions', element: page(<Transactions />) }, { path: 'cash-flow', element: page(<CashFlow />) },
   { path: 'dividends', element: page(<Dividends />) }, { path: 'month-close', element: page(<MonthClose />) },
   { path: 'ledger', element: page(<Ledger />) }, { path: 'connections', element: page(<Connections />) },

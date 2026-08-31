@@ -2,8 +2,35 @@
 // Netlify (or running `netlify dev`); in a plain Vite/demo build the calls fail
 // gracefully and the UI falls back to CSV import.
 import type { ImportPayload } from './store'
+import type { AppData } from './types'
 
 const FN = '/.netlify/functions'
+
+export type SharedPreferences = Pick<AppData, 'bucketOverrides' | 'tagRules' | 'targetAlloc' | 'keepList' | 'soldSymbols'>
+
+export async function loadSharedPreferences(): Promise<SharedPreferences | null> {
+  try {
+    const response = await fetch(`${FN}/preferences`)
+    if (!response.ok) return null
+    const data = await response.json()
+    return data.preferences ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function saveSharedPreferences(preferences: SharedPreferences): Promise<boolean> {
+  try {
+    const response = await fetch(`${FN}/preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(preferences),
+    })
+    return response.ok
+  } catch {
+    return false
+  }
+}
 
 export const schwabLoginUrl = `${FN}/schwab-login`
 

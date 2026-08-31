@@ -11,6 +11,7 @@ import type { Account, AppData, Connection, HedgeRoll, Insights, Position, TagRu
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
+import { loadSharedPreferences, saveSharedPreferences, type SharedPreferences } from './api'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -124,6 +125,30 @@ function save(data: AppData) {
   }
 }
 
+function sharedPreferences(data: AppData): SharedPreferences {
+  return {
+    bucketOverrides: data.bucketOverrides ?? {},
+    tagRules: data.tagRules ?? [],
+    targetAlloc: data.targetAlloc,
+    keepList: data.keepList ?? DEFAULT_KEEP,
+    soldSymbols: data.soldSymbols ?? [],
+  }
+}
+
+function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
+  data.bucketOverrides = preferences.bucketOverrides ?? {}
+  data.tagRules = preferences.tagRules ?? []
+  data.targetAlloc = preferences.targetAlloc
+  data.keepList = preferences.keepList ?? DEFAULT_KEEP
+  data.soldSymbols = preferences.soldSymbols ?? []
+  for (const position of data.positions) {
+    position.allocationBucket = data.bucketOverrides[`${position.accountId}|${position.symbol}`]
+  }
+  const sold = new Set(data.soldSymbols)
+  if (sold.size) data.positions = data.positions.filter((position) => !sold.has(soldKey(position.accountId, position.symbol)))
+  applyRulesTo(data)
+}
+
 const uid = () => 'x' + Math.random().toString(36).slice(2, 10)
 
 interface StoreCtx {
@@ -171,10 +196,34 @@ const Ctx = createContext<StoreCtx | null>(null)
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData>(() => load())
   const [scope, setScope] = useState<string>('all')
+  const [sharedReady, setSharedReady] = useState(false)
 
   useEffect(() => {
     save(data)
   }, [data])
+
+  // Category and planning preferences are shared through Netlify Blobs. Do not
+  // publish this browser's local copy until the server copy has been hydrated,
+  // otherwise a new device could overwrite established preferences on startup.
+  useEffect(() => {
+    let cancelled = false
+    loadSharedPreferences().then((preferences) => {
+      if (cancelled) return
+      if (preferences) setData((previous) => {
+        const next = structuredClone(previous)
+        applySharedPreferences(next, preferences)
+        return next
+      })
+      setSharedReady(true)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (!sharedReady) return
+    const timeout = window.setTimeout(() => { void saveSharedPreferences(sharedPreferences(data)) }, 350)
+    return () => window.clearTimeout(timeout)
+  }, [data.bucketOverrides, data.tagRules, data.targetAlloc, data.keepList, data.soldSymbols, sharedReady])
 
   const mutate = useCallback((fn: (d: AppData) => AppData) => {
     setData((prev) => fn(structuredClone(prev)))

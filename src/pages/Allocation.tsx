@@ -595,14 +595,17 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
     if (!heldOptionSymbol) { setRollError('The held position is missing a valid option contract symbol. Sync Schwab and try again.'); return }
     setRecommending(position.id); setRollError('')
     const from = new Date(); const to = new Date(); to.setDate(to.getDate() + 240)
-    const result = await schwabPutChain(underlying, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10), heldOptionSymbol)
+    const result = await schwabPutChain(underlying, from.toISOString().slice(0, 10), to.toISOString().slice(0, 10), heldOptionSymbol, 80)
     setRecommending(null)
     if (!result.ok) { setRollError(result.error ?? 'Unable to refresh the Schwab option chain.'); return }
     const key = (symbol: string) => symbol.replace(/\s+/g, '').toUpperCase()
     const current = (result.contracts ?? []).find((quote) => key(quote.symbol) === key(heldOptionSymbol))
     if (!current) { setRollError('Schwab did not return a quote for the held contract. Confirm that it is still active and try again.'); return }
+    if ((current.bid ?? 0) <= 0) { setRollError('Schwab returned no executable bid for the held put, so a safe close limit cannot be prepared. Check the contract during market hours.'); return }
+    const eligibleReplacements = (result.contracts ?? []).filter((quote) => key(quote.symbol) !== key(heldOptionSymbol) && (quote.daysToExpiration ?? 0) >= 30 && (quote.daysToExpiration ?? 0) <= 120 && (quote.ask ?? 0) > 0)
+    if (!eligibleReplacements.length) { setRollError('Schwab returned no replacement puts with an ask between 30 and 120 DTE. Try again during market hours.'); return }
     const recommendation = recommendPutRoll(current, result.contracts ?? [], result.underlyingPrice ?? 0, Math.trunc(position.shares), 60)
-    if (!recommendation) { setRollError('No liquid 30–120 DTE replacement with a valid current bid and ask was found.'); return }
+    if (!recommendation) { setRollError('A roll ticket could not be built from the current Schwab quotes. Refresh the chain and try again.'); return }
     setOrderAccount(position.accountId)
     setRollSource({ optionSymbol: current.symbol, contracts: Math.trunc(position.shares), limitCredit: recommendation.closeCredit, accountId: position.accountId, replacementSymbol: recommendation.quote.symbol, estimatedNetDebit: recommendation.estimatedNetDebit })
     window.dispatchEvent(new CustomEvent('simonfire:put-quote', { detail: { symbol: underlying, optionSymbol: recommendation.quote.symbol, underlyingPrice: result.underlyingPrice, strike: recommendation.quote.strike, expiration: recommendation.quote.expiration, premium: recommendation.openDebit } }))

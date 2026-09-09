@@ -17,6 +17,8 @@ export default async (req: Request) => {
   const fromDate = String(url.searchParams.get('fromDate') ?? '')
   const toDate = String(url.searchParams.get('toDate') ?? '')
   const includeSymbol = String(url.searchParams.get('includeSymbol') ?? '').replace(/\s+/g, '').toUpperCase()
+  const requestedStrikeCount = Number(url.searchParams.get('strikeCount') ?? 24)
+  const strikeCount = Number.isSafeInteger(requestedStrikeCount) ? Math.max(1, Math.min(100, requestedStrikeCount)) : 24
   if (!symbolPattern.test(symbol)) return json({ ok: false, error: 'invalid_symbol' }, 400)
   if (includeSymbol && !optionSymbolPattern.test(includeSymbol)) return json({ ok: false, error: 'invalid_option_symbol' }, 400)
   if ((fromDate && !datePattern.test(fromDate)) || (toDate && !datePattern.test(toDate)))
@@ -27,7 +29,7 @@ export default async (req: Request) => {
     const params = new URLSearchParams({
       symbol,
       contractType: 'PUT',
-      strikeCount: '24',
+      strikeCount: String(strikeCount),
       includeUnderlyingQuote: 'true',
       strategy: 'SINGLE',
     })

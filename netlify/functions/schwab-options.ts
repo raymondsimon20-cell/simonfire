@@ -3,6 +3,7 @@
 import { accessToken, json, MARKET_BASE } from './lib/schwab'
 
 const symbolPattern = /^[A-Z][A-Z0-9./-]{0,14}$/
+const optionSymbolPattern = /^[A-Z]{1,6}\d{6}[CP]\d{8}$/
 const datePattern = /^\d{4}-\d{2}-\d{2}$/
 const finite = (value: unknown): number | null => {
   const n = Number(value)
@@ -15,7 +16,9 @@ export default async (req: Request) => {
   const symbol = String(url.searchParams.get('symbol') ?? '').trim().toUpperCase()
   const fromDate = String(url.searchParams.get('fromDate') ?? '')
   const toDate = String(url.searchParams.get('toDate') ?? '')
+  const includeSymbol = String(url.searchParams.get('includeSymbol') ?? '').replace(/\s+/g, '').toUpperCase()
   if (!symbolPattern.test(symbol)) return json({ ok: false, error: 'invalid_symbol' }, 400)
+  if (includeSymbol && !optionSymbolPattern.test(includeSymbol)) return json({ ok: false, error: 'invalid_option_symbol' }, 400)
   if ((fromDate && !datePattern.test(fromDate)) || (toDate && !datePattern.test(toDate)))
     return json({ ok: false, error: 'invalid_date' }, 400)
 
@@ -58,6 +61,40 @@ export default async (req: Request) => {
           volume: finite(row.totalVolume),
           quoteTime: finite(row.quoteTimeInLong),
           multiplier: finite(row.multiplier),
+        })
+      }
+    }
+    // strikeCount intentionally keeps the replacement chain compact, but a held
+    // contract may sit outside those strikes. Fetch that exact OSI symbol so a
+    // valid live position can always supply its close bid during a roll.
+    if (includeSymbol && !contracts.some((contract) => String(contract.symbol).replace(/\s+/g, '').toUpperCase() === includeSymbol)) {
+      const quoteParams = new URLSearchParams({ symbols: includeSymbol, fields: 'quote,reference' })
+      const quoteResponse = await fetch(`${MARKET_BASE}/quotes?${quoteParams}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      })
+      if (quoteResponse.ok) {
+        const quoteBody: any = await quoteResponse.json()
+        const item = quoteBody[includeSymbol] ?? Object.values(quoteBody)[0]
+        const quote = item?.quote ?? {}
+        const tail = includeSymbol.slice(-15)
+        const expiration = `20${tail.slice(0, 2)}-${tail.slice(2, 4)}-${tail.slice(4, 6)}`
+        const expirationMs = new Date(`${expiration}T00:00:00Z`).getTime()
+        contracts.push({
+          symbol: String(item?.symbol ?? includeSymbol),
+          expiration,
+          daysToExpiration: Math.max(0, Math.ceil((expirationMs - Date.now()) / 86_400_000)),
+          strike: Number.parseInt(tail.slice(7), 10) / 1_000,
+          bid: finite(quote.bidPrice),
+          ask: finite(quote.askPrice),
+          mark: finite(quote.mark),
+          last: finite(quote.lastPrice),
+          delta: null,
+          theta: null,
+          volatility: finite(quote.volatility),
+          openInterest: finite(quote.openInterest),
+          volume: finite(quote.totalVolume),
+          quoteTime: finite(quote.quoteTime),
+          multiplier: 100,
         })
       }
     }

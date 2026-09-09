@@ -175,11 +175,12 @@ export interface PutChainResult {
   contracts?: PutQuote[]
 }
 
-export async function schwabPutChain(symbol: string, fromDate?: string, toDate?: string): Promise<PutChainResult> {
+export async function schwabPutChain(symbol: string, fromDate?: string, toDate?: string, includeSymbol?: string): Promise<PutChainResult> {
   try {
     const params = new URLSearchParams({ symbol })
     if (fromDate) params.set('fromDate', fromDate)
     if (toDate) params.set('toDate', toDate)
+    if (includeSymbol) params.set('includeSymbol', includeSymbol)
     const response = await fetch(`${FN}/schwab-options?${params}`)
     return await response.json() as PutChainResult
   } catch {

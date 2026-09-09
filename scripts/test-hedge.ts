@@ -13,13 +13,19 @@ assert.deepEqual(buildPutCloseOrder('QQQ   260918P00425000', 3, 7.2)?.orderLegCo
   instruction: 'SELL_TO_CLOSE', quantity: 3, instrument: { symbol: 'QQQ   260918P00425000', assetType: 'OPTION' },
 })
 const roll = recommendPutRoll(
-  { symbol: 'QQQ  260918P00425000', strike: 425, bid: 7, ask: 7.2, mark: 7.1, last: 7, daysToExpiration: 20, openInterest: 500, volume: 50 },
-  [{ symbol: 'QQQ  261120P00425000', strike: 425, bid: 8, ask: 8.2, mark: 8.1, last: 8, daysToExpiration: 82, openInterest: 1000, volume: 100 }],
+  { symbol: 'QQQ  260918P00425000', expiration: '2026-09-18', strike: 425, bid: 7, ask: 7.2, mark: 7.1, last: 7, daysToExpiration: 20, openInterest: 500, volume: 50 },
+  [{ symbol: 'QQQ  261120P00425000', expiration: '2026-11-20', strike: 425, bid: 8, ask: 8.2, mark: 8.1, last: 8, daysToExpiration: 82, openInterest: 1000, volume: 100 }],
   500, 2,
 )
 assert.equal(roll?.closeCredit, 7)
 assert.equal(roll?.openDebit, 8.2)
 assert.equal(roll?.estimatedNetDebit, 240)
+const neverRollBackward = recommendPutRoll(
+  { symbol: 'QQQ261218P00650000', expiration: '2026-12-18', strike: 650, bid: 10.26, ask: 10.5, mark: 10.38, last: 10, daysToExpiration: 101, openInterest: 500, volume: 50 },
+  [{ symbol: 'QQQ261120P00660000', expiration: '2026-11-20', strike: 660, bid: 8.5, ask: 8.87, mark: 8.68, last: 8.7, daysToExpiration: 73, openInterest: 1000, volume: 100 }],
+  700, 2,
+)
+assert.equal(neverRollBackward, null)
 
 const full = protectivePutPlan({ shares: 250, sharePrice: 100, coveragePct: 100, maxDrawdownPct: 15, premiumPerShare: 2 })
 assert.equal(full.contracts, 3)

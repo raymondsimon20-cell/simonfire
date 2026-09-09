@@ -139,7 +139,7 @@ export function rankProtectivePut<T extends PutQuoteCandidate>(
   return { score, premium, effectiveFloor, targetFloor, floorGapPct, spreadPct, reasons }
 }
 
-export function recommendPutRoll<T extends PutQuoteCandidate & { symbol: string }>(
+export function recommendPutRoll<T extends PutQuoteCandidate & { symbol: string; expiration: string }>(
   current: T,
   candidates: T[],
   underlyingPrice: number,
@@ -148,9 +148,10 @@ export function recommendPutRoll<T extends PutQuoteCandidate & { symbol: string 
 ) {
   const targetDrawdownPct = underlyingPrice > 0 ? Math.max(1, Math.min(90, (1 - current.strike / underlyingPrice) * 100)) : 15
   const closeCredit = current.bid ?? 0
+  const forwardTargetDays = Math.max(targetDays, (current.daysToExpiration ?? 0) + 30)
   const ranked = candidates
-    .filter((quote) => quote.symbol !== current.symbol && (quote.daysToExpiration ?? 0) >= 30 && (quote.daysToExpiration ?? 0) <= 120 && (quote.ask ?? 0) > 0)
-    .map((quote) => ({ quote, fit: rankProtectivePut(quote, underlyingPrice, targetDrawdownPct, targetDays) }))
+    .filter((quote) => quote.symbol !== current.symbol && quote.expiration > current.expiration && (quote.daysToExpiration ?? 0) >= 30 && (quote.daysToExpiration ?? 0) <= 240 && (quote.ask ?? 0) > 0)
+    .map((quote) => ({ quote, fit: rankProtectivePut(quote, underlyingPrice, targetDrawdownPct, forwardTargetDays) }))
     .sort((a, b) => b.fit.score - a.fit.score)
   const best = ranked[0]
   if (!best || closeCredit <= 0 || contracts < 1) return null

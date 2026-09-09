@@ -72,4 +72,15 @@ assert.equal(forward.forwardCoverage, 1)
 assert.equal(forward.bySymbol[0]?.estimateSource, 'Schwab forward')
 assert.equal(forward.distributionYield, 100 / 1250)
 
+// A newly synced payment must immediately change both received income and the
+// month pattern used by the chart, even when all twelve month labels are stable.
+const beforeSync = dividendStats(positions.slice(0, 1), quarterlyTransactions, '2026-08-27')
+const syncedPayment = txn({ id: 'new-sync-dividend', date: '2026-08-20', type: 'Dividend', symbol: 'XYZ', amount: 25 })
+const afterSync = dividendStats(positions.slice(0, 1), [syncedPayment, ...quarterlyTransactions], '2026-08-27')
+assert.equal(afterSync.trailing12m, beforeSync.trailing12m + 25)
+assert.equal(
+  afterSync.future.find((month) => month.month === '2027-08')!.amount,
+  beforeSync.future.find((month) => month.month === '2027-08')!.amount + 25,
+)
+
 console.log('dividendStats tests passed')

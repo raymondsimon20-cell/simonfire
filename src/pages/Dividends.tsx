@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { DollarSign, TrendingUp, Layers, Landmark, Target, Calendar, Percent, LineChart, ChevronRight, Download } from 'lucide-react'
 import { useScoped } from '../lib/store'
 import { dividendStats, type SymbolDividend } from '../lib/calc'
-import { usd, pct, intfmt, shortDate } from '../lib/format'
+import { usd, pct, intfmt, shortDate, relTime } from '../lib/format'
 import { KpiCard, PageHeader, Button } from '../components/ui'
 import { PositiveBars } from '../components/Charts'
 import { downloadCsv } from '../lib/csv'
@@ -16,9 +16,12 @@ const todayISO = () => {
 }
 
 export default function Dividends() {
-  const { positions, transactions } = useScoped()
+  const { positions, transactions, lastSyncAt } = useScoped()
   const today = todayISO()
-  const d = useMemo(() => dividendStats(positions, transactions, today), [positions, transactions, today])
+  // lastSyncAt is an intentional revision token. A sync can refresh the same
+  // transaction identities with amended amounts or fundamentals, so recompute
+  // and remount the chart even when its twelve month labels are unchanged.
+  const d = useMemo(() => dividendStats(positions, transactions, today), [positions, transactions, today, lastSyncAt])
 
   const futureData = d.future.map((f) => ({
     label: new Date(f.month + '-01').toLocaleDateString('en-US', { month: 'short' }),
@@ -35,7 +38,7 @@ export default function Dividends() {
     <div>
       <PageHeader
         title="Dividend Income"
-        subtitle={`As of ${today}`}
+        subtitle={`As of ${today} · synced ${relTime(lastSyncAt)}`}
         right={
           <Button onClick={exportCsv}>
             <Download size={15} /> Export CSV
@@ -71,7 +74,7 @@ export default function Dividends() {
       <div className="card mt-6">
         <div className="mb-1 text-lg font-semibold">Historical Payment Pattern (Next 12 Calendar Months)</div>
         <div className="mb-4 text-xs text-faint">Timing is mapped from prior payment months and adjusted to today’s shares. This chart is historical—not a declared payment calendar—and may not equal the forward annual estimate above.</div>
-        <PositiveBars data={futureData} xKey="label" yKey="amount" height={280} />
+        <PositiveBars key={lastSyncAt} data={futureData} xKey="label" yKey="amount" height={280} />
       </div>
 
       <div className="card mt-6 overflow-x-auto p-0">

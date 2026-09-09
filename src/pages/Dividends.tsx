@@ -73,7 +73,7 @@ export default function Dividends() {
 
       <div className="card mt-6">
         <div className="mb-1 text-lg font-semibold">Historical Payment Pattern (Next 12 Calendar Months)</div>
-        <div className="mb-4 text-xs text-faint">Timing is mapped from prior payment months and adjusted to today’s shares. This chart is historical—not a declared payment calendar—and may not equal the forward annual estimate above.</div>
+        <div className="mb-4 text-xs text-faint">Current forward income is distributed using each symbol’s prior payment-month pattern and today’s shares. New payers are spread evenly until payment history establishes a pattern.</div>
         <PositiveBars key={lastSyncAt} data={futureData} xKey="label" yKey="amount" height={280} />
       </div>
 

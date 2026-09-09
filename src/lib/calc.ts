@@ -390,7 +390,7 @@ export function dividendStats(
   const FLOOR = 25 // ignore yields on positions worth less than this (remnants)
   const CAP = 3 // cap a per-symbol yield at 300% so data glitches don't dominate
   const projectedBySym = new Map<string, number>()
-  const projectedByMonth = new Map<number, number>()
+  const historicalPatternBySym = new Map<string, Map<number, number>>()
   for (const group of paymentGroups.values()) {
     const historicalShares = [...group.accounts].reduce(
       (sum, accountId) => sum + sharesOn(accountId, group.symbol, group.date),
@@ -401,8 +401,11 @@ export function dividendStats(
     const adjusted = (group.amount / historicalShares) * currentShares
     projectedBySym.set(group.symbol, (projectedBySym.get(group.symbol) ?? 0) + adjusted)
     const month = Number(group.date.slice(5, 7)) - 1
-    if ((valueBySym.get(group.symbol) ?? 0) >= FLOOR)
-      projectedByMonth.set(month, (projectedByMonth.get(month) ?? 0) + adjusted)
+    if ((valueBySym.get(group.symbol) ?? 0) >= FLOOR) {
+      const pattern = historicalPatternBySym.get(group.symbol) ?? new Map<number, number>()
+      pattern.set(month, (pattern.get(month) ?? 0) + adjusted)
+      historicalPatternBySym.set(group.symbol, pattern)
+    }
   }
 
   const inferCadence = (rawDates: string[]): SymbolDividend['cadence'] => {
@@ -467,14 +470,37 @@ export function dividendStats(
     }
   }
   const estMonthly = estAnnual / 12
+  // Preserve each payer's observed payment-month pattern, but scale it to the
+  // current forward/run-rate estimate. This makes the chart respond to synced
+  // share counts and Schwab dividend fundamentals while still showing realistic
+  // timing. New payers without cash history are spread evenly until a pattern exists.
+  const projectedByMonth = new Map<number, number>()
+  for (const payer of bySymbol) {
+    const value = valueBySym.get(payer.symbol) ?? 0
+    if (value < FLOOR || payer.projAnnual <= 0) continue
+    const pattern = historicalPatternBySym.get(payer.symbol)
+    const patternTotal = pattern ? [...pattern.values()].reduce((sum, amount) => sum + amount, 0) : 0
+    if (pattern && patternTotal > 0) {
+      for (const [month, amount] of pattern)
+        projectedByMonth.set(month, (projectedByMonth.get(month) ?? 0) + payer.projAnnual * amount / patternTotal)
+    } else {
+      for (let month = 0; month < 12; month++)
+        projectedByMonth.set(month, (projectedByMonth.get(month) ?? 0) + payer.projAnnual / 12)
+    }
+  }
   const future: { month: string; amount: number }[] = []
   const m = new Date(today.getFullYear(), today.getMonth() + 1, 1)
+  let allocatedFuture = 0
   for (let i = 0; i < 12; i++) {
     const date = new Date(m.getFullYear(), m.getMonth() + i, 1)
     const label = date
       .toISOString()
       .slice(0, 7)
-    future.push({ month: label, amount: +(projectedByMonth.get(date.getMonth()) ?? 0).toFixed(2) })
+    const amount = i === 11
+      ? +(estAnnual - allocatedFuture).toFixed(2)
+      : +(projectedByMonth.get(date.getMonth()) ?? 0).toFixed(2)
+    allocatedFuture += amount
+    future.push({ month: label, amount })
   }
 
   return {

@@ -71,6 +71,11 @@ assert.equal(forward.historicalEstimateIncome, 0)
 assert.equal(forward.forwardCoverage, 1)
 assert.equal(forward.bySymbol[0]?.estimateSource, 'Schwab forward')
 assert.equal(forward.distributionYield, 100 / 1250)
+assert.equal(forward.future.reduce((sum, month) => sum + month.amount, 0), 100)
+
+const raisedForward = dividendStats([{ ...forwardPosition, annualDividend: 3 }], [], '2026-08-27')
+assert.equal(raisedForward.estAnnual, 150)
+assert.equal(raisedForward.future.reduce((sum, month) => sum + month.amount, 0), 150)
 
 // A newly synced payment must immediately change both received income and the
 // month pattern used by the chart, even when all twelve month labels are stable.

@@ -191,7 +191,7 @@ function parseOption(inst: any) {
   ]
     .filter(Boolean)
     .join(' ')
-  return { optionType, strike, expiration, underlying, label }
+  return { symbol: raw.trim(), optionType, strike, expiration, underlying, label }
 }
 
 // ---- Price history + time-weighted-return value series ----
@@ -500,7 +500,9 @@ export async function fetchPortfolio(token: string) {
       positions.push({
         id: 'pos_' + Math.random().toString(36).slice(2, 9),
         accountId: accId,
-        symbol: opt?.underlying ?? String(inst.symbol ?? 'UNKNOWN'),
+        // Preserve the tradable OSI contract symbol. The underlying has its own
+        // field and must never replace this value or close-order quotes fail.
+        symbol: opt?.symbol || String(inst.symbol ?? 'UNKNOWN'),
         name: opt ? opt.label : String(inst.description ?? inst.symbol ?? ''),
         shares: qty,
         avgCost: num(p.averagePrice) * mult,

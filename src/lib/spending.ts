@@ -10,6 +10,7 @@ export interface SpendingAverage {
   livingSpending: number
   marginInterest: number
   fees: number
+  taxWithholding: number
 }
 
 const monthStart = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1)
@@ -50,6 +51,9 @@ export function averagePortfolioSpending(transactions: Transaction[], todayISO: 
   const livingSpending = sumTypes('Bill Payment', 'Withdrawal')
   const marginInterest = sumTypes('Interest')
   const fees = sumTypes('Fee')
+  const taxWithholding = dated
+    .filter((transaction) => transaction.amount < 0 && transaction.type === 'Tax Withholding' && transaction.date.slice(0, 7) >= from && transaction.date.slice(0, 7) <= to)
+    .reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0)
   const total = spending.reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0)
   return {
     monthlyAverage: +(total / months).toFixed(2),
@@ -61,5 +65,6 @@ export function averagePortfolioSpending(transactions: Transaction[], todayISO: 
     livingSpending: +livingSpending.toFixed(2),
     marginInterest: +marginInterest.toFixed(2),
     fees: +fees.toFixed(2),
+    taxWithholding: +taxWithholding.toFixed(2),
   }
 }

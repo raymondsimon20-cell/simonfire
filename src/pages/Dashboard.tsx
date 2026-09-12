@@ -13,14 +13,12 @@ import {
   ChevronRight,
   RefreshCw,
   Briefcase,
-  ShieldCheck,
 } from 'lucide-react'
 import { useStore, useScoped } from '../lib/store'
 import { portfolioSummary, positionMetrics } from '../lib/calc'
-import { twrForScope } from '../lib/twr'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { usd, pct, intfmt, relTime, posNeg, shortDate } from '../lib/format'
-import { KpiCard, Badge } from '../components/ui'
+import { Badge } from '../components/ui'
 import { PositionDrawer } from '../components/PositionDrawer'
 import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Account, Position, Transaction } from '../lib/types'
@@ -33,11 +31,8 @@ import { PlanHealth } from '../components/PlanHealth'
 
 export default function Dashboard() {
   const { data, applyImport, syncAll } = useStore()
-  const { positions, accounts, transactions, scope, lastSyncAt } = useScoped()
+  const { positions, transactions, lastSyncAt } = useScoped()
   const navigate = useNavigate()
-  const s = portfolioSummary(positions, accounts, scope, transactions)
-  const twr = twrForScope(data.twr, scope, transactions)
-
   const [selectedPos, setSelectedPos] = useState<Position | null>(null)
   const [selectedTxn, setSelectedTxn] = useState<Transaction | null>(null)
   const [syncing, setSyncing] = useState(false)
@@ -87,26 +82,6 @@ export default function Dashboard() {
   return (
     <div>
       <PlanHealth />
-      <PortfolioHero net={s.net} gross={s.gross} dayChange={s.dayChange} dayPct={s.dayChangePct} series={(scope === 'all' ? data.twr?.all : data.twr?.byAccount[scope]) ?? []} lastSyncAt={lastSyncAt} />
-
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <KpiCard label="Gross Portfolio Value" value={usd(s.gross)} icon={<BarChart3 size={20} />} tile="green" />
-        <KpiCard label="Margin Used" value={usd(s.marginUsed)} icon={<TrendingDown size={20} />} tile="red" />
-        <KpiCard label="Equity %" value={pct(s.equityPct * 100)} icon={<Percent size={20} />} tile="orange" />
-      </div>
-
-      <div className="card mt-4 grid grid-cols-1 divide-y divide-border-soft p-0 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-        <SubStat icon={<Layers size={18} />} label="Unique Positions" value={intfmt(s.uniquePositions)} />
-        <SubStat icon={<Wallet size={18} />} label="Available Cash (incl. unsettled)" value={usd(s.availableCash)} />
-        <SubStat icon={<Clock size={18} />} label="Last Sync" value={relTime(lastSyncAt)} />
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MoveCard label="Day Change" amount={s.dayChange} pctv={s.dayChangePct * 100} />
-        <MoveCard label="Total Gain" amount={s.totalGain} pctv={s.totalGainPct * 100} />
-        <MoveCard label="Total Return" amount={s.totalReturn} pctv={s.totalReturnPct * 100} note="Dollar-weighted — Schwab investment change: gains + income − fees" />
-        <TwrCard twr={twr} />
-      </div>
 
       {/* Your Accounts ------------------------------------------------------ */}
       <div className="mt-10 mb-4 flex items-center justify-between">
@@ -250,43 +225,6 @@ export default function Dashboard() {
   )
 }
 
-function PortfolioHero({ net, gross, dayChange, dayPct, series, lastSyncAt }: { net: number; gross: number; dayChange: number; dayPct: number; series: { date: string; value: number }[]; lastSyncAt: string }) {
-  const [range, setRange] = useState<'1M' | '3M' | 'YTD' | '1Y' | 'ALL'>('1Y')
-  const visible = useMemo(() => {
-    if (!series.length || range === 'ALL') return series
-    const end = new Date(series[series.length - 1].date + 'T00:00:00')
-    const start = new Date(end)
-    if (range === '1M') start.setMonth(start.getMonth() - 1)
-    if (range === '3M') start.setMonth(start.getMonth() - 3)
-    if (range === '1Y') start.setFullYear(start.getFullYear() - 1)
-    if (range === 'YTD') start.setMonth(0, 1)
-    return series.filter((p) => new Date(p.date + 'T00:00:00') >= start)
-  }, [series, range])
-  const values = visible.map((p) => p.value)
-  const lo = Math.min(...values, net || 0)
-  const hi = Math.max(...values, net || 1)
-  const points = visible.map((p, i) => `${visible.length <= 1 ? 0 : (i / (visible.length - 1)) * 600},${150 - ((p.value - lo) / Math.max(hi - lo, 1)) * 125}`).join(' ')
-  const startValue = visible[0]?.value ?? net
-  const periodMove = net - startValue
-  return (
-    <section className="relative overflow-hidden rounded-[24px] border border-[#c7a96b]/15 bg-[linear-gradient(135deg,#141820_0%,#0c1016_62%,#17140d_100%)] p-6 shadow-[0_24px_80px_rgba(0,0,0,.28)] sm:p-8">
-      <div className="pointer-events-none absolute -right-24 -top-32 h-80 w-80 rounded-full bg-[#c7a96b]/10 blur-3xl" />
-      <div className="relative grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
-        <div>
-          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#cbb77f]"><ShieldCheck size={13} /> Consolidated portfolio</div>
-          <div className="mt-4 text-sm text-muted">Net portfolio value</div>
-          <div className="num mt-1 text-[clamp(2.3rem,5vw,4.2rem)] font-medium tracking-[-0.06em] text-white">{usd(net)}</div>
-          <div className="mt-3 flex flex-wrap items-center gap-3"><span className={clsx('num rounded-full px-2.5 py-1 text-xs font-medium', dayChange >= 0 ? 'bg-pos/10 text-pos' : 'bg-neg/10 text-neg')}>{usd(dayChange, { sign: true })} · {pct(dayPct * 100, { sign: true })} today</span><span className="text-xs text-faint">Gross {usd(gross)} · synced {relTime(lastSyncAt)}</span></div>
-        </div>
-        <div>
-          <div className="mb-3 flex items-center justify-between"><div><div className="text-xs text-muted">Period movement</div><div className={clsx('num mt-0.5 text-sm font-medium', posNeg(periodMove))}>{usd(periodMove, { sign: true })}</div></div><div className="flex rounded-lg border border-white/[0.06] bg-black/20 p-0.5">{(['1M','3M','YTD','1Y','ALL'] as const).map((r) => <button key={r} onClick={() => setRange(r)} className={clsx('rounded-md px-2 py-1 text-[10px] font-medium', range === r ? 'bg-[#c7a96b]/18 text-[#e1c887]' : 'text-faint hover:text-ink')}>{r}</button>)}</div></div>
-          <div className="h-[155px] w-full"><svg viewBox="0 0 600 155" preserveAspectRatio="none" className="h-full w-full overflow-visible"><defs><linearGradient id="hero-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#c7a96b" stopOpacity=".28"/><stop offset="1" stopColor="#c7a96b" stopOpacity="0"/></linearGradient></defs>{points && <><polygon points={`0,155 ${points} 600,155`} fill="url(#hero-area)"/><polyline points={points} fill="none" stroke="#d8bd7a" strokeWidth="2" vectorEffect="non-scaling-stroke"/></>}</svg></div>
-        </div>
-      </div>
-    </section>
-  )
-}
-
 // ---- Account card matching the paycheck2portfolio layout ----
 function AccountCard({
   account,
@@ -406,59 +344,6 @@ function Metric({
         <span className="truncate">{label}</span>
       </div>
       <div className={clsx('num mt-1 text-lg font-semibold', valueClass)}>{value}</div>
-    </div>
-  )
-}
-
-function SubStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-3 p-5">
-      <div className="grid h-10 w-10 place-items-center rounded-lg bg-surface-2 text-muted">{icon}</div>
-      <div>
-        <div className="text-xs text-muted">{label}</div>
-        <div className="num text-lg font-semibold">{value}</div>
-      </div>
-    </div>
-  )
-}
-
-function MoveCard({ label, amount, pctv, note }: { label: string; amount: number; pctv: number; note?: string }) {
-  return (
-    <div className="card p-5">
-      <div className="text-sm text-muted">{label}</div>
-      <div className={clsx('num mt-1 text-2xl font-semibold', posNeg(amount))}>{usd(amount, { sign: true })}</div>
-      <div className={clsx('text-sm', posNeg(pctv))}>{pct(pctv, { sign: true })}</div>
-      {note && <div className="mt-1 text-xs text-faint">{note}</div>}
-    </div>
-  )
-}
-
-function TwrCard({ twr }: { twr: ReturnType<typeof twrForScope> }) {
-  const pctv = twr.twrPct * 100
-  const ann = twr.annualizedPct * 100
-  return (
-    <div className="card p-5">
-      <div className="flex items-center gap-1.5 text-sm text-muted">
-        Time-Weighted Return
-        <span
-          className="cursor-help text-faint"
-          title="How your investments performed, independent of when you added or withdrew money — the metric funds report and benchmark against. Deposits, withdrawals, bill payments, and option premium are neutralised so timing doesn't flatter or hide the result. Contrast with Total Return, which is a dollar figure that IS affected by your deposit timing."
-        >
-          ⓘ
-        </span>
-      </div>
-      {twr.ok ? (
-        <>
-          <div className={clsx('num mt-1 text-2xl font-semibold', posNeg(pctv))}>{pct(pctv, { sign: true })}</div>
-          <div className={clsx('text-sm', posNeg(ann))}>{pct(ann, { sign: true })} annualized</div>
-          <div className="mt-1 text-xs text-faint">Investment performance, timing removed</div>
-        </>
-      ) : (
-        <>
-          <div className="num mt-1 text-2xl font-semibold text-faint">—</div>
-          <div className="mt-1 text-xs text-faint">Sync a connected account to build the value history</div>
-        </>
-      )}
     </div>
   )
 }

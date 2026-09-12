@@ -26,7 +26,8 @@ const RANGES: Record<string, { label: string; days: number }> = {
   '365': { label: 'Last 12 months', days: 365 },
 }
 
-const TODAY = '2026-08-26'
+const now = new Date()
+const TODAY = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
 const shift = (iso: string, days: number) => {
   const d = new Date(iso + 'T00:00:00')
   d.setDate(d.getDate() - days)

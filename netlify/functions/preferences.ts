@@ -8,6 +8,7 @@ type SharedPreferences = {
   targetAlloc?: Record<string, number>
   keepList?: string[]
   soldSymbols?: string[]
+  spendingExclusions?: string[]
   incomePlan?: {
     annualW2Target: number
     monthlySpending: number
@@ -69,6 +70,7 @@ function clean(input: any): SharedPreferences {
     targetAlloc,
     keepList: strings(input?.keepList, 2_000),
     soldSymbols: strings(input?.soldSymbols, 2_000),
+    spendingExclusions: strings(input?.spendingExclusions, 2_000),
     incomePlan,
   }
 }

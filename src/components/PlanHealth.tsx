@@ -5,8 +5,8 @@ import { bucketStats } from '../lib/buckets'
 import { dividendStats, portfolioSummary } from '../lib/calc'
 import { pct, relTime, usd } from '../lib/format'
 import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
-import type { IncomePlan } from '../lib/types'
-import { averagePortfolioSpending } from '../lib/spending'
+import type { Account, IncomePlan, Transaction } from '../lib/types'
+import { averagePortfolioSpending, spendingExclusionKey } from '../lib/spending'
 import clsx from 'clsx'
 
 const localToday = () => {
@@ -20,12 +20,13 @@ export function PlanHealth() {
   const { data, setIncomePlan } = useStore()
   const { positions, accounts, transactions, scope, lastSyncAt } = useScoped()
   const [editing, setEditing] = useState(false)
+  const [audit, setAudit] = useState<'income' | 'w2' | 'spending' | 'cash' | 'stress' | null>(null)
   const plan = data.incomePlan ?? DEFAULT_INCOME_PLAN
 
   const model = useMemo(() => {
     const summary = portfolioSummary(positions, accounts, scope, transactions)
     const dividends = dividendStats(positions, transactions, localToday())
-    const observedSpending = averagePortfolioSpending(transactions, localToday())
+    const observedSpending = averagePortfolioSpending(transactions, localToday(), data.spendingExclusions)
     const buckets = bucketStats(positions, transactions)
     const afterTaxAnnual = dividends.estAnnual * (1 - plan.estimatedTaxRate / 100)
     const afterTaxMonthly = afterTaxAnnual / 12
@@ -59,7 +60,7 @@ export function PlanHealth() {
     const priority = { danger: 0, warn: 1, good: 2 }
     actions.sort((a, b) => priority[a.tone] - priority[b.tone])
     return { summary, dividends, observedSpending, afterTaxMonthly, stressedMonthly, w2Coverage, spendingCoverage, cashRunway, unassigned, uncategorized, missingPl, actions: actions.slice(0, 5) }
-  }, [accounts, data.hedgeRolls, lastSyncAt, plan, positions, scope, transactions])
+  }, [accounts, data.hedgeRolls, data.spendingExclusions, lastSyncAt, plan, positions, scope, transactions])
 
   const configured = plan.annualW2Target > 0 && plan.monthlySpending > 0
   const headline = !configured
@@ -82,12 +83,13 @@ export function PlanHealth() {
       </div>
       {editing && <PlanInputs plan={plan} observedSpending={model.observedSpending} onChange={setIncomePlan}/>}
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <HealthMetric icon={<CircleDollarSign size={17}/>} label="After-tax dividends" value={`${usd(model.afterTaxMonthly)}/mo`} source="Estimated" note={`Uses ${pct(plan.estimatedTaxRate)} tax assumption`} tone="green"/>
-        <HealthMetric icon={<Target size={17}/>} label="W-2 income replaced" value={model.w2Coverage == null ? 'Set target' : pct(model.w2Coverage * 100)} source="Calculated" note={plan.annualW2Target ? `${usd(plan.annualW2Target)}/yr target` : 'Annual target needed'} tone="blue"/>
-        <HealthMetric icon={<Gauge size={17}/>} label="Spending covered" value={model.spendingCoverage == null ? 'Set spending' : pct(model.spendingCoverage * 100)} source="Calculated" note={plan.monthlySpending ? `${usd(plan.monthlySpending)}/mo plan` : 'Monthly spending needed'} tone="purple"/>
-        <HealthMetric icon={<PiggyBank size={17}/>} label="Cash runway" value={model.cashRunway == null ? 'Set spending' : `${model.cashRunway.toFixed(1)} mo`} source="Schwab + calculated" note={`${usd(model.summary.availableCash)} available cash`} tone="orange"/>
-        <HealthMetric icon={<ShieldAlert size={17}/>} label={`${pct(plan.distributionCutPct)} cut scenario`} value={`${usd(model.stressedMonthly)}/mo`} source="Stress test" note="After estimated tax and distribution cut" tone="red"/>
+        <HealthMetric active={audit === 'income'} onClick={() => setAudit(audit === 'income' ? null : 'income')} icon={<CircleDollarSign size={17}/>} label="After-tax dividends" value={`${usd(model.afterTaxMonthly)}/mo`} source="Estimated" note={`Uses ${pct(plan.estimatedTaxRate)} tax assumption`} tone="green"/>
+        <HealthMetric active={audit === 'w2'} onClick={() => setAudit(audit === 'w2' ? null : 'w2')} icon={<Target size={17}/>} label="W-2 income replaced" value={model.w2Coverage == null ? 'Set target' : pct(model.w2Coverage * 100)} source="Calculated" note={plan.annualW2Target ? `${usd(plan.annualW2Target)}/yr target` : 'Annual target needed'} tone="blue"/>
+        <HealthMetric active={audit === 'spending'} onClick={() => setAudit(audit === 'spending' ? null : 'spending')} icon={<Gauge size={17}/>} label="Spending covered" value={model.spendingCoverage == null ? 'Set spending' : pct(model.spendingCoverage * 100)} source="Calculated" note={plan.monthlySpending ? `${usd(plan.monthlySpending)}/mo plan` : 'Monthly spending needed'} tone="purple"/>
+        <HealthMetric active={audit === 'cash'} onClick={() => setAudit(audit === 'cash' ? null : 'cash')} icon={<PiggyBank size={17}/>} label="Cash runway" value={model.cashRunway == null ? 'Set spending' : `${model.cashRunway.toFixed(1)} mo`} source="Schwab + calculated" note={`${usd(model.summary.availableCash)} available cash`} tone="orange"/>
+        <HealthMetric active={audit === 'stress'} onClick={() => setAudit(audit === 'stress' ? null : 'stress')} icon={<ShieldAlert size={17}/>} label={`${pct(plan.distributionCutPct)} cut scenario`} value={`${usd(model.stressedMonthly)}/mo`} source="Stress test" note="After estimated tax and distribution cut" tone="red"/>
       </div>
+      {audit && <MetricAudit kind={audit} plan={plan} model={model} accounts={accounts} transactions={transactions} exclusions={data.spendingExclusions ?? []}/>}
     </div>
     <div className="grid border-t border-white/[.06] lg:grid-cols-[1.15fr_.85fr]">
       <div className="p-5 sm:p-7 lg:border-r lg:border-white/[.06]"><div className="flex items-center justify-between"><h2 className="font-semibold">What needs attention</h2><span className="text-xs text-faint">Highest priority first</span></div><div className="mt-3 space-y-2">{model.actions.map((action) => <Link key={action.title} to={action.to} onClick={() => action.to.startsWith('#') && setEditing(true)} className="group flex items-start gap-3 rounded-xl border border-white/[.06] bg-black/10 p-3 hover:bg-white/[.035]">{action.tone === 'good' ? <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-pos"/> : <AlertTriangle size={17} className={clsx('mt-0.5 shrink-0', action.tone === 'danger' ? 'text-neg' : 'text-[#e1c887]')}/>}<span className="min-w-0 flex-1"><span className="block text-sm font-medium">{action.title}</span><span className="mt-0.5 block text-xs text-faint">{action.detail}</span></span><ArrowUpRight size={14} className="mt-0.5 shrink-0 text-faint group-hover:text-brand"/></Link>)}</div></div>
@@ -119,9 +121,43 @@ function PlanField({ label, value, onChange, prefix, suffix, max }: { label: str
   return <label className="text-xs text-muted"><span>{label}</span><span className="mt-1 flex items-center rounded-xl border border-border bg-surface-2 px-3 focus-within:border-brand">{prefix && <span className="text-faint">{prefix}</span>}<input type="number" min="0" max={max} value={value || ''} placeholder="0" onChange={(event) => onChange(Number(event.target.value))} className="num min-w-0 flex-1 bg-transparent px-1 py-2.5 text-sm text-ink outline-none"/>{suffix && <span className="text-faint">{suffix}</span>}</span></label>
 }
 
-function HealthMetric({ icon, label, value, source, note, tone }: { icon: ReactNode; label: string; value: string; source: string; note: string; tone: 'green'|'blue'|'purple'|'orange'|'red' }) {
+function MetricAudit({ kind, plan, model, accounts, transactions, exclusions }: {
+  kind: 'income' | 'w2' | 'spending' | 'cash' | 'stress'
+  plan: IncomePlan
+  model: {
+    dividends: ReturnType<typeof dividendStats>
+    observedSpending: ReturnType<typeof averagePortfolioSpending>
+    summary: ReturnType<typeof portfolioSummary>
+    afterTaxMonthly: number
+    stressedMonthly: number
+    w2Coverage: number | null
+    spendingCoverage: number | null
+    cashRunway: number | null
+  }
+  accounts: Account[]
+  transactions: Transaction[]
+  exclusions: string[]
+}) {
+  const incomeFormula = `${usd(model.dividends.estAnnual)} annual run rate × ${(1 - plan.estimatedTaxRate / 100).toFixed(2)} after-tax factor ÷ 12 = ${usd(model.afterTaxMonthly)}/month`
+  const content = {
+    income: { title: 'After-tax dividend calculation', formula: incomeFormula, note: `${pct(model.dividends.forwardCoverage * 100)} of the annual run rate uses Schwab forward fundamentals; the remainder uses payment history.` },
+    w2: { title: 'W-2 replacement calculation', formula: plan.annualW2Target ? `${usd(model.afterTaxMonthly * 12)} estimated after-tax annual dividends ÷ ${usd(plan.annualW2Target)} W-2 target = ${pct((model.w2Coverage ?? 0) * 100)}` : 'Set an annual W-2 target to calculate this percentage.', note: 'This compares after-tax portfolio income with the gross target you entered. Adjust the target if you prefer an after-tax comparison.' },
+    spending: { title: 'Spending coverage calculation', formula: plan.monthlySpending ? `${usd(model.afterTaxMonthly)} estimated after-tax dividends ÷ ${usd(plan.monthlySpending)} monthly spending = ${pct((model.spendingCoverage ?? 0) * 100)}` : 'Set monthly spending manually or use the observed portfolio average.', note: model.observedSpending ? `Observed average: ${usd(model.observedSpending.monthlyAverage)}/month across ${model.observedSpending.months} complete months.` : 'There is not yet a complete month of eligible outflow history.' },
+    cash: { title: 'Cash runway calculation', formula: plan.monthlySpending ? `${usd(model.summary.availableCash)} available cash ÷ ${usd(plan.monthlySpending)} monthly spending = ${(model.cashRunway ?? 0).toFixed(1)} months` : 'Set monthly spending to calculate cash runway.', note: 'Available cash is reported at the account level and may include unsettled cash.' },
+    stress: { title: 'Distribution-cut stress test', formula: `${usd(model.afterTaxMonthly)} after-tax monthly dividends × ${(1 - plan.distributionCutPct / 100).toFixed(2)} remaining after cut = ${usd(model.stressedMonthly)}/month`, note: 'This is a simple income shock. It does not model price declines, distribution timing, or tax changes.' },
+  }[kind]
+  const dividendRows = transactions.filter((transaction) => transaction.type === 'Dividend').slice(0, 5)
+  const spendingRows = transactions.filter((transaction) => transaction.amount < 0 && ['Withdrawal', 'Bill Payment', 'Interest', 'Fee'].includes(transaction.type) && !exclusions.includes(spendingExclusionKey(transaction))).slice(0, 5)
+  return <div className="mt-3 rounded-2xl border border-[#c7a96b]/20 bg-black/20 p-4"><div className="text-sm font-semibold">{content.title}</div><div className="num mt-2 rounded-lg bg-white/[.03] p-3 text-xs leading-5 text-ink">{content.formula}</div><p className="mt-2 text-xs text-faint">{content.note}</p>{kind === 'cash' ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{accounts.map((account) => <div key={account.id} className="flex justify-between rounded-lg border border-white/[.05] px-3 py-2 text-xs"><span className="text-muted">{account.name}</span><span className="num">{usd(account.cash)}</span></div>)}</div> : (kind === 'income' || kind === 'stress') ? <AuditRows title="Recent dividend records" rows={dividendRows}/> : kind === 'spending' ? <AuditRows title="Recent included outflows" rows={spendingRows}/> : null}</div>
+}
+
+function AuditRows({ title, rows }: { title: string; rows: Transaction[] }) {
+  return <div className="mt-3"><div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-faint">{title}</div>{rows.length ? <div className="divide-y divide-white/[.05] rounded-lg border border-white/[.05]">{rows.map((row) => <div key={row.id} className="grid grid-cols-[5.5rem_1fr_auto] gap-2 px-3 py-2 text-[10px]"><span className="text-faint">{row.date}</span><span className="truncate text-muted">{row.symbol ?? row.description}</span><span className="num">{usd(Math.abs(row.amount))}</span></div>)}</div> : <div className="text-xs text-faint">No supporting transactions are available.</div>}</div>
+}
+
+function HealthMetric({ icon, label, value, source, note, tone, active, onClick }: { icon: ReactNode; label: string; value: string; source: string; note: string; tone: 'green'|'blue'|'purple'|'orange'|'red'; active: boolean; onClick: () => void }) {
   const colors = { green: 'text-pos bg-pos/10', blue: 'text-[#6aa9ff] bg-[#5aa2ff]/10', purple: 'text-[#b18aff] bg-[#b18aff]/10', orange: 'text-[#f0a94a] bg-[#f0a94a]/10', red: 'text-neg bg-neg/10' }
-  return <div className="rounded-2xl border border-white/[.06] bg-black/15 p-4"><div className="flex items-center justify-between gap-2"><span className={clsx('grid h-8 w-8 place-items-center rounded-lg', colors[tone])}>{icon}</span><span className="rounded-full border border-white/[.07] px-2 py-0.5 text-[9px] uppercase tracking-wider text-faint">{source}</span></div><div className="mt-4 text-xs text-muted">{label}</div><div className="num mt-1 text-xl font-semibold">{value}</div><div className="mt-1 text-[10px] text-faint">{note}</div></div>
+  return <button onClick={onClick} aria-expanded={active} className={clsx('rounded-2xl border bg-black/15 p-4 text-left transition-colors hover:bg-white/[.035]', active ? 'border-[#c7a96b]/40' : 'border-white/[.06]')}><div className="flex items-center justify-between gap-2"><span className={clsx('grid h-8 w-8 place-items-center rounded-lg', colors[tone])}>{icon}</span><span className="rounded-full border border-white/[.07] px-2 py-0.5 text-[9px] uppercase tracking-wider text-faint">{source}</span></div><div className="mt-4 flex items-center justify-between gap-2 text-xs text-muted"><span>{label}</span><ChevronDown size={12} className={clsx('transition-transform', active && 'rotate-180')}/></div><div className="num mt-1 text-xl font-semibold">{value}</div><div className="mt-1 text-[10px] text-faint">{note}</div></button>
 }
 
 function SnapshotMetric({ label, value, source, valueClass }: { label: string; value: string; source: string; valueClass?: string }) {

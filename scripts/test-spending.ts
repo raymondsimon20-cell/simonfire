@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { averagePortfolioSpending } from '../src/lib/spending'
+import { averagePortfolioSpending, spendingExclusionKey } from '../src/lib/spending'
 import type { Transaction, TxnType } from '../src/lib/types'
 
 const txn = (id: string, date: string, type: TxnType, amount: number): Transaction => ({ id, date, type, amount, accountId: 'a1', description: type, units: 0, tags: [] })
@@ -26,5 +26,12 @@ assert.equal(result.fees, 55)
 assert.equal(result.taxWithholding, 5_000)
 assert.equal(result.from, '2025-10')
 assert.equal(result.to, '2026-08')
+const excludedWithdrawal = txn('excluded', '2026-02-03', 'Withdrawal', -1_100)
+const excluded = averagePortfolioSpending([
+  txn('start', '2025-10-01', 'Other', 1),
+  excludedWithdrawal,
+], '2026-09-12', [spendingExclusionKey(excludedWithdrawal)])
+assert.ok(excluded)
+assert.equal(excluded.total, 0)
 assert.equal(averagePortfolioSpending([], '2026-09-12'), null)
 console.log('portfolio spending tests passed')

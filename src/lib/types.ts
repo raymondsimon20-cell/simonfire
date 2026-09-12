@@ -125,6 +125,7 @@ export interface AppData {
   insights?: Insights
   hedgeRolls?: HedgeRoll[]
   incomePlan?: IncomePlan
+  spendingExclusions?: string[]
 }
 
 export interface IncomePlan {

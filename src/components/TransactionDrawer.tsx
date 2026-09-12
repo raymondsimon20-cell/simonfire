@@ -21,6 +21,7 @@ import { portfolioSummary } from '../lib/calc'
 import { usd, num, shortDate, posNeg } from '../lib/format'
 import { Badge } from './ui'
 import clsx from 'clsx'
+import { spendingExclusionKey } from '../lib/spending'
 
 function Tile({
   icon,
@@ -131,7 +132,7 @@ export function TransactionDrawer({
   txn: Transaction | null
   onClose: () => void
 }) {
-  const { data } = useStore()
+  const { data, toggleSpendingExclusion } = useStore()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -154,6 +155,9 @@ export function TransactionDrawer({
   }, [txn, data])
 
   const open = !!txn && !!detail
+  const spendingEligible = !!txn && txn.amount < 0 && ['Withdrawal', 'Bill Payment', 'Interest', 'Fee'].includes(txn.type)
+  const exclusionKey = txn ? spendingExclusionKey(txn) : ''
+  const excludedFromSpending = !!exclusionKey && (data.spendingExclusions ?? []).includes(exclusionKey)
 
   return createPortal(
     <>
@@ -193,6 +197,7 @@ export function TransactionDrawer({
                 {txn.classificationSource === 'rule' ? 'Classified by your saved rule · persists after sync' : txn.classificationSource === 'automatic' ? 'Automatically classified from Schwab details' : txn.classificationSource === 'manual' ? 'Manually classified' : 'Category supplied by Schwab · review if needed'}
               </div>
               {txn.type === 'Dividend' && <SymbolEditor txn={txn} />}
+              {spendingEligible && <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-border-soft bg-surface-2/40 p-3"><input type="checkbox" checked={excludedFromSpending} onChange={() => toggleSpendingExclusion(exclusionKey)} className="mt-0.5 accent-[#c7a96b]"/><span><span className="block text-xs font-medium">Exclude from spending average</span><span className="mt-0.5 block text-[10px] text-faint">Use this for one-time withdrawals or transfers that should not count as recurring spending. This choice persists after sync and across devices.</span></span></label>}
             </div>
 
             <div className="mb-3 mt-7 text-sm font-semibold text-muted">Financials</div>

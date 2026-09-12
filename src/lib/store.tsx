@@ -97,6 +97,7 @@ function load(): AppData {
         if (!parsed.tagRules) parsed.tagRules = []
         if (!parsed.bucketOverrides) parsed.bucketOverrides = {}
         if (!parsed.incomePlan) parsed.incomePlan = { ...DEFAULT_INCOME_PLAN }
+        if (!parsed.spendingExclusions) parsed.spendingExclusions = []
         for (const p of parsed.positions) p.allocationBucket = parsed.bucketOverrides[`${p.accountId}|${p.symbol}`]
         // Backfill sample analytics for datasets stored before these existed.
         if (parsed.source === 'sample' && (!parsed.twr || !parsed.insights)) {
@@ -141,6 +142,7 @@ function sharedPreferences(data: AppData): SharedPreferences {
     keepList: data.keepList ?? DEFAULT_KEEP,
     soldSymbols: data.soldSymbols ?? [],
     incomePlan: data.incomePlan ?? DEFAULT_INCOME_PLAN,
+    spendingExclusions: data.spendingExclusions ?? [],
   }
 }
 
@@ -152,6 +154,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   data.keepList = preferences.keepList ?? DEFAULT_KEEP
   data.soldSymbols = preferences.soldSymbols ?? []
   data.incomePlan = preferences.incomePlan ?? data.incomePlan ?? { ...DEFAULT_INCOME_PLAN }
+  data.spendingExclusions = preferences.spendingExclusions ?? []
   for (const position of data.positions) {
     position.allocationBucket = data.bucketOverrides[`${position.accountId}|${position.symbol}`]
   }
@@ -188,6 +191,7 @@ interface StoreCtx {
   setTargetAlloc: (alloc: Record<string, number>) => void
   setPositionBucket: (accountId: string, symbol: string, bucket: NonNullable<Position['allocationBucket']>) => void
   setIncomePlan: (plan: IncomePlan) => void
+  toggleSpendingExclusion: (key: string) => void
   // Tag rules
   addRule: (rule: Omit<TagRule, 'id'>) => void
   updateRule: (id: string, patch: Partial<TagRule>) => void
@@ -238,7 +242,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!sharedReady) return
     const timeout = window.setTimeout(() => { void saveSharedPreferences(sharedPreferences(data)) }, 350)
     return () => window.clearTimeout(timeout)
-  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, sharedReady])
+  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, sharedReady])
 
   const mutate = useCallback((fn: (d: AppData) => AppData) => {
     setData((prev) => fn(structuredClone(prev)))
@@ -486,6 +490,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [mutate],
   )
 
+  const toggleSpendingExclusion: StoreCtx['toggleSpendingExclusion'] = useCallback(
+    (key) => mutate((d) => {
+      const excluded = new Set(d.spendingExclusions ?? [])
+      if (excluded.has(key)) excluded.delete(key)
+      else excluded.add(key)
+      d.spendingExclusions = [...excluded]
+      return d
+    }),
+    [mutate],
+  )
+
   // Mark a holding sold: log the realized sale and drop it from the tracker.
   // Does NOT place a brokerage order — that's done at Schwab.
   const sellOne = (d: AppData, accountId: string, symbol: string) => {
@@ -625,6 +640,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setTargetAlloc,
       setPositionBucket,
       setIncomePlan,
+      toggleSpendingExclusion,
       addRule,
       updateRule,
       removeRule,
@@ -655,6 +671,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setTargetAlloc,
       setPositionBucket,
       setIncomePlan,
+      toggleSpendingExclusion,
       addRule,
       updateRule,
       removeRule,

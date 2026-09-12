@@ -7,6 +7,8 @@ import { PageHeader, Button, Badge } from '../components/ui'
 import { AddContributionModal } from '../components/AddContributionModal'
 import { downloadCsv } from '../lib/csv'
 import clsx from 'clsx'
+import { TransactionDrawer } from '../components/TransactionDrawer'
+import type { Transaction } from '../lib/types'
 
 export default function Transactions() {
   const { deleteTransaction } = useStore()
@@ -17,6 +19,7 @@ export default function Transactions() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [showTotals, setShowTotals] = useState(false)
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
 
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
 
@@ -175,7 +178,7 @@ export default function Transactions() {
           </thead>
           <tbody>
             {filtered.slice(0, 400).map((t) => (
-              <tr key={t.id} className="group border-b border-border-soft hover:bg-surface-2/40">
+              <tr key={t.id} onClick={() => setSelectedTransaction(t)} className="group cursor-pointer border-b border-border-soft hover:bg-surface-2/40">
                 <td className="whitespace-nowrap px-4 py-3 text-muted">{shortDate(t.date)}</td>
                 <td className="px-4 py-3"><Badge>{t.type}</Badge></td>
                 <td className="px-4 py-3 font-semibold">{t.symbol ?? '—'}</td>
@@ -193,7 +196,7 @@ export default function Transactions() {
                 </td>
                 <td className="px-2 py-3">
                   <button
-                    onClick={() => deleteTransaction(t.id)}
+                    onClick={(event) => { event.stopPropagation(); deleteTransaction(t.id) }}
                     className="opacity-0 transition-opacity group-hover:opacity-100"
                     title="Delete"
                   >
@@ -212,6 +215,7 @@ export default function Transactions() {
       </div>
 
       <AddContributionModal open={modal} onClose={() => setModal(false)} />
+      <TransactionDrawer txn={selectedTransaction} onClose={() => setSelectedTransaction(null)} />
     </div>
   )
 }

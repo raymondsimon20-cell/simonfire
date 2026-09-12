@@ -11,6 +11,7 @@
     "test:margin": "tsc -p scripts/tsconfig.margin.test.json && node /tmp/simonfire-margin-tests/scripts/test-margin-capacity.js",
     "test:transactions": "tsc -p scripts/tsconfig.transactions.test.json && node /tmp/simonfire-transaction-tests/scripts/test-transaction-classification.js",
     "test:realized-pl": "tsc -p scripts/tsconfig.realized-pl.test.json && node /tmp/simonfire-realized-pl-tests/scripts/test-realized-pl.js",
+    "test:spending": "tsc -p scripts/tsconfig.spending.test.json && node /tmp/simonfire-spending-tests/scripts/test-spending.js",
     "test:hedge": "tsc -p scripts/tsconfig.hedge.test.json && node /tmp/simonfire-hedge-tests/scripts/test-hedge.js",
     "preview": "vite preview"
   },

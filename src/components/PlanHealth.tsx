@@ -1,11 +1,12 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ArrowUpRight, CheckCircle2, ChevronDown, CircleDollarSign, Database, Gauge, PiggyBank, Settings2, ShieldAlert, Target } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, CheckCircle2, ChevronDown, CircleDollarSign, Database, Gauge, PiggyBank, Settings2, ShieldAlert, Sparkles, Target } from 'lucide-react'
 import { bucketStats } from '../lib/buckets'
 import { dividendStats, portfolioSummary } from '../lib/calc'
 import { pct, relTime, usd } from '../lib/format'
 import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
 import type { IncomePlan } from '../lib/types'
+import { averagePortfolioSpending } from '../lib/spending'
 import clsx from 'clsx'
 
 const localToday = () => {
@@ -24,6 +25,7 @@ export function PlanHealth() {
   const model = useMemo(() => {
     const summary = portfolioSummary(positions, accounts, scope, transactions)
     const dividends = dividendStats(positions, transactions, localToday())
+    const observedSpending = averagePortfolioSpending(transactions, localToday())
     const buckets = bucketStats(positions, transactions)
     const afterTaxAnnual = dividends.estAnnual * (1 - plan.estimatedTaxRate / 100)
     const afterTaxMonthly = afterTaxAnnual / 12
@@ -56,7 +58,7 @@ export function PlanHealth() {
     if (!actions.length) actions.push({ tone: 'good', title: 'No immediate data issues', detail: 'Your plan inputs and portfolio records pass the current checks.', to: '/month-close' })
     const priority = { danger: 0, warn: 1, good: 2 }
     actions.sort((a, b) => priority[a.tone] - priority[b.tone])
-    return { summary, dividends, afterTaxMonthly, stressedMonthly, w2Coverage, spendingCoverage, cashRunway, unassigned, uncategorized, missingPl, actions: actions.slice(0, 5) }
+    return { summary, dividends, observedSpending, afterTaxMonthly, stressedMonthly, w2Coverage, spendingCoverage, cashRunway, unassigned, uncategorized, missingPl, actions: actions.slice(0, 5) }
   }, [accounts, data.hedgeRolls, lastSyncAt, plan, positions, scope, transactions])
 
   const configured = plan.annualW2Target > 0 && plan.monthlySpending > 0
@@ -72,7 +74,7 @@ export function PlanHealth() {
         <div><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.18em] text-[#d8bd7a]"><Target size={13}/> Today · Plan health</div><h1 className="mt-3 max-w-3xl text-2xl font-semibold tracking-[-.035em] sm:text-3xl">{headline}</h1><p className="mt-2 text-xs text-faint">Portfolio data synced {relTime(lastSyncAt)} · projections are estimates, not guaranteed income.</p></div>
         <button id="plan-settings" onClick={() => setEditing((value) => !value)} className="flex items-center gap-2 rounded-xl border border-[#c7a96b]/25 bg-[#c7a96b]/5 px-3.5 py-2 text-sm text-[#e1c887] hover:bg-[#c7a96b]/10"><Settings2 size={15}/> Plan assumptions <ChevronDown size={14} className={clsx('transition-transform', editing && 'rotate-180')}/></button>
       </div>
-      {editing && <PlanInputs plan={plan} onChange={setIncomePlan}/>} 
+      {editing && <PlanInputs plan={plan} observedSpending={model.observedSpending} onChange={setIncomePlan}/>}
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <HealthMetric icon={<CircleDollarSign size={17}/>} label="After-tax dividends" value={`${usd(model.afterTaxMonthly)}/mo`} source="Estimated" note={`Uses ${pct(plan.estimatedTaxRate)} tax assumption`} tone="green"/>
         <HealthMetric icon={<Target size={17}/>} label="W-2 income replaced" value={model.w2Coverage == null ? 'Set target' : pct(model.w2Coverage * 100)} source="Calculated" note={plan.annualW2Target ? `${usd(plan.annualW2Target)}/yr target` : 'Annual target needed'} tone="blue"/>
@@ -88,9 +90,9 @@ export function PlanHealth() {
   </section>
 }
 
-function PlanInputs({ plan, onChange }: { plan: IncomePlan; onChange: (plan: IncomePlan) => void }) {
+function PlanInputs({ plan, observedSpending, onChange }: { plan: IncomePlan; observedSpending: ReturnType<typeof averagePortfolioSpending>; onChange: (plan: IncomePlan) => void }) {
   const set = (field: keyof IncomePlan, value: number, max = Number.POSITIVE_INFINITY) => onChange({ ...plan, [field]: Math.min(max, Math.max(0, value || 0)) })
-  return <div className="mt-5 grid gap-3 rounded-2xl border border-white/[.07] bg-black/15 p-4 sm:grid-cols-2 xl:grid-cols-5"><PlanField label="Annual W-2 target" prefix="$" value={plan.annualW2Target} onChange={(value) => set('annualW2Target', value, 10_000_000)}/><PlanField label="Monthly spending" prefix="$" value={plan.monthlySpending} onChange={(value) => set('monthlySpending', value, 1_000_000)}/><PlanField label="Estimated tax rate" suffix="%" value={plan.estimatedTaxRate} max={60} onChange={(value) => set('estimatedTaxRate', value, 60)}/><PlanField label="Distribution-cut test" suffix="%" value={plan.distributionCutPct} max={100} onChange={(value) => set('distributionCutPct', value, 100)}/><PlanField label="Cash reserve goal" suffix="months" value={plan.cashReserveMonths} max={60} onChange={(value) => set('cashReserveMonths', value, 60)}/></div>
+  return <div className="mt-5 rounded-2xl border border-white/[.07] bg-black/15 p-4"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><PlanField label="Annual W-2 target" prefix="$" value={plan.annualW2Target} onChange={(value) => set('annualW2Target', value, 10_000_000)}/><PlanField label="Monthly spending" prefix="$" value={plan.monthlySpending} onChange={(value) => set('monthlySpending', value, 1_000_000)}/><PlanField label="Estimated tax rate" suffix="%" value={plan.estimatedTaxRate} max={60} onChange={(value) => set('estimatedTaxRate', value, 60)}/><PlanField label="Distribution-cut test" suffix="%" value={plan.distributionCutPct} max={100} onChange={(value) => set('distributionCutPct', value, 100)}/><PlanField label="Cash reserve goal" suffix="months" value={plan.cashReserveMonths} max={60} onChange={(value) => set('cashReserveMonths', value, 60)}/></div>{observedSpending && <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#5aa2ff]/15 bg-[#5aa2ff]/5 p-3"><Sparkles size={16} className="text-[#6aa9ff]"/><div className="min-w-0 flex-1"><div className="text-xs font-medium">Observed portfolio-funded spending: <span className="num text-ink">{usd(observedSpending.monthlyAverage)}/month</span></div><div className="mt-0.5 text-[10px] text-faint">{observedSpending.transactionCount} bill payment and withdrawal transaction{observedSpending.transactionCount === 1 ? '' : 's'} across {observedSpending.months} complete month{observedSpending.months === 1 ? '' : 's'} ({observedSpending.from}–{observedSpending.to}). Investments, transfers, fees, taxes, and margin interest are excluded.</div></div><button onClick={() => set('monthlySpending', observedSpending.monthlyAverage, 1_000_000)} disabled={observedSpending.monthlyAverage <= 0} className="rounded-lg border border-[#5aa2ff]/25 px-3 py-1.5 text-xs font-medium text-[#7fb5ff] enabled:hover:bg-[#5aa2ff]/10 disabled:opacity-40">Use average</button></div>}</div>
 }
 
 function PlanField({ label, value, onChange, prefix, suffix, max }: { label: string; value: number; onChange: (value: number) => void; prefix?: string; suffix?: string; max?: number }) {

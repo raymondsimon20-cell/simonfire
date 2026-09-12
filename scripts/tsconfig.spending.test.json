@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
+    "types": ["node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "rootDir": "..",
+    "outDir": "/tmp/simonfire-spending-tests"
+  },
+  "include": ["test-spending.ts", "../src/lib/spending.ts", "../src/lib/types.ts"]
+}

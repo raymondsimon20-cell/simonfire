@@ -164,6 +164,12 @@ export function recommendPutRoll<T extends PutQuoteCandidate & { symbol: string;
   }
 }
 
+export function putRollTiming(daysToExpiration: number, rollWindowDays = 60) {
+  const dte = Math.max(0, Math.trunc(daysToExpiration))
+  const window = Math.max(1, Math.trunc(rollWindowDays))
+  return { recommendation: dte <= window ? 'ROLL' as const : 'HOLD' as const, daysToExpiration: dte, rollWindowDays: window }
+}
+
 export interface PortfolioPutHedgeInput {
   longExposure: number
   qqqPrice: number

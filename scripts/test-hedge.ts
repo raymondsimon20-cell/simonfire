@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { buildPutCloseOrder, buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut, recommendPutRoll } from '../src/lib/hedge'
+import { buildPutCloseOrder, buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, putRollTiming, rankProtectivePut, recommendPutRoll } from '../src/lib/hedge'
 
 const optionOrder = buildPutPreviewOrder('QQQ   260918P00425000', 3, 8.126)
 assert.deepEqual(optionOrder, {
@@ -26,6 +26,9 @@ const neverRollBackward = recommendPutRoll(
   700, 2,
 )
 assert.equal(neverRollBackward, null)
+assert.equal(putRollTiming(101).recommendation, 'HOLD')
+assert.equal(putRollTiming(60).recommendation, 'ROLL')
+assert.equal(putRollTiming(12).recommendation, 'ROLL')
 
 const full = protectivePutPlan({ shares: 250, sharePrice: 100, coveragePct: 100, maxDrawdownPct: 15, premiumPerShare: 2 })
 assert.equal(full.contracts, 3)

@@ -12,7 +12,7 @@ import { schwabOrderStatus, schwabPlaceOption, schwabPlaceOrder, schwabPreviewOp
 import { marginCapacity, type MarginCapacity } from '../lib/margin'
 import clsx from 'clsx'
 import type { Account, HedgeRoll, Position } from '../lib/types'
-import { buildPutCloseOrder, buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, rankProtectivePut, recommendPutRoll } from '../lib/hedge'
+import { buildPutCloseOrder, buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, putRollTiming, rankProtectivePut, recommendPutRoll } from '../lib/hedge'
 
 const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<string, number> => {
   const out: Record<string, number> = {}
@@ -579,6 +579,7 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
   const [rollSource, setRollSource] = useState<{ optionSymbol: string; contracts: number; limitCredit: number; accountId: string; replacementSymbol: string; estimatedNetDebit: number } | null>(null)
   const [recommending, setRecommending] = useState<string | null>(null)
   const [rollError, setRollError] = useState('')
+  const [putChecks, setPutChecks] = useState<Record<string, { bid: number; ask: number; mark: number; value: number; dte: number; rollBy: string; recommendation: 'ROLL' | 'HOLD'; reason: string; checkedAt: string }>>({})
   useEffect(() => {
     const receive = (event: Event) => setPlan((event as CustomEvent<HedgePlanSnapshot>).detail)
     window.addEventListener('simonfire:hedge-plan', receive)
@@ -601,6 +602,12 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
     const key = (symbol: string) => symbol.replace(/\s+/g, '').toUpperCase()
     const current = (result.contracts ?? []).find((quote) => key(quote.symbol) === key(heldOptionSymbol))
     if (!current) { setRollError('Schwab did not return a quote for the held contract. Confirm that it is still active and try again.'); return }
+    const dte = current.daysToExpiration ?? Math.max(0, Math.ceil((new Date(`${current.expiration}T00:00:00`).getTime() - Date.now()) / 86_400_000))
+    const rollByDate = new Date(`${current.expiration}T00:00:00`); rollByDate.setDate(rollByDate.getDate() - 60)
+    const mark = current.mark ?? ((current.bid ?? 0) + (current.ask ?? 0)) / 2
+    const shouldRoll = putRollTiming(dte).recommendation === 'ROLL'
+    setPutChecks((checks) => ({ ...checks, [position.id]: { bid: current.bid ?? 0, ask: current.ask ?? 0, mark, value: mark * 100 * Math.trunc(position.shares), dte, rollBy: rollByDate.toISOString().slice(0, 10), recommendation: shouldRoll ? 'ROLL' : 'HOLD', reason: shouldRoll ? `The put has ${dte} days remaining, inside the 60-day roll window.` : `The put has ${dte} days remaining. Hold it until about ${shortDate(rollByDate.toISOString().slice(0, 10))}.`, checkedAt: new Date().toISOString() } }))
+    if (!shouldRoll) { setRollSource(null); return }
     if ((current.bid ?? 0) <= 0) { setRollError('Schwab returned no executable bid for the held put, so a safe close limit cannot be prepared. Check the contract during market hours.'); return }
     const eligibleReplacements = (result.contracts ?? []).filter((quote) => key(quote.symbol) !== key(heldOptionSymbol) && quote.expiration > current.expiration && (quote.daysToExpiration ?? 0) >= 30 && (quote.daysToExpiration ?? 0) <= 240 && (quote.ask ?? 0) > 0)
     if (!eligibleReplacements.length) { setRollError(`Schwab returned no later-dated replacement puts with a valid ask through ${to.toISOString().slice(0, 10)}. The current hedge should not be rolled backward.`); return }
@@ -703,6 +710,7 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
   const confirmTotal = (confirmContracts ?? 0) * (confirmLimit ?? 0) * 100
   const statusStyle: Record<HedgeRoll['status'], string> = { queued: 'bg-[#c7a96b]/10 text-[#d8bd7a]', active: 'bg-pos/10 text-pos', rolled: 'bg-[#10233f] text-[#5aa2ff]', closed: 'bg-surface-2 text-muted' }
   return <div className="space-y-4">
+    {!!livePuts.length && <div className="grid gap-3 lg:grid-cols-2">{livePuts.map((put) => <CurrentPutCard key={put.id} put={put} account={accounts.find((account) => account.id === put.accountId)} check={putChecks[put.id]} checking={recommending === put.id} onCheck={() => startRoll(put)}/>)}</div>}
     <div className="card p-5">
       <div className="flex flex-wrap items-end gap-3">
         <ListChecks size={19} className="mb-2 text-brand"/>
@@ -747,6 +755,11 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
       </div>}
     </Modal>
   </div>
+}
+
+function CurrentPutCard({ put, account, check, checking, onCheck }: { put: Position; account?: Account; check?: { bid: number; ask: number; mark: number; value: number; dte: number; rollBy: string; recommendation: 'ROLL' | 'HOLD'; reason: string; checkedAt: string }; checking: boolean; onCheck: () => void }) {
+  const brokerValue = put.shares * put.lastPrice
+  return <section className="card p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-faint">Current protective put</div><h3 className="mt-1 text-lg font-semibold">{put.underlying ?? put.symbol} ${put.strike?.toFixed(2) ?? '—'} put</h3><div className="mt-1 font-mono text-[10px] text-faint">{optionSymbolForPosition(put) || put.symbol} · {account?.name ?? put.accountId}</div></div>{check ? <span className={clsx('rounded-full px-3 py-1 text-xs font-semibold', check.recommendation === 'ROLL' ? 'bg-[#c7a96b]/15 text-[#e1c887]' : 'bg-pos/10 text-pos')}>{check.recommendation === 'ROLL' ? 'Roll recommended' : 'Hold — no roll yet'}</span> : <span className="rounded-full bg-surface-2 px-3 py-1 text-xs text-muted">Needs live check</span>}</div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4"><SummaryMetric label="Current put value" value={usd(check?.value ?? brokerValue)}/><SummaryMetric label="Live mark / share" value={check ? usd(check.mark) : 'Refresh quote'}/><SummaryMetric label="Bid / ask" value={check ? `${usd(check.bid)} / ${usd(check.ask)}` : 'Refresh quote'}/><SummaryMetric label="Time remaining" value={check ? `${check.dte} DTE` : put.expiration ? shortDate(put.expiration) : 'Unknown'}/></div>{check && <div className={clsx('mt-4 rounded-xl border p-3 text-xs leading-5', check.recommendation === 'ROLL' ? 'border-[#c7a96b]/25 bg-[#c7a96b]/5 text-[#e1c887]' : 'border-pos/20 bg-pos/5 text-muted')}><strong className={check.recommendation === 'ROLL' ? 'text-[#e1c887]' : 'text-pos'}>{check.recommendation === 'ROLL' ? 'Why roll:' : 'Why hold:'}</strong> {check.reason}<div className="mt-1 text-[10px] text-faint">Value uses the live mark. Estimated immediate sale proceeds use the bid: {usd(check.bid * 100 * Math.trunc(put.shares))}. Quotes checked {new Date(check.checkedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.</div></div>}<div className="mt-4 flex items-center justify-between gap-3"><p className="text-[10px] text-faint">Rule: recommend rolling at 60 days to expiration or less.</p><Button onClick={onCheck} disabled={checking || !['QQQ', 'SPY'].includes(normTicker(put.underlying ?? ''))}>{checking ? <><LoaderCircle size={14} className="animate-spin"/> Checking Schwab…</> : check ? 'Refresh value & decision' : 'Check value & roll decision'}</Button></div></section>
 }
 
 export function ProtectivePutTutorial() {

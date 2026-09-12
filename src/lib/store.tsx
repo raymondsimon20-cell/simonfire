@@ -12,6 +12,7 @@ import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
 import { loadSharedPreferences, saveSharedPreferences, type SharedPreferences } from './api'
+import { resolveDividendSymbols } from './dividend-symbol'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -102,6 +103,7 @@ function load(): AppData {
         }
         classifyKnownOthers(parsed)
         applyRulesTo(parsed)
+        resolveDividendSymbols(parsed.positions, parsed.transactions)
         return parsed
       }
     }
@@ -394,6 +396,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Classify known Schwab descriptions, then let user rules take precedence.
         classifyKnownOthers(d)
         applyRulesTo(d)
+        resolveDividendSymbols(d.positions, d.transactions)
         // Reflect the import as a connection so the Connections page shows it.
         const broker = result.broker || 'Schwab'
         d.connections = [

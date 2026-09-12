@@ -3,6 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { getStore } from '@netlify/blobs'
 import { classifySchwabTransaction } from '../../../src/lib/transaction-classification'
+import { resolveDividendSymbols } from '../../../src/lib/dividend-symbol'
 
 const TOKEN_URL = 'https://api.schwabapi.com/v1/oauth/token'
 const AUTH_URL = 'https://api.schwabapi.com/v1/oauth/authorize'
@@ -539,8 +540,8 @@ export async function fetchPortfolio(token: string) {
   }
 
   // Dividend/interest transactions often carry only the cash leg, so the ticker
-  // is missing. Recover it by matching the transaction description to a holding's
-  // security name (e.g. "ROUNDHILL WEEKLY T-BILL ETF" -> WEEK).
+  // is missing. First recover non-dividend corporate-action symbols by name;
+  // dividend rows use the stronger multi-signal resolver below.
   const norm = (s: string) => String(s || '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
   const nameToSym = new Map<string, string>()
   for (const p of positions) {
@@ -559,11 +560,12 @@ export async function fetchPortfolio(token: string) {
     return undefined
   }
   for (const t of transactions) {
-    if (!t.symbol && (t.type === 'Dividend' || t.type === 'Sell' || t.type === 'Corporate Action' || t.type === 'Other')) {
+    if (!t.symbol && (t.type === 'Sell' || t.type === 'Corporate Action' || t.type === 'Other')) {
       const sym = resolveSym(t.description)
       if (sym) t.symbol = sym
     }
   }
+  resolveDividendSymbols(positions, transactions)
 
   // Backfill lifetime dividends per position from transactions.
   const divBy = new Map<string, number>()

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { dividendStats } from '../src/lib/calc'
+import { resolveDividendSymbols } from '../src/lib/dividend-symbol'
 import type { Position, Transaction } from '../src/lib/types'
 
 const positions: Position[] = [
@@ -87,5 +88,20 @@ assert.equal(
   afterSync.future.find((month) => month.month === '2027-08')!.amount,
   beforeSync.future.find((month) => month.month === '2027-08')!.amount + 25,
 )
+
+const resolverPositions: Position[] = [
+  { ...positions[0], symbol: 'QQQI', name: 'NEOS Nasdaq 100 High Income ETF', shares: 100, lastDividend: 0.62 },
+  { ...positions[0], symbol: 'TSYY', name: 'GraniteShares YieldBOOST TSLA ETF', shares: 50, lastDividend: 0.4 },
+]
+const resolverTransactions: Transaction[] = [
+  txn({ id: 'known', date: '2026-07-15', type: 'Dividend', symbol: 'QQQI', description: 'QUALIFIED DIVIDEND NEOS NASDAQ 100 HIGH INCOME', amount: 60 }),
+  txn({ id: 'learned', date: '2026-08-15', type: 'Dividend', description: 'CASH DIVIDEND NEOS NASDAQ 100 HIGH INCOME', amount: 61 }),
+  txn({ id: 'ticker', date: '2026-08-20', type: 'Dividend', description: 'DIVIDEND PAYMENT (TSYY)', amount: 19 }),
+  txn({ id: 'amount', date: '2026-08-22', type: 'Dividend', description: 'CASH DISTRIBUTION', amount: 62 }),
+]
+resolveDividendSymbols(resolverPositions, resolverTransactions)
+assert.equal(resolverTransactions.find((row) => row.id === 'learned')?.symbol, 'QQQI')
+assert.equal(resolverTransactions.find((row) => row.id === 'ticker')?.symbol, 'TSYY')
+assert.equal(resolverTransactions.find((row) => row.id === 'amount')?.symbol, 'QQQI')
 
 console.log('dividendStats tests passed')

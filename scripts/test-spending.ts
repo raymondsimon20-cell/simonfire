@@ -10,13 +10,19 @@ const result = averagePortfolioSpending([
   txn('buy', '2025-12-01', 'Buy', -100_000),
   txn('tax', '2026-01-01', 'Tax Withholding', -5_000),
   txn('transfer', '2026-02-01', 'Transfer', -10_000),
+  txn('margin-interest', '2026-03-01', 'Interest', -550),
+  txn('fee', '2026-04-01', 'Fee', -55),
+  txn('positive-interest', '2026-05-01', 'Interest', 100),
 ], '2026-09-12')
 
 assert.ok(result)
 assert.equal(result.months, 11)
-assert.equal(result.total, 3_000)
-assert.equal(result.monthlyAverage, 272.73)
-assert.equal(result.transactionCount, 2)
+assert.equal(result.total, 3_605)
+assert.equal(result.monthlyAverage, 327.73)
+assert.equal(result.transactionCount, 4)
+assert.equal(result.livingSpending, 3_000)
+assert.equal(result.marginInterest, 550)
+assert.equal(result.fees, 55)
 assert.equal(result.from, '2025-10')
 assert.equal(result.to, '2026-08')
 assert.equal(averagePortfolioSpending([], '2026-09-12'), null)

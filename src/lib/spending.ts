@@ -7,14 +7,17 @@ export interface SpendingAverage {
   from: string
   to: string
   transactionCount: number
+  livingSpending: number
+  marginInterest: number
+  fees: number
 }
 
 const monthStart = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1)
 const isoMonth = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 
 // Average portfolio-funded spending over as many as 12 complete calendar months.
-// Only explicit withdrawals and bill payments count. Buys, transfers, taxes,
-// fees, and margin interest remain separate portfolio/carrying-cost decisions.
+// Explicit withdrawals and bill payments count as living spending. Negative
+// interest and fee transactions are included as portfolio carrying costs.
 export function averagePortfolioSpending(transactions: Transaction[], todayISO: string): SpendingAverage | null {
   const dated = transactions.filter((transaction) => /^\d{4}-\d{2}-\d{2}$/.test(transaction.date) && transaction.date <= todayISO)
   if (!dated.length) return null
@@ -37,10 +40,16 @@ export function averagePortfolioSpending(transactions: Transaction[], todayISO: 
   const to = isoMonth(end)
   const spending = dated.filter((transaction) =>
     transaction.amount < 0
-    && (transaction.type === 'Bill Payment' || transaction.type === 'Withdrawal')
+    && (transaction.type === 'Bill Payment' || transaction.type === 'Withdrawal' || transaction.type === 'Interest' || transaction.type === 'Fee')
     && transaction.date.slice(0, 7) >= from
     && transaction.date.slice(0, 7) <= to,
   )
+  const sumTypes = (...types: Transaction['type'][]) => spending
+    .filter((transaction) => types.includes(transaction.type))
+    .reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0)
+  const livingSpending = sumTypes('Bill Payment', 'Withdrawal')
+  const marginInterest = sumTypes('Interest')
+  const fees = sumTypes('Fee')
   const total = spending.reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0)
   return {
     monthlyAverage: +(total / months).toFixed(2),
@@ -49,5 +58,8 @@ export function averagePortfolioSpending(transactions: Transaction[], todayISO: 
     from,
     to,
     transactionCount: spending.length,
+    livingSpending: +livingSpending.toFixed(2),
+    marginInterest: +marginInterest.toFixed(2),
+    fees: +fees.toFixed(2),
   }
 }

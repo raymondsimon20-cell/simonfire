@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -14,6 +15,7 @@ import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatt
 import { loadSharedPreferences, saveSharedPreferences, type SharedPreferences } from './api'
 import { dividendDescriptionKey, resolveDividendSymbols } from './dividend-symbol'
 import { populateRealizedProfitLoss } from './realized-pl'
+import { summarizeSync } from './sync-summary'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -83,7 +85,7 @@ function classifyKnownOthers(d: AppData) {
 }
 
 const STORAGE_KEY = 'simonfire.data.v1'
-export const DEFAULT_INCOME_PLAN: IncomePlan = { annualW2Target: 0, monthlySpending: 0, estimatedTaxRate: 20, distributionCutPct: 20, cashReserveMonths: 6 }
+export const DEFAULT_INCOME_PLAN: IncomePlan = { annualW2Target: 0, monthlySpending: 0, estimatedTaxRate: 20, distributionCutPct: 20, cashReserveMonths: 6, marginEquityAlertPct: 50, concentrationAlertPct: 15, incomeCoverageAlertPct: 100 }
 
 // ---- Persistence (swap this module for a Supabase-backed one later) ----
 function load(): AppData {
@@ -96,8 +98,9 @@ function load(): AppData {
         if (!parsed.soldSymbols) parsed.soldSymbols = []
         if (!parsed.tagRules) parsed.tagRules = []
         if (!parsed.bucketOverrides) parsed.bucketOverrides = {}
-        if (!parsed.incomePlan) parsed.incomePlan = { ...DEFAULT_INCOME_PLAN }
+        parsed.incomePlan = { ...DEFAULT_INCOME_PLAN, ...(parsed.incomePlan ?? {}) }
         if (!parsed.spendingExclusions) parsed.spendingExclusions = []
+        if (!parsed.archivedTransactions) parsed.archivedTransactions = []
         for (const p of parsed.positions) p.allocationBucket = parsed.bucketOverrides[`${p.accountId}|${p.symbol}`]
         // Backfill sample analytics for datasets stored before these existed.
         if (parsed.source === 'sample' && (!parsed.twr || !parsed.insights)) {
@@ -153,7 +156,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   data.targetAlloc = preferences.targetAlloc
   data.keepList = preferences.keepList ?? DEFAULT_KEEP
   data.soldSymbols = preferences.soldSymbols ?? []
-  data.incomePlan = preferences.incomePlan ?? data.incomePlan ?? { ...DEFAULT_INCOME_PLAN }
+  data.incomePlan = { ...DEFAULT_INCOME_PLAN, ...(data.incomePlan ?? {}), ...(preferences.incomePlan ?? {}) }
   data.spendingExclusions = preferences.spendingExclusions ?? []
   for (const position of data.positions) {
     position.allocationBucket = data.bucketOverrides[`${position.accountId}|${position.symbol}`]
@@ -165,16 +168,22 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
 }
 
 const uid = () => 'x' + Math.random().toString(36).slice(2, 10)
+export type GlobalDateRange = '30' | '90' | '365' | 'all'
 
 interface StoreCtx {
   data: AppData
   scope: string // account id or 'all'
   setScope: (id: string) => void
+  dateRange: GlobalDateRange
+  setDateRange: (range: GlobalDateRange) => void
   addTransaction: (t: Omit<Transaction, 'id' | 'tags'> & { tags?: string[] }) => void
   updateTransaction: (id: string, patch: Partial<Transaction>) => void
   assignTransactionSymbol: (id: string, symbol: string) => void
   enrichDividendSymbols: (matches: { transactionId: string; symbol: string }[]) => void
   deleteTransaction: (id: string) => void
+  restoreTransaction: (id: string) => void
+  undoLabel: string
+  undoLast: () => void
   addTag: (id: string, tag: string) => void
   removeTag: (id: string, tag: string) => void
   syncAll: () => void
@@ -215,7 +224,14 @@ const Ctx = createContext<StoreCtx | null>(null)
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData>(() => load())
   const [scope, setScope] = useState<string>('all')
+  const [dateRange, setDateRangeState] = useState<GlobalDateRange>(() => (localStorage.getItem('simonfire.date-range') as GlobalDateRange) || '365')
   const [sharedReady, setSharedReady] = useState(false)
+  const undoRef = useRef<AppData | null>(null)
+  const [undoLabel, setUndoLabel] = useState('')
+  const setDateRange = useCallback((range: GlobalDateRange) => {
+    setDateRangeState(range)
+    localStorage.setItem('simonfire.date-range', range)
+  }, [])
 
   useEffect(() => {
     save(data)
@@ -244,8 +260,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timeout)
   }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, sharedReady])
 
-  const mutate = useCallback((fn: (d: AppData) => AppData) => {
-    setData((prev) => fn(structuredClone(prev)))
+  const mutate = useCallback((fn: (d: AppData) => AppData, label?: string) => {
+    setData((prev) => {
+      if (label) { undoRef.current = structuredClone(prev); setUndoLabel(label) }
+      return fn(structuredClone(prev))
+    })
+  }, [])
+  const undoLast = useCallback(() => {
+    if (!undoRef.current) return
+    setData(undoRef.current)
+    undoRef.current = null
+    setUndoLabel('')
   }, [])
 
   const addTransaction: StoreCtx['addTransaction'] = useCallback(
@@ -254,7 +279,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         d.transactions.unshift({ id: uid(), tags: t.tags ?? [], ...t })
         d.transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         return d
-      })
+      }, 'Add transaction')
     },
     [mutate],
   )
@@ -282,7 +307,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
         }
         return d
-      })
+      }, 'Transaction edit')
     },
     [mutate],
   )
@@ -300,7 +325,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         resolveDividendSymbols(d.positions, d.transactions, d.symbolRules)
       }
       return d
-    }),
+    }, 'Symbol assignment'),
     [mutate],
   )
 
@@ -325,11 +350,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const deleteTransaction: StoreCtx['deleteTransaction'] = useCallback(
     (id) => {
       mutate((d) => {
+        const transaction = d.transactions.find((t) => t.id === id)
+        if (transaction) d.archivedTransactions = [transaction, ...(d.archivedTransactions ?? [])]
         d.transactions = d.transactions.filter((t) => t.id !== id)
         return d
-      })
+      }, 'Archive transaction')
     },
     [mutate],
+  )
+
+  const restoreTransaction: StoreCtx['restoreTransaction'] = useCallback(
+    (id) => mutate((d) => {
+      const transaction = (d.archivedTransactions ?? []).find((t) => t.id === id)
+      if (transaction) d.transactions = [transaction, ...d.transactions].sort((a, b) => b.date.localeCompare(a.date))
+      d.archivedTransactions = (d.archivedTransactions ?? []).filter((t) => t.id !== id)
+      return d
+    }, 'Restore transaction'), [mutate],
   )
 
   const addTag: StoreCtx['addTag'] = useCallback(
@@ -425,6 +461,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (result, mode, source = 'imported') => {
       const now = new Date().toISOString()
       mutate((d) => {
+        const syncChanges = summarizeSync(d.positions, d.transactions, result.positions, result.transactions, now)
         d.source = source
         if (mode === 'replace') {
           d.accounts = result.accounts
@@ -464,6 +501,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...(mode === 'merge' ? d.connections : []),
         ]
         d.lastSyncAt = now
+        d.lastSyncChanges = syncChanges
         return d
       })
       setScope('all')
@@ -497,7 +535,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       else excluded.add(key)
       d.spendingExclusions = [...excluded]
       return d
-    }),
+    }, 'Spending exclusion'),
     [mutate],
   )
 
@@ -620,11 +658,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       data,
       scope,
       setScope,
+      dateRange,
+      setDateRange,
       addTransaction,
       updateTransaction,
       assignTransactionSymbol,
       enrichDividendSymbols,
       deleteTransaction,
+      restoreTransaction,
+      undoLabel,
+      undoLast,
       addTag,
       removeTag,
       syncAll,
@@ -651,11 +694,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       data,
       scope,
+      dateRange,
+      setDateRange,
       addTransaction,
       updateTransaction,
       assignTransactionSymbol,
       enrichDividendSymbols,
       deleteTransaction,
+      restoreTransaction,
+      undoLabel,
+      undoLast,
       addTag,
       removeTag,
       syncAll,

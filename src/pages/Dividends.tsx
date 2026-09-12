@@ -34,8 +34,8 @@ export default function Dividends() {
 
   const exportCsv = () =>
     downloadCsv('dividends.csv', [
-      ['Symbol', 'Cadence', 'Trailing 12M Received', 'Available History', 'Forward / Run Rate', 'Estimate Source', 'Payments (12M)', 'Last Payment'],
-      ...d.bySymbol.map((s) => [s.symbol, s.cadence, s.ttm.toFixed(2), s.availableIncome.toFixed(2), s.projAnnual.toFixed(2), s.estimateSource, s.payments12m, s.lastPayment]),
+      ['Symbol', 'Cadence', 'Trailing 12M Received', 'Available History', 'Forward / Run Rate', 'Estimate Source', 'Confidence', 'Payments (12M)', 'Last Payment'],
+      ...d.bySymbol.map((s) => [s.symbol, s.cadence, s.ttm.toFixed(2), s.availableIncome.toFixed(2), s.projAnnual.toFixed(2), s.estimateSource, s.confidence, s.payments12m, s.lastPayment]),
     ])
 
   return (
@@ -104,6 +104,7 @@ export default function Dividends() {
               <th className="px-4 py-3 text-right font-medium">Dist. Yield %</th>
               <th className="px-4 py-3 text-right font-medium">Forward / Run Rate</th>
               <th className="px-4 py-3 font-medium">Estimate Source</th>
+              <th className="px-4 py-3 font-medium">Confidence</th>
               <th className="px-4 py-3 text-right font-medium">Payments (12M)</th>
               <th className="px-4 py-3 text-right font-medium">Avg Payment</th>
               <th className="px-4 py-3 font-medium">Last Payment</th>
@@ -119,6 +120,7 @@ export default function Dividends() {
                 <td className="px-4 py-3 text-xs">Missing symbol</td>
                 <td className="num px-4 py-3 text-right">{usd(d.unassignedTrailing12m)}</td>
                 <td className="num px-4 py-3 text-right">{usd(d.unassignedAvailable)}</td>
+                <td className="px-4 py-3 text-right">—</td>
                 <td className="px-4 py-3 text-right">—</td>
                 <td className="px-4 py-3">—</td>
                 <td className="px-4 py-3 text-right">—</td>
@@ -259,13 +261,14 @@ function SymbolRow({ s }: { s: SymbolDividend }) {
         <td className="num px-4 py-3 text-right text-pos">{pct(s.distributionYield * 100)}</td>
         <td className="num px-4 py-3 text-right">{usd(s.projAnnual)}</td>
         <td className="px-4 py-3"><span className={clsx('rounded-md px-2 py-0.5 text-xs font-medium', s.estimateSource === 'Schwab forward' ? 'bg-pos/10 text-pos' : 'bg-[#38240f] text-[#e7c88f]')}>{s.estimateSource}</span></td>
+        <td className="px-4 py-3"><span title={s.confidenceReason} className={clsx('rounded-md px-2 py-0.5 text-xs font-medium', s.confidence === 'High' ? 'bg-pos/10 text-pos' : s.confidence === 'Medium' ? 'bg-[#38240f] text-[#e7c88f]' : 'bg-neg/10 text-neg')}>{s.confidence}</span></td>
         <td className="num px-4 py-3 text-right text-muted">{s.payments12m}</td>
         <td className="num px-4 py-3 text-right">{usd(s.avgPayment)}</td>
         <td className="px-4 py-3 text-muted">{s.lastPayment ? shortDate(s.lastPayment) : '—'}</td>
       </tr>
       {open && (
         <tr className="border-b border-border-soft bg-bg/40">
-          <td colSpan={11} className="px-4 py-4">
+          <td colSpan={12} className="px-4 py-4">
             <div className="mb-2 text-xs text-faint">
               {payments.length} dividend payment{payments.length === 1 ? '' : 's'} for {s.symbol}
             </div>

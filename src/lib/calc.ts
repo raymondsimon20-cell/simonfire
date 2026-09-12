@@ -291,6 +291,8 @@ export interface SymbolDividend {
   avgPayment: number
   lastPayment: string
   estimateSource: 'Schwab forward' | 'Historical run rate' | 'No current holding'
+  confidence: 'High' | 'Medium' | 'Low'
+  confidenceReason: string
 }
 
 export function dividendStats(
@@ -433,9 +435,11 @@ export function dividendStats(
     const pays = count12mBySym.get(sym) ?? 0
     const cost = costBySym.get(sym) ?? 0
     const value = valueBySym.get(sym) ?? 0
+    const cadence = inferCadence(datesBySym.get(sym) ?? [])
+    const confidence: SymbolDividend['confidence'] = forward != null && pays >= 3 ? 'High' : (forward != null || (pays >= 4 && cadence !== 'Irregular')) ? 'Medium' : 'Low'
     bySymbol.push({
       symbol: sym,
-      cadence: inferCadence(datesBySym.get(sym) ?? []),
+      cadence,
       ttm,
       availableIncome: availableBySym.get(sym) ?? 0,
       projAnnual: estimate,
@@ -447,6 +451,8 @@ export function dividendStats(
       estimateSource: currentSharesBySym.get(sym)
         ? forward != null ? 'Schwab forward' : 'Historical run rate'
         : 'No current holding',
+      confidence,
+      confidenceReason: confidence === 'High' ? 'Schwab forward data plus recurring payment history' : confidence === 'Medium' ? (forward != null ? 'Schwab forward data with limited payment history' : 'Recurring historical payments without forward fundamentals') : 'Limited or irregular payment evidence',
     })
   }
   bySymbol.sort((a, b) => b.ttm - a.ttm)

@@ -9,17 +9,20 @@ import { downloadCsv } from '../lib/csv'
 import clsx from 'clsx'
 import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Transaction } from '../lib/types'
+import { usePersistentState } from '../lib/persistent-state'
+import { dateRangeStart, localISODate } from '../lib/date-range'
 
 export default function Transactions() {
-  const { deleteTransaction } = useStore()
+  const { data, deleteTransaction, restoreTransaction, dateRange } = useStore()
   const { transactions, accounts } = useScoped()
   const [modal, setModal] = useState(false)
-  const [type, setType] = useState('all')
-  const [symbol, setSymbol] = useState('')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const [type, setType] = usePersistentState('simonfire.transactions.type', 'all')
+  const [symbol, setSymbol] = usePersistentState('simonfire.transactions.symbol', '')
+  const [from, setFrom] = usePersistentState('simonfire.transactions.from', '')
+  const [to, setTo] = usePersistentState('simonfire.transactions.to', '')
   const [showTotals, setShowTotals] = useState(false)
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
 
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
 
@@ -28,11 +31,12 @@ export default function Transactions() {
       transactions.filter((t) => {
         if (type !== 'all' && t.type !== type) return false
         if (symbol && !(t.symbol ?? '').toLowerCase().includes(symbol.toLowerCase())) return false
-        if (from && t.date < from) return false
-        if (to && t.date > to) return false
+        const globalFrom = dateRangeStart(dateRange)
+        if ((from || globalFrom) && t.date < (from || globalFrom)) return false
+        if ((to || localISODate()) && t.date > (to || localISODate())) return false
         return true
       }),
-    [transactions, type, symbol, from, to],
+    [transactions, type, symbol, from, to, dateRange],
   )
 
   const totalsByType = useMemo(() => {
@@ -196,7 +200,7 @@ export default function Transactions() {
                 </td>
                 <td className="px-2 py-3">
                   <button
-                    onClick={(event) => { event.stopPropagation(); deleteTransaction(t.id) }}
+                    onClick={(event) => { event.stopPropagation(); if (confirm('Archive this transaction? You can restore it below.')) deleteTransaction(t.id) }}
                     className="opacity-0 transition-opacity group-hover:opacity-100"
                     title="Delete"
                   >
@@ -214,6 +218,7 @@ export default function Transactions() {
         )}
       </div>
 
+      {(data.archivedTransactions?.length ?? 0) > 0 && <div className="card mt-4"><button onClick={() => setShowArchived((value) => !value)} className="flex w-full items-center justify-between text-sm font-semibold"><span>Archived transactions ({data.archivedTransactions!.length})</span><ChevronRight size={15} className={showArchived ? 'rotate-90' : ''}/></button>{showArchived && <div className="mt-3 divide-y divide-border-soft">{data.archivedTransactions!.map((transaction) => <div key={transaction.id} className="flex items-center gap-3 py-2 text-xs"><span className="text-faint">{transaction.date}</span><span className="min-w-0 flex-1 truncate">{transaction.description}</span><span className="num">{usd(transaction.amount)}</span><button onClick={() => restoreTransaction(transaction.id)} className="font-semibold text-brand">Restore</button></div>)}</div>}</div>}
       <AddContributionModal open={modal} onClose={() => setModal(false)} />
       <TransactionDrawer txn={selectedTransaction} onClose={() => setSelectedTransaction(null)} />
     </div>

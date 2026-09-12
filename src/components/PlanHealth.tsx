@@ -30,9 +30,11 @@ export function PlanHealth() {
     const buckets = bucketStats(positions, transactions)
     const afterTaxAnnual = dividends.estAnnual * (1 - plan.estimatedTaxRate / 100)
     const afterTaxMonthly = afterTaxAnnual / 12
-    const stressedMonthly = afterTaxMonthly * (1 - plan.distributionCutPct / 100)
-    const w2Coverage = plan.annualW2Target > 0 ? afterTaxAnnual / plan.annualW2Target : null
-    const spendingCoverage = plan.monthlySpending > 0 ? afterTaxMonthly / plan.monthlySpending : null
+    const carryingCostsMonthly = observedSpending ? (observedSpending.marginInterest + observedSpending.fees) / observedSpending.months : 0
+    const spendableMonthly = afterTaxMonthly - carryingCostsMonthly
+    const stressedMonthly = spendableMonthly * (1 - plan.distributionCutPct / 100)
+    const w2Coverage = plan.annualW2Target > 0 ? spendableMonthly * 12 / plan.annualW2Target : null
+    const spendingCoverage = plan.monthlySpending > 0 ? spendableMonthly / plan.monthlySpending : null
     const cashRunway = plan.monthlySpending > 0 ? Math.max(0, summary.availableCash) / plan.monthlySpending : null
     const largest = positions.reduce((best, position) => {
       const value = Math.abs(position.shares * position.lastPrice)
@@ -52,14 +54,15 @@ export function PlanHealth() {
     if (unassigned) actions.push({ tone: 'warn', title: `Assign ${unassigned} dividend payment${unassigned === 1 ? '' : 's'}`, detail: 'Missing symbols reduce the accuracy of payer-level projections.', to: '/dividends' })
     if (uncategorized) actions.push({ tone: 'warn', title: `Review ${uncategorized} uncategorized transaction${uncategorized === 1 ? '' : 's'}`, detail: 'Cash flow and return calculations depend on transaction type.', to: '/transactions' })
     if (missingPl) actions.push({ tone: 'warn', title: `Complete P/L for ${missingPl} sale${missingPl === 1 ? '' : 's'}`, detail: 'No usable purchase cost was available for these sales.', to: '/transactions' })
-    if (summary.equityPct < .5) actions.push({ tone: 'danger', title: 'Margin equity is below 50%', detail: `${pct(summary.equityPct * 100)} of gross assets are owned after margin debt.`, to: '/allocation' })
-    if (concentration > .15) actions.push({ tone: 'warn', title: `Review ${largest.symbol} concentration`, detail: `${pct(concentration * 100)} of gross portfolio value is in one position.`, to: '/positions' })
+    if (summary.equityPct * 100 < plan.marginEquityAlertPct) actions.push({ tone: 'danger', title: `Margin equity is below ${pct(plan.marginEquityAlertPct)}`, detail: `${pct(summary.equityPct * 100)} of gross assets are owned after margin debt.`, to: '/allocation' })
+    if (concentration * 100 > plan.concentrationAlertPct) actions.push({ tone: 'warn', title: `Review ${largest.symbol} concentration`, detail: `${pct(concentration * 100)} of gross portfolio value is in one position.`, to: '/positions' })
+    if (spendingCoverage != null && spendingCoverage * 100 < plan.incomeCoverageAlertPct) actions.push({ tone: 'warn', title: 'Income coverage is below your alert level', detail: `${pct(spendingCoverage * 100)} coverage versus a ${pct(plan.incomeCoverageAlertPct)} alert threshold.`, to: '#plan-settings' })
     if (highRiskWeight > .5) actions.push({ tone: 'warn', title: 'Review income concentration', detail: `${pct(highRiskWeight * 100)} is classified as High Yield or Leveraged.`, to: '/allocation' })
     if (pendingRolls) actions.push({ tone: 'warn', title: `Review ${pendingRolls} protective-put item${pendingRolls === 1 ? '' : 's'}`, detail: 'Confirm current order status and the next required roll step.', to: '/allocation' })
     if (!actions.length) actions.push({ tone: 'good', title: 'No immediate data issues', detail: 'Your plan inputs and portfolio records pass the current checks.', to: '/month-close' })
     const priority = { danger: 0, warn: 1, good: 2 }
     actions.sort((a, b) => priority[a.tone] - priority[b.tone])
-    return { summary, dividends, observedSpending, afterTaxMonthly, stressedMonthly, w2Coverage, spendingCoverage, cashRunway, unassigned, uncategorized, missingPl, actions: actions.slice(0, 5) }
+    return { summary, dividends, observedSpending, afterTaxMonthly, carryingCostsMonthly, spendableMonthly, stressedMonthly, w2Coverage, spendingCoverage, cashRunway, unassigned, uncategorized, missingPl, actions }
   }, [accounts, data.hedgeRolls, data.spendingExclusions, lastSyncAt, plan, positions, scope, transactions])
 
   const configured = plan.annualW2Target > 0 && plan.monthlySpending > 0
@@ -67,7 +70,7 @@ export function PlanHealth() {
     ? 'Add two targets to turn portfolio income into a measurable replacement plan.'
     : model.spendingCoverage != null && model.spendingCoverage >= 1
       ? `Estimated after-tax dividends cover ${pct(model.spendingCoverage * 100)} of monthly spending.`
-      : `Estimated after-tax dividends cover ${pct((model.spendingCoverage ?? 0) * 100)} of monthly spending; the remaining gap is ${usd(Math.max(0, plan.monthlySpending - model.afterTaxMonthly))} per month.`
+      : `Spendable portfolio income covers ${pct((model.spendingCoverage ?? 0) * 100)} of monthly spending; the remaining gap is ${usd(Math.max(0, plan.monthlySpending - model.spendableMonthly))} per month.`
 
   return <section className="mb-6 overflow-hidden rounded-[24px] border border-[#c7a96b]/20 bg-[linear-gradient(135deg,#171a20_0%,#10151d_65%,#1d180d_100%)] shadow-[0_24px_80px_rgba(0,0,0,.22)]">
     <div className="p-5 sm:p-7">
@@ -83,7 +86,7 @@ export function PlanHealth() {
       </div>
       {editing && <PlanInputs plan={plan} observedSpending={model.observedSpending} onChange={setIncomePlan}/>}
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <HealthMetric active={audit === 'income'} onClick={() => setAudit(audit === 'income' ? null : 'income')} icon={<CircleDollarSign size={17}/>} label="After-tax dividends" value={`${usd(model.afterTaxMonthly)}/mo`} source="Estimated" note={`Uses ${pct(plan.estimatedTaxRate)} tax assumption`} tone="green"/>
+        <HealthMetric active={audit === 'income'} onClick={() => setAudit(audit === 'income' ? null : 'income')} icon={<CircleDollarSign size={17}/>} label="Spendable income" value={`${usd(model.spendableMonthly)}/mo`} source="Estimated" note="After tax, margin interest, and fees" tone="green"/>
         <HealthMetric active={audit === 'w2'} onClick={() => setAudit(audit === 'w2' ? null : 'w2')} icon={<Target size={17}/>} label="W-2 income replaced" value={model.w2Coverage == null ? 'Set target' : pct(model.w2Coverage * 100)} source="Calculated" note={plan.annualW2Target ? `${usd(plan.annualW2Target)}/yr target` : 'Annual target needed'} tone="blue"/>
         <HealthMetric active={audit === 'spending'} onClick={() => setAudit(audit === 'spending' ? null : 'spending')} icon={<Gauge size={17}/>} label="Spending covered" value={model.spendingCoverage == null ? 'Set spending' : pct(model.spendingCoverage * 100)} source="Calculated" note={plan.monthlySpending ? `${usd(plan.monthlySpending)}/mo plan` : 'Monthly spending needed'} tone="purple"/>
         <HealthMetric active={audit === 'cash'} onClick={() => setAudit(audit === 'cash' ? null : 'cash')} icon={<PiggyBank size={17}/>} label="Cash runway" value={model.cashRunway == null ? 'Set spending' : `${model.cashRunway.toFixed(1)} mo`} source="Schwab + calculated" note={`${usd(model.summary.availableCash)} available cash`} tone="orange"/>
@@ -102,6 +105,7 @@ function PlanInputs({ plan, observedSpending, onChange }: { plan: IncomePlan; ob
   const set = (field: keyof IncomePlan, value: number, max = Number.POSITIVE_INFINITY) => onChange({ ...plan, [field]: Math.min(max, Math.max(0, value || 0)) })
   return <div className="mt-5 rounded-2xl border border-white/[.07] bg-black/15 p-4">
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><PlanField label="Annual W-2 target" prefix="$" value={plan.annualW2Target} onChange={(value) => set('annualW2Target', value, 10_000_000)}/><PlanField label="Monthly spending" prefix="$" value={plan.monthlySpending} onChange={(value) => set('monthlySpending', value, 1_000_000)}/><PlanField label="Estimated tax rate" suffix="%" value={plan.estimatedTaxRate} max={60} onChange={(value) => set('estimatedTaxRate', value, 60)}/><PlanField label="Distribution-cut test" suffix="%" value={plan.distributionCutPct} max={100} onChange={(value) => set('distributionCutPct', value, 100)}/><PlanField label="Cash reserve goal" suffix="months" value={plan.cashReserveMonths} max={60} onChange={(value) => set('cashReserveMonths', value, 60)}/></div>
+    <div className="mt-3 grid gap-3 sm:grid-cols-3"><PlanField label="Margin equity alert" suffix="%" value={plan.marginEquityAlertPct} max={100} onChange={(value) => set('marginEquityAlertPct', value, 100)}/><PlanField label="Single-position alert" suffix="%" value={plan.concentrationAlertPct} max={100} onChange={(value) => set('concentrationAlertPct', value, 100)}/><PlanField label="Income coverage alert" suffix="%" value={plan.incomeCoverageAlertPct} max={200} onChange={(value) => set('incomeCoverageAlertPct', value, 200)}/></div>
     {observedSpending && <div className="mt-4 rounded-xl border border-[#5aa2ff]/15 bg-[#5aa2ff]/5 p-4"><div className="flex flex-wrap items-center gap-3"><Sparkles size={16} className="text-[#6aa9ff]"/><div className="min-w-0 flex-1"><div className="text-xs font-medium">Observed portfolio-funded spending: <span className="num text-ink">{usd(observedSpending.monthlyAverage)}/month</span></div><div className="mt-0.5 text-[10px] text-faint">Calculated from {observedSpending.transactionCount} included outflows across {observedSpending.months} complete month{observedSpending.months === 1 ? '' : 's'} ({observedSpending.from}–{observedSpending.to}).</div></div><button onClick={() => set('monthlySpending', observedSpending.monthlyAverage, 1_000_000)} disabled={observedSpending.monthlyAverage <= 0} className="rounded-lg border border-[#5aa2ff]/25 px-3 py-1.5 text-xs font-medium text-[#7fb5ff] enabled:hover:bg-[#5aa2ff]/10 disabled:opacity-40">Use average</button></div><SpendingBreakdown spending={observedSpending}/></div>}
   </div>
 }
@@ -129,6 +133,8 @@ function MetricAudit({ kind, plan, model, accounts, transactions, exclusions }: 
     observedSpending: ReturnType<typeof averagePortfolioSpending>
     summary: ReturnType<typeof portfolioSummary>
     afterTaxMonthly: number
+    carryingCostsMonthly: number
+    spendableMonthly: number
     stressedMonthly: number
     w2Coverage: number | null
     spendingCoverage: number | null
@@ -138,13 +144,13 @@ function MetricAudit({ kind, plan, model, accounts, transactions, exclusions }: 
   transactions: Transaction[]
   exclusions: string[]
 }) {
-  const incomeFormula = `${usd(model.dividends.estAnnual)} annual run rate × ${(1 - plan.estimatedTaxRate / 100).toFixed(2)} after-tax factor ÷ 12 = ${usd(model.afterTaxMonthly)}/month`
+  const incomeFormula = `${usd(model.dividends.estAnnual)} annual run rate × ${(1 - plan.estimatedTaxRate / 100).toFixed(2)} after-tax factor ÷ 12 − ${usd(model.carryingCostsMonthly)} margin interest and fees = ${usd(model.spendableMonthly)}/month`
   const content = {
     income: { title: 'After-tax dividend calculation', formula: incomeFormula, note: `${pct(model.dividends.forwardCoverage * 100)} of the annual run rate uses Schwab forward fundamentals; the remainder uses payment history.` },
-    w2: { title: 'W-2 replacement calculation', formula: plan.annualW2Target ? `${usd(model.afterTaxMonthly * 12)} estimated after-tax annual dividends ÷ ${usd(plan.annualW2Target)} W-2 target = ${pct((model.w2Coverage ?? 0) * 100)}` : 'Set an annual W-2 target to calculate this percentage.', note: 'This compares after-tax portfolio income with the gross target you entered. Adjust the target if you prefer an after-tax comparison.' },
-    spending: { title: 'Spending coverage calculation', formula: plan.monthlySpending ? `${usd(model.afterTaxMonthly)} estimated after-tax dividends ÷ ${usd(plan.monthlySpending)} monthly spending = ${pct((model.spendingCoverage ?? 0) * 100)}` : 'Set monthly spending manually or use the observed portfolio average.', note: model.observedSpending ? `Observed average: ${usd(model.observedSpending.monthlyAverage)}/month across ${model.observedSpending.months} complete months.` : 'There is not yet a complete month of eligible outflow history.' },
+    w2: { title: 'W-2 replacement calculation', formula: plan.annualW2Target ? `${usd(model.spendableMonthly * 12)} spendable annual income ÷ ${usd(plan.annualW2Target)} W-2 target = ${pct((model.w2Coverage ?? 0) * 100)}` : 'Set an annual W-2 target to calculate this percentage.', note: 'Spendable income subtracts estimated tax, margin interest, and portfolio fees.' },
+    spending: { title: 'Spending coverage calculation', formula: plan.monthlySpending ? `${usd(model.spendableMonthly)} spendable income ÷ ${usd(plan.monthlySpending)} monthly spending = ${pct((model.spendingCoverage ?? 0) * 100)}` : 'Set monthly spending manually or use the observed portfolio average.', note: model.observedSpending ? `Observed average: ${usd(model.observedSpending.monthlyAverage)}/month across ${model.observedSpending.months} complete months.` : 'There is not yet a complete month of eligible outflow history.' },
     cash: { title: 'Cash runway calculation', formula: plan.monthlySpending ? `${usd(model.summary.availableCash)} available cash ÷ ${usd(plan.monthlySpending)} monthly spending = ${(model.cashRunway ?? 0).toFixed(1)} months` : 'Set monthly spending to calculate cash runway.', note: 'Available cash is reported at the account level and may include unsettled cash.' },
-    stress: { title: 'Distribution-cut stress test', formula: `${usd(model.afterTaxMonthly)} after-tax monthly dividends × ${(1 - plan.distributionCutPct / 100).toFixed(2)} remaining after cut = ${usd(model.stressedMonthly)}/month`, note: 'This is a simple income shock. It does not model price declines, distribution timing, or tax changes.' },
+    stress: { title: 'Distribution-cut stress test', formula: `${usd(model.spendableMonthly)} spendable monthly income × ${(1 - plan.distributionCutPct / 100).toFixed(2)} remaining after cut = ${usd(model.stressedMonthly)}/month`, note: 'This is a simple income shock. It does not model price declines, distribution timing, or tax changes.' },
   }[kind]
   const dividendRows = transactions.filter((transaction) => transaction.type === 'Dividend').slice(0, 5)
   const spendingRows = transactions.filter((transaction) => transaction.amount < 0 && ['Withdrawal', 'Bill Payment', 'Interest', 'Fee'].includes(transaction.type) && !exclusions.includes(spendingExclusionKey(transaction))).slice(0, 5)

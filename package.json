@@ -13,6 +13,7 @@
     "test:realized-pl": "tsc -p scripts/tsconfig.realized-pl.test.json && node /tmp/simonfire-realized-pl-tests/scripts/test-realized-pl.js",
     "test:spending": "tsc -p scripts/tsconfig.spending.test.json && node /tmp/simonfire-spending-tests/scripts/test-spending.js",
     "test:hedge": "tsc -p scripts/tsconfig.hedge.test.json && node /tmp/simonfire-hedge-tests/scripts/test-hedge.js",
+    "test:sync-summary": "tsc -p scripts/tsconfig.sync-summary.test.json && node /tmp/simonfire-sync-summary-tests/scripts/test-sync-summary.js",
     "preview": "vite preview"
   },
   "dependencies": {

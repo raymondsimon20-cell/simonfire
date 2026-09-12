@@ -28,6 +28,8 @@ import { bucketOf } from '../lib/buckets'
 import { BUCKETS, BUCKET_COLOR } from '../lib/buckets'
 import { useToast } from '../components/Toast'
 import { PlanHealth } from '../components/PlanHealth'
+import { SyncChanges } from '../components/SyncChanges'
+import { DataReconciliation } from '../components/DataReconciliation'
 
 export default function Dashboard() {
   const { data, applyImport, syncAll } = useStore()
@@ -82,6 +84,8 @@ export default function Dashboard() {
   return (
     <div>
       <PlanHealth />
+      <SyncChanges />
+      <DataReconciliation />
 
       {/* Your Accounts ------------------------------------------------------ */}
       <div className="mt-10 mb-4 flex items-center justify-between">

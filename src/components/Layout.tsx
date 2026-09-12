@@ -1,11 +1,12 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
-import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles, History } from 'lucide-react'
+import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles, History, FileText } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { relTime } from '../lib/format'
 import clsx from 'clsx'
 import { useToast } from './Toast'
+import { AppTools } from './AppTools'
 
 // Brand mark: a rounded gradient tile with an upward "portfolio growth" line.
 function LogoMark({ size = 34 }: { size?: number }) {
@@ -55,6 +56,7 @@ const NAV = [
   { to: '/month-close', label: 'Month Close', icon: CalendarCheck },
   { to: '/ledger', label: 'Ledger', icon: BookOpenText },
   { to: '/allocation', label: 'Allocation', icon: Goal },
+  { to: '/reports', label: 'Reports', icon: FileText },
   { to: '/connections', label: 'Connections', icon: Cable },
 ]
 
@@ -197,9 +199,10 @@ function AccountScope({ placement = 'bottom' }: { placement?: 'top' | 'bottom' }
 }
 
 export default function Layout() {
-  const { data, syncAll, applyImport, reset } = useStore()
+  const { data, syncAll, applyImport, reset, undoLabel, undoLast } = useStore()
   const [syncing, setSyncing] = useState(false)
   const [autoSyncing, setAutoSyncing] = useState(false)
+  const [privacy, setPrivacy] = useState(() => localStorage.getItem('simonfire.privacy') === 'on')
   const { push } = useToast()
   const location = useLocation()
 
@@ -248,7 +251,7 @@ export default function Layout() {
   }
 
   return (
-    <div className="min-h-full">
+    <div className={clsx('min-h-full', privacy && 'privacy-mode')}>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-white/[0.06] bg-[#090c11]/95 px-4 py-5 backdrop-blur-xl lg:flex">
         <div className="px-2"><Logo /></div>
         <div className="mt-8 flex items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint">
@@ -265,6 +268,7 @@ export default function Layout() {
           })}
         </nav>
         <div className="space-y-3 border-t border-white/[0.06] pt-4">
+          <AppTools privacy={privacy} onPrivacy={() => setPrivacy((value) => { localStorage.setItem('simonfire.privacy', value ? 'off' : 'on'); return !value })}/>
           <AccountScope placement="top" />
           <StatusPill source={data.source} lastSyncAt={data.lastSyncAt} syncing={autoSyncing} />
           <div className="flex items-center gap-2">
@@ -280,6 +284,7 @@ export default function Layout() {
         <div className="flex items-center gap-3 px-4 py-3">
           <Logo />
           <div className="ml-auto flex items-center gap-2">
+            <AppTools privacy={privacy} onPrivacy={() => setPrivacy((value) => { localStorage.setItem('simonfire.privacy', value ? 'off' : 'on'); return !value })}/>
             <button onClick={doSync} className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-surface" title="Sync now">
               <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
             </button>
@@ -309,6 +314,7 @@ export default function Layout() {
 
       <main className="mx-auto max-w-[1480px] px-4 py-7 sm:px-6 lg:ml-[248px] lg:px-10 lg:py-9 xl:px-12">
         {(syncing || autoSyncing) && <div className="mb-4 flex items-center gap-2 rounded-xl border border-[#c7a96b]/20 bg-[#c7a96b]/8 px-4 py-2.5 text-xs text-[#dec78f]"><RefreshCw size={13} className="animate-spin" /> Securely refreshing portfolio data…</div>}
+        {undoLabel && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#5aa2ff]/20 bg-[#5aa2ff]/8 px-4 py-2.5 text-xs"><span>{undoLabel} completed.</span><button onClick={undoLast} className="font-semibold text-[#7fb5ff]">Undo</button></div>}
         <div className="mb-5 flex justify-end lg:hidden">
           <AccountScope />
         </div>

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { usePersistentState } from '../lib/persistent-state'
 import {
   Plus,
   Download,
@@ -10,7 +11,7 @@ import {
   RefreshCcw,
   Wallet,
 } from 'lucide-react'
-import { useScoped } from '../lib/store'
+import { useScoped, useStore } from '../lib/store'
 import { cashFlow } from '../lib/calc'
 import { usd, pct, shortDate } from '../lib/format'
 import { KpiCard, PageHeader, Button, Badge } from '../components/ui'
@@ -19,13 +20,13 @@ import { SignedBars } from '../components/Charts'
 import { downloadCsv } from '../lib/csv'
 import clsx from 'clsx'
 
-const RANGES: Record<string, { label: string; days: number }> = {
+const RANGES: Record<string, { label: string; days?: number }> = {
   '7': { label: 'Last 7 days', days: 7 },
   '30': { label: 'Last 30 days', days: 30 },
   '90': { label: 'Last 90 days', days: 90 },
   '365': { label: 'Last 12 months', days: 365 },
+  all: { label: 'All history' },
 }
-
 const now = new Date()
 const TODAY = new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10)
 const shift = (iso: string, days: number) => {
@@ -36,11 +37,11 @@ const shift = (iso: string, days: number) => {
 
 export default function CashFlow() {
   const { transactions, accounts } = useScoped()
-  const [range, setRange] = useState('30')
-  const [category, setCategory] = useState('all')
+  const { dateRange, setDateRange } = useStore()
+  const [category, setCategory] = usePersistentState('simonfire.cash-flow.category', 'all')
   const [modal, setModal] = useState(false)
 
-  const from = shift(TODAY, RANGES[range].days - 1)
+  const from = RANGES[dateRange].days ? shift(TODAY, RANGES[dateRange].days! - 1) : transactions.reduce((min, transaction) => transaction.date < min ? transaction.date : min, TODAY)
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
 
   const scopedTxns = useMemo(
@@ -71,7 +72,7 @@ export default function CashFlow() {
   return (
     <div>
       <PageHeader
-        title={`${RANGES[range].days === 30 ? '30-Day ' : ''}Cash Flow`}
+        title={`${RANGES[dateRange].days === 30 ? '30-Day ' : ''}Cash Flow`}
         subtitle="Ledger-style breakdown of income, expenses, and contributions"
         right={
           <>
@@ -89,8 +90,8 @@ export default function CashFlow() {
         <label className="flex items-center gap-2 text-sm text-muted">
           Date Range:
           <select
-            value={range}
-            onChange={(e) => setRange(e.target.value)}
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value as typeof dateRange)}
             className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none"
           >
             {Object.entries(RANGES).map(([k, v]) => (
@@ -140,7 +141,7 @@ export default function CashFlow() {
       <div className="card mt-4">
         <div className="mb-1 text-lg font-semibold">Daily Net Operating</div>
         <div className="mb-4 text-xs text-faint">
-          {shortDate(from)} – {shortDate(TODAY)} ({RANGES[range].days} days)
+          {shortDate(from)} – {shortDate(TODAY)}{RANGES[dateRange].days ? ` (${RANGES[dateRange].days} days)` : ''}
         </div>
         <SignedBars data={dailyData} xKey="label" yKey="net" height={280} />
       </div>

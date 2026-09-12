@@ -126,6 +126,18 @@ export interface AppData {
   hedgeRolls?: HedgeRoll[]
   incomePlan?: IncomePlan
   spendingExclusions?: string[]
+  lastSyncChanges?: SyncChangeSummary
+  archivedTransactions?: Transaction[]
+}
+
+export interface SyncChangeSummary {
+  at: string
+  addedPositions: string[]
+  removedPositions: string[]
+  newTransactions: number
+  newDividends: number
+  valueChange: number
+  latestTransactionDate: string
 }
 
 export interface IncomePlan {
@@ -134,6 +146,9 @@ export interface IncomePlan {
   estimatedTaxRate: number // 0–100
   distributionCutPct: number // 0–100 stress-test reduction
   cashReserveMonths: number
+  marginEquityAlertPct: number
+  concentrationAlertPct: number
+  incomeCoverageAlertPct: number
 }
 
 export interface SymbolRule {

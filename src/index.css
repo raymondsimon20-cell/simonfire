@@ -56,6 +56,13 @@ body {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
+.privacy-mode .num { filter: blur(7px); user-select: none; }
+@media print {
+  aside, header, button, .no-print { display: none !important; }
+  main { margin: 0 !important; padding: 0 !important; }
+  body { background: #fff !important; color: #111 !important; }
+  .card { box-shadow: none; border: 1px solid #ccc; }
+}
 
 /* Thin scrollbars */
 * {

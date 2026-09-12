@@ -15,6 +15,9 @@ type SharedPreferences = {
     estimatedTaxRate: number
     distributionCutPct: number
     cashReserveMonths: number
+    marginEquityAlertPct: number
+    concentrationAlertPct: number
+    incomeCoverageAlertPct: number
   }
 }
 
@@ -62,6 +65,9 @@ function clean(input: any): SharedPreferences {
     estimatedTaxRate: numberIn(rawPlan.estimatedTaxRate, 0, 60, 20),
     distributionCutPct: numberIn(rawPlan.distributionCutPct, 0, 100, 20),
     cashReserveMonths: numberIn(rawPlan.cashReserveMonths, 0, 60, 6),
+    marginEquityAlertPct: numberIn(rawPlan.marginEquityAlertPct, 0, 100, 50),
+    concentrationAlertPct: numberIn(rawPlan.concentrationAlertPct, 0, 100, 15),
+    incomeCoverageAlertPct: numberIn(rawPlan.incomeCoverageAlertPct, 0, 200, 100),
   } : undefined
   return {
     bucketOverrides,

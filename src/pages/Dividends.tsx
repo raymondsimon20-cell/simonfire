@@ -8,6 +8,8 @@ import { PositiveBars } from '../components/Charts'
 import { downloadCsv } from '../lib/csv'
 import { normTicker } from '../lib/plan'
 import clsx from 'clsx'
+import { TransactionDrawer } from '../components/TransactionDrawer'
+import type { Transaction } from '../lib/types'
 
 const todayISO = () => {
   const now = new Date()
@@ -19,6 +21,7 @@ export default function Dividends() {
   const { positions, transactions, lastSyncAt } = useScoped()
   const today = todayISO()
   const [calendarMonth, setCalendarMonth] = useState(() => today.slice(0, 7))
+  const [selectedDividend, setSelectedDividend] = useState<Transaction | null>(null)
   // lastSyncAt is an intentional revision token. A sync can refresh the same
   // transaction identities with amended amounts or fundamentals, so recompute
   // and remount the chart even when its twelve month labels are unchanged.
@@ -79,6 +82,7 @@ export default function Dividends() {
         positions={positions}
         transactions={transactions}
         symbols={d.bySymbol}
+        onSelect={(id) => setSelectedDividend(transactions.find((transaction) => transaction.id === id) ?? null)}
       />
 
       <div className="card mt-6">
@@ -127,19 +131,21 @@ export default function Dividends() {
           </tbody>
         </table>
       </div>
+      <TransactionDrawer txn={selectedDividend} onClose={() => setSelectedDividend(null)} />
     </div>
   )
 }
 
-type CalendarEvent = { symbol: string; amount: number; kind: 'cash' | 'drip' | 'scheduled'; date?: string; cadence?: string }
+type CalendarEvent = { symbol: string; amount: number; kind: 'cash' | 'drip' | 'scheduled'; date?: string; cadence?: string; transactionId?: string }
 
-function DividendCalendar({ month, onMonthChange, today, positions, transactions, symbols }: {
+function DividendCalendar({ month, onMonthChange, today, positions, transactions, symbols, onSelect }: {
   month: string
   onMonthChange: (month: string) => void
   today: string
   positions: ReturnType<typeof useScoped>['positions']
   transactions: ReturnType<typeof useScoped>['transactions']
   symbols: SymbolDividend[]
+  onSelect: (transactionId: string) => void
 }) {
   const model = useMemo(() => {
     const [year, monthNumber] = month.split('-').map(Number)
@@ -147,7 +153,7 @@ function DividendCalendar({ month, onMonthChange, today, positions, transactions
     const firstWeekday = new Date(year, monthNumber - 1, 1).getDay()
     const received: CalendarEvent[] = transactions
       .filter((txn) => txn.type === 'Dividend' && txn.date.slice(0, 7) === month)
-      .map((txn) => ({ symbol: normTicker(txn.symbol ?? '') || 'Unassigned', amount: txn.amount, date: txn.date, kind: /REINVEST|DRIP/i.test(txn.description) ? 'drip' : 'cash' }))
+      .map((txn) => ({ symbol: normTicker(txn.symbol ?? '') || 'Unassigned', amount: txn.amount, date: txn.date, kind: /REINVEST|DRIP/i.test(txn.description) ? 'drip' : 'cash', transactionId: txn.id }))
     const receivedBySymbol = new Map<string, number>()
     for (const event of received) receivedBySymbol.set(event.symbol, (receivedBySymbol.get(event.symbol) ?? 0) + event.amount)
 
@@ -215,7 +221,7 @@ function DividendCalendar({ month, onMonthChange, today, positions, transactions
       <div className="p-5"><div className="text-xs text-muted">Scheduled · not received</div><div className="num mt-1 text-2xl font-semibold text-[#e1c887]">{usd(model.scheduledTotal)}</div></div>
     </div>
     <div className="flex flex-wrap gap-4 px-5 py-3 text-[11px] text-muted"><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-pos"/>Cash received</span><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#5aa2ff]"/>DRIP received</span><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#c7a96b]"/>Scheduled</span></div>
-    <div className="overflow-x-auto px-3 pb-4 sm:px-5"><div className="min-w-[720px]"><div className="grid grid-cols-7 border-l border-t border-border-soft">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day) => <div key={day} className="border-b border-r border-border-soft bg-surface-2/40 px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-faint">{day}</div>)}</div><div className="grid grid-cols-7 border-l border-border-soft">{cells.map((day, index) => { const date = day ? `${month}-${String(day).padStart(2, '0')}` : ''; const events = date ? model.byDate.get(date) ?? [] : []; return <div key={index} className={clsx('min-h-28 border-b border-r border-border-soft p-2', date === today && 'bg-[#c7a96b]/[.04]')}><div className={clsx('text-xs', date === today ? 'font-bold text-brand' : 'text-muted')}>{day}</div><div className="mt-1 space-y-1">{events.map((event, eventIndex) => <div key={`${event.symbol}-${event.kind}-${eventIndex}`} title={`${event.symbol} · ${usd(event.amount)}`} className={clsx('truncate rounded-md border px-1.5 py-1 text-[10px]', eventTone[event.kind])}><span className="font-semibold">{event.symbol}</span> · {usd(event.amount)}</div>)}</div></div> })}</div></div></div>
+    <div className="overflow-x-auto px-3 pb-4 sm:px-5"><div className="min-w-[720px]"><div className="grid grid-cols-7 border-l border-t border-border-soft">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day) => <div key={day} className="border-b border-r border-border-soft bg-surface-2/40 px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-faint">{day}</div>)}</div><div className="grid grid-cols-7 border-l border-border-soft">{cells.map((day, index) => { const date = day ? `${month}-${String(day).padStart(2, '0')}` : ''; const events = date ? model.byDate.get(date) ?? [] : []; return <div key={index} className={clsx('min-h-28 border-b border-r border-border-soft p-2', date === today && 'bg-[#c7a96b]/[.04]')}><div className={clsx('text-xs', date === today ? 'font-bold text-brand' : 'text-muted')}>{day}</div><div className="mt-1 space-y-1">{events.map((event, eventIndex) => <button key={`${event.symbol}-${event.kind}-${eventIndex}`} onClick={() => event.transactionId && onSelect(event.transactionId)} disabled={!event.transactionId} title={`${event.symbol} · ${usd(event.amount)}${event.symbol === 'Unassigned' ? ' · click to assign' : ''}`} className={clsx('block w-full truncate rounded-md border px-1.5 py-1 text-left text-[10px]', eventTone[event.kind], event.transactionId && 'hover:brightness-125')}><span className="font-semibold">{event.symbol}</span> · {usd(event.amount)}</button>)}</div></div> })}</div></div></div>
     {model.pending.length > 0 && <div className="border-t border-border-soft p-5 sm:p-6"><h3 className="text-sm font-semibold">Scheduled this month — date pending</h3><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{model.pending.map((event) => <div key={event.symbol} className="flex items-center justify-between gap-3 rounded-lg border border-border-soft bg-surface-2/35 px-3 py-2 text-xs"><span><strong>{event.symbol}</strong><span className="ml-1 text-faint">· {event.cadence}</span></span><span className="num text-[#e1c887]">{usd(event.amount)} scheduled</span></div>)}</div></div>}
   </section>
 }

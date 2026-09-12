@@ -4,6 +4,7 @@ import { json } from './lib/schwab'
 type SharedPreferences = {
   bucketOverrides?: Record<string, string>
   tagRules?: unknown[]
+  symbolRules?: unknown[]
   targetAlloc?: Record<string, number>
   keepList?: string[]
   soldSymbols?: string[]
@@ -30,6 +31,10 @@ function clean(input: any): SharedPreferences {
       ...(['positive', 'negative', 'zero'].includes(rule.amountDirection) ? { amountDirection: rule.amountDirection } : {}),
       enabled: rule.enabled,
     })) : []
+  const symbolRules = Array.isArray(input?.symbolRules) ? input.symbolRules
+    .filter((rule: any) => rule && typeof rule.id === 'string' && typeof rule.contains === 'string' && typeof rule.symbol === 'string')
+    .slice(0, 500)
+    .map((rule: any) => ({ id: rule.id.slice(0, 80), contains: rule.contains.slice(0, 300), symbol: rule.symbol.replace(/[^A-Za-z0-9./-]/g, '').toUpperCase().slice(0, 20), ...(typeof rule.accountId === 'string' ? { accountId: rule.accountId.slice(0, 80) } : {}) })) : []
   const targetAlloc = Object.fromEntries(
     Object.entries(input?.targetAlloc ?? {})
       .filter(([, value]) => Number.isFinite(value) && Number(value) >= 0 && Number(value) <= 100)
@@ -41,6 +46,7 @@ function clean(input: any): SharedPreferences {
   return {
     bucketOverrides,
     tagRules,
+    symbolRules,
     targetAlloc,
     keepList: strings(input?.keepList, 2_000),
     soldSymbols: strings(input?.soldSymbols, 2_000),

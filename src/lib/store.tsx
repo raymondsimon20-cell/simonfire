@@ -12,7 +12,7 @@ import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
 import { loadSharedPreferences, saveSharedPreferences, type SharedPreferences } from './api'
-import { resolveDividendSymbols } from './dividend-symbol'
+import { dividendDescriptionKey, resolveDividendSymbols } from './dividend-symbol'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -103,7 +103,8 @@ function load(): AppData {
         }
         classifyKnownOthers(parsed)
         applyRulesTo(parsed)
-        resolveDividendSymbols(parsed.positions, parsed.transactions)
+        if (!parsed.symbolRules) parsed.symbolRules = []
+        resolveDividendSymbols(parsed.positions, parsed.transactions, parsed.symbolRules)
         return parsed
       }
     }
@@ -131,6 +132,7 @@ function sharedPreferences(data: AppData): SharedPreferences {
   return {
     bucketOverrides: data.bucketOverrides ?? {},
     tagRules: data.tagRules ?? [],
+    symbolRules: data.symbolRules ?? [],
     targetAlloc: data.targetAlloc,
     keepList: data.keepList ?? DEFAULT_KEEP,
     soldSymbols: data.soldSymbols ?? [],
@@ -140,6 +142,7 @@ function sharedPreferences(data: AppData): SharedPreferences {
 function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   data.bucketOverrides = preferences.bucketOverrides ?? {}
   data.tagRules = preferences.tagRules ?? []
+  data.symbolRules = preferences.symbolRules ?? []
   data.targetAlloc = preferences.targetAlloc
   data.keepList = preferences.keepList ?? DEFAULT_KEEP
   data.soldSymbols = preferences.soldSymbols ?? []
@@ -149,6 +152,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   const sold = new Set(data.soldSymbols)
   if (sold.size) data.positions = data.positions.filter((position) => !sold.has(soldKey(position.accountId, position.symbol)))
   applyRulesTo(data)
+  resolveDividendSymbols(data.positions, data.transactions, data.symbolRules)
 }
 
 const uid = () => 'x' + Math.random().toString(36).slice(2, 10)
@@ -159,6 +163,7 @@ interface StoreCtx {
   setScope: (id: string) => void
   addTransaction: (t: Omit<Transaction, 'id' | 'tags'> & { tags?: string[] }) => void
   updateTransaction: (id: string, patch: Partial<Transaction>) => void
+  assignTransactionSymbol: (id: string, symbol: string) => void
   deleteTransaction: (id: string) => void
   addTag: (id: string, tag: string) => void
   removeTag: (id: string, tag: string) => void
@@ -225,7 +230,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!sharedReady) return
     const timeout = window.setTimeout(() => { void saveSharedPreferences(sharedPreferences(data)) }, 350)
     return () => window.clearTimeout(timeout)
-  }, [data.bucketOverrides, data.tagRules, data.targetAlloc, data.keepList, data.soldSymbols, sharedReady])
+  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, sharedReady])
 
   const mutate = useCallback((fn: (d: AppData) => AppData) => {
     setData((prev) => fn(structuredClone(prev)))
@@ -267,6 +272,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return d
       })
     },
+    [mutate],
+  )
+
+  const assignTransactionSymbol: StoreCtx['assignTransactionSymbol'] = useCallback(
+    (id, rawSymbol) => mutate((d) => {
+      const transaction = d.transactions.find((item) => item.id === id)
+      const symbol = rawSymbol.trim().toUpperCase()
+      if (!transaction || !symbol) return d
+      transaction.symbol = symbol
+      const contains = dividendDescriptionKey(transaction.description)
+      if (contains) {
+        d.symbolRules = (d.symbolRules ?? []).filter((rule) => !(rule.accountId === transaction.accountId && rule.contains === contains))
+        d.symbolRules.push({ id: uid(), contains, symbol, accountId: transaction.accountId })
+        resolveDividendSymbols(d.positions, d.transactions, d.symbolRules)
+      }
+      return d
+    }),
     [mutate],
   )
 
@@ -396,7 +418,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Classify known Schwab descriptions, then let user rules take precedence.
         classifyKnownOthers(d)
         applyRulesTo(d)
-        resolveDividendSymbols(d.positions, d.transactions)
+        resolveDividendSymbols(d.positions, d.transactions, d.symbolRules)
         // Reflect the import as a connection so the Connections page shows it.
         const broker = result.broker || 'Schwab'
         d.connections = [
@@ -553,6 +575,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setScope,
       addTransaction,
       updateTransaction,
+      assignTransactionSymbol,
       deleteTransaction,
       addTag,
       removeTag,
@@ -580,6 +603,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       scope,
       addTransaction,
       updateTransaction,
+      assignTransactionSymbol,
       deleteTransaction,
       addTag,
       removeTag,

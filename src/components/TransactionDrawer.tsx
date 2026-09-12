@@ -113,6 +113,17 @@ function CategoryEditor({ txn }: { txn: Transaction }) {
   )
 }
 
+function SymbolEditor({ txn }: { txn: Transaction }) {
+  const { data, assignTransactionSymbol } = useStore()
+  const choices = useMemo(() => [...new Set([
+    ...data.positions.filter((position) => !position.isOption).map((position) => position.symbol),
+    ...data.transactions.map((transaction) => transaction.symbol).filter((symbol): symbol is string => !!symbol),
+  ])].sort(), [data.positions, data.transactions])
+  const [value, setValue] = useState(txn.symbol ?? '')
+  useEffect(() => setValue(txn.symbol ?? ''), [txn.id, txn.symbol])
+  return <label className="mt-3 block text-xs text-muted"><span>Dividend symbol</span><div className="mt-1 flex gap-2"><input list="dividend-symbols" value={value} onChange={(event) => setValue(event.target.value.toUpperCase())} placeholder="Ticker" className="min-w-0 flex-1 rounded-xl border border-border bg-surface-2 px-3 py-2.5 font-mono text-sm text-ink outline-none"/><datalist id="dividend-symbols">{choices.map((symbol) => <option key={symbol} value={symbol}/>)}</datalist><button onClick={() => value && assignTransactionSymbol(txn.id, value)} disabled={!value || value === txn.symbol} className="rounded-xl border border-border px-3 text-xs font-medium text-brand disabled:opacity-40">Save</button></div><span className="mt-1 block text-faint">Saved for matching payments on future syncs and other devices.</span></label>
+}
+
 export function TransactionDrawer({
   txn,
   onClose,
@@ -181,6 +192,7 @@ export function TransactionDrawer({
                 <span className="h-1.5 w-1.5 rounded-full bg-[#c7a96b]" />
                 {txn.classificationSource === 'rule' ? 'Classified by your saved rule · persists after sync' : txn.classificationSource === 'automatic' ? 'Automatically classified from Schwab details' : txn.classificationSource === 'manual' ? 'Manually classified' : 'Category supplied by Schwab · review if needed'}
               </div>
+              {txn.type === 'Dividend' && <SymbolEditor txn={txn} />}
             </div>
 
             <div className="mb-3 mt-7 text-sm font-semibold text-muted">Financials</div>

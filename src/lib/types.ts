@@ -117,11 +117,19 @@ export interface AppData {
   bucketOverrides?: Record<string, 'Growth' | 'CEFs' | 'High Yield' | 'Leveraged'>
   // Auto-tagging rules applied to existing + future transactions.
   tagRules?: TagRule[]
+  symbolRules?: SymbolRule[]
   // Daily portfolio value series for time-weighted return (built at sync time).
   twr?: TwrSeries
   // Moving-average (50/100/200 SMA) snapshot per holding, for rebalance insights.
   insights?: Insights
   hedgeRolls?: HedgeRoll[]
+}
+
+export interface SymbolRule {
+  id: string
+  contains: string
+  symbol: string
+  accountId?: string
 }
 
 export interface HedgeRoll {

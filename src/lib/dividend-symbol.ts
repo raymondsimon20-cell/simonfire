@@ -1,7 +1,7 @@
-import type { Position, Transaction } from './types'
+import type { Position, SymbolRule, Transaction } from './types'
 import { normTicker } from './plan'
 
-const descriptionKey = (value: string) => value
+export const dividendDescriptionKey = (value: string) => value
   .toUpperCase()
   .replace(/\b(?:QUALIFIED|NON[- ]?QUALIFIED|CASH|SPECIAL|SHORT TERM|LONG TERM|REINVEST(?:ED)?)\b/g, ' ')
   .replace(/\bDIVIDEND(?:S)?\b|\bDISTRIBUTION(?:S)?\b|\bPAYMENT\b/g, ' ')
@@ -19,7 +19,7 @@ const nameKey = (value: string) => value
 
 // Mutates only missing dividend symbols. Every inference must be unique within
 // the account; uncertain rows deliberately remain unassigned for manual review.
-export function resolveDividendSymbols(positions: Position[], transactions: Transaction[]) {
+export function resolveDividendSymbols(positions: Position[], transactions: Transaction[], rules: SymbolRule[] = []) {
   const holdingsByAccount = new Map<string, Position[]>()
   for (const position of positions) {
     if (position.isOption || !position.symbol) continue
@@ -31,7 +31,7 @@ export function resolveDividendSymbols(positions: Position[], transactions: Tran
   const learned = new Map<string, Set<string>>()
   for (const transaction of transactions) {
     if (transaction.type !== 'Dividend' || !transaction.symbol) continue
-    const key = `${transaction.accountId}|${descriptionKey(transaction.description)}`
+    const key = `${transaction.accountId}|${dividendDescriptionKey(transaction.description)}`
     const symbols = learned.get(key) ?? new Set<string>()
     symbols.add(transaction.symbol)
     learned.set(key, symbols)
@@ -41,7 +41,10 @@ export function resolveDividendSymbols(positions: Position[], transactions: Tran
   for (const transaction of transactions) {
     if (transaction.type !== 'Dividend' || transaction.symbol) continue
     const holdings = holdingsByAccount.get(transaction.accountId) ?? []
-    const learnedSymbols = learned.get(`${transaction.accountId}|${descriptionKey(transaction.description)}`)
+    const description = dividendDescriptionKey(transaction.description)
+    const saved = [...rules].reverse().find((rule) => (!rule.accountId || rule.accountId === transaction.accountId) && description.includes(rule.contains))
+    if (saved) transaction.symbol = saved.symbol
+    const learnedSymbols = learned.get(`${transaction.accountId}|${description}`)
     if (learnedSymbols?.size === 1) transaction.symbol = [...learnedSymbols][0]
 
     if (!transaction.symbol) {

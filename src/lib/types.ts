@@ -187,6 +187,9 @@ export interface HedgeRoll {
   closeOrderId?: string
   closeOrderStatus?: string
   closePlacedAt?: string
+  closeCostBasis?: number
+  closeEstimatedValue?: number
+  closeEstimatedPL?: number
 }
 
 export interface SmaSnapshot {

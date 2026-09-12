@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { Target, Wand2, Eraser, Percent, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList, ShieldCheck, LoaderCircle, ListChecks, CircleAlert, Lock, Unlock, Scale, SlidersHorizontal, Eye, ShoppingCart, ChevronRight } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
@@ -13,6 +13,7 @@ import { marginCapacity, type MarginCapacity } from '../lib/margin'
 import clsx from 'clsx'
 import type { Account, HedgeRoll, Position } from '../lib/types'
 import { buildPutCloseOrder, buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, putRollTiming, rankProtectivePut, recommendPutRoll } from '../lib/hedge'
+import { usePersistentState } from '../lib/persistent-state'
 
 const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<string, number> => {
   const out: Record<string, number> = {}
@@ -576,20 +577,28 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
   const [confirmRoll, setConfirmRoll] = useState<HedgeRoll | null>(null)
   const [confirmationText, setConfirmationText] = useState('')
   const [placing, setPlacing] = useState(false)
-  const [rollSource, setRollSource] = useState<{ optionSymbol: string; contracts: number; limitCredit: number; accountId: string; replacementSymbol: string; estimatedNetDebit: number } | null>(null)
+  const [rollSource, setRollSource] = useState<{ optionSymbol: string; contracts: number; limitCredit: number; accountId: string; replacementSymbol: string; estimatedNetDebit: number; currentStrike: number; currentExpiration: string; currentValue: number; currentCost: number; currentPL: number; replacementStrike: number; replacementExpiration: string; replacementAsk: number; replacementValue: number; reasons: string[] } | null>(null)
   const [recommending, setRecommending] = useState<string | null>(null)
   const [rollError, setRollError] = useState('')
   const [putChecks, setPutChecks] = useState<Record<string, { bid: number; ask: number; mark: number; value: number; dte: number; rollBy: string; recommendation: 'ROLL' | 'HOLD'; reason: string; checkedAt: string }>>({})
+  const [rollWindowDays, setRollWindowDays] = usePersistentState('simonfire.put-roll-window', 60)
+  const autoChecked = useRef(false)
+  const [quoteClock, setQuoteClock] = useState(() => Date.now())
   useEffect(() => {
     const receive = (event: Event) => setPlan((event as CustomEvent<HedgePlanSnapshot>).detail)
     window.addEventListener('simonfire:hedge-plan', receive)
     return () => window.removeEventListener('simonfire:hedge-plan', receive)
   }, [])
-  const queued = data.hedgeRolls ?? []
+  const allRolls = data.hedgeRolls ?? []
+  const openRolls = allRolls.filter((roll) => !['closed', 'rolled'].includes(roll.status))
+  const rollKey = (roll: HedgeRoll) => `${roll.accountId}|${roll.closeOptionSymbol ?? ''}|${roll.optionSymbol ?? ''}`
+  const queued = openRolls.filter((roll, index, rows) => rows.findIndex((candidate) => rollKey(candidate) === rollKey(roll)) === index)
+  const duplicateRolls = openRolls.filter((roll, index, rows) => rows.findIndex((candidate) => rollKey(candidate) === rollKey(roll)) !== index)
+  const completedRolls = allRolls.filter((roll) => ['closed', 'rolled'].includes(roll.status))
   const livePuts = positions.filter((p) => p.isOption && p.optionType === 'Put' && p.shares > 0)
   useEffect(() => { if (!accounts.some((account) => account.id === orderAccount)) setOrderAccount(accounts[0]?.id ?? '') }, [accounts, orderAccount])
-  const add = () => { if (!plan || !plan.contracts || !plan.expiration || !plan.optionSymbol || !orderAccount) return; const { ticket: _ticket, ...roll } = plan; const close = rollSource?.replacementSymbol === plan.optionSymbol && rollSource.accountId === orderAccount ? { closeOptionSymbol: rollSource.optionSymbol, closeContracts: rollSource.contracts, closeLimitCredit: rollSource.limitCredit, closePreviewState: 'not_previewed' as const } : {}; addHedgeRoll({ ...roll, ...close, accountId: orderAccount, previewState: 'not_previewed', status: 'queued', source: 'planning' }); setRollSource(null) }
-  const startRoll = async (position: Position) => {
+  const add = () => { if (!plan || !plan.contracts || !plan.expiration || !plan.optionSymbol || !orderAccount) return; const { ticket: _ticket, ...roll } = plan; const close = rollSource?.replacementSymbol === plan.optionSymbol && rollSource.accountId === orderAccount ? { closeOptionSymbol: rollSource.optionSymbol, closeContracts: rollSource.contracts, closeLimitCredit: rollSource.limitCredit, closePreviewState: 'not_previewed' as const, closeCostBasis: rollSource.currentCost, closeEstimatedValue: rollSource.currentValue, closeEstimatedPL: rollSource.currentPL } : {}; addHedgeRoll({ ...roll, ...close, accountId: orderAccount, previewState: 'not_previewed', status: 'queued', source: 'planning' }); setRollSource(null) }
+  const startRoll = async (position: Position, prepareReplacement = true) => {
     const underlying = normTicker(position.underlying ?? '')
     if ((underlying !== 'QQQ' && underlying !== 'SPY') || !position.accountId) return
     const heldOptionSymbol = optionSymbolForPosition(position)
@@ -603,21 +612,31 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
     const current = (result.contracts ?? []).find((quote) => key(quote.symbol) === key(heldOptionSymbol))
     if (!current) { setRollError('Schwab did not return a quote for the held contract. Confirm that it is still active and try again.'); return }
     const dte = current.daysToExpiration ?? Math.max(0, Math.ceil((new Date(`${current.expiration}T00:00:00`).getTime() - Date.now()) / 86_400_000))
-    const rollByDate = new Date(`${current.expiration}T00:00:00`); rollByDate.setDate(rollByDate.getDate() - 60)
+    const rollByDate = new Date(`${current.expiration}T00:00:00`); rollByDate.setDate(rollByDate.getDate() - rollWindowDays)
     const mark = current.mark ?? ((current.bid ?? 0) + (current.ask ?? 0)) / 2
-    const shouldRoll = putRollTiming(dte).recommendation === 'ROLL'
-    setPutChecks((checks) => ({ ...checks, [position.id]: { bid: current.bid ?? 0, ask: current.ask ?? 0, mark, value: mark * 100 * Math.trunc(position.shares), dte, rollBy: rollByDate.toISOString().slice(0, 10), recommendation: shouldRoll ? 'ROLL' : 'HOLD', reason: shouldRoll ? `The put has ${dte} days remaining, inside the 60-day roll window.` : `The put has ${dte} days remaining. Hold it until about ${shortDate(rollByDate.toISOString().slice(0, 10))}.`, checkedAt: new Date().toISOString() } }))
-    if (!shouldRoll) { setRollSource(null); return }
+    const shouldRoll = putRollTiming(dte, rollWindowDays).recommendation === 'ROLL'
+    setPutChecks((checks) => ({ ...checks, [position.id]: { bid: current.bid ?? 0, ask: current.ask ?? 0, mark, value: mark * 100 * Math.trunc(position.shares), dte, rollBy: rollByDate.toISOString().slice(0, 10), recommendation: shouldRoll ? 'ROLL' : 'HOLD', reason: shouldRoll ? `The put has ${dte} days remaining, inside your ${rollWindowDays}-day roll window.` : `The put has ${dte} days remaining. Hold it until about ${shortDate(rollByDate.toISOString().slice(0, 10))}.`, checkedAt: new Date().toISOString() } }))
+    if (!shouldRoll || !prepareReplacement) { setRollSource(null); return }
     if ((current.bid ?? 0) <= 0) { setRollError('Schwab returned no executable bid for the held put, so a safe close limit cannot be prepared. Check the contract during market hours.'); return }
     const eligibleReplacements = (result.contracts ?? []).filter((quote) => key(quote.symbol) !== key(heldOptionSymbol) && quote.expiration > current.expiration && (quote.daysToExpiration ?? 0) >= 30 && (quote.daysToExpiration ?? 0) <= 240 && (quote.ask ?? 0) > 0)
     if (!eligibleReplacements.length) { setRollError(`Schwab returned no later-dated replacement puts with a valid ask through ${to.toISOString().slice(0, 10)}. The current hedge should not be rolled backward.`); return }
     const recommendation = recommendPutRoll(current, result.contracts ?? [], result.underlyingPrice ?? 0, Math.trunc(position.shares), 60)
     if (!recommendation) { setRollError('A roll ticket could not be built from the current Schwab quotes. Refresh the chain and try again.'); return }
     setOrderAccount(position.accountId)
-    setRollSource({ optionSymbol: current.symbol, contracts: Math.trunc(position.shares), limitCredit: recommendation.closeCredit, accountId: position.accountId, replacementSymbol: recommendation.quote.symbol, estimatedNetDebit: recommendation.estimatedNetDebit })
+    const contracts = Math.trunc(position.shares); const currentValue = mark * 100 * contracts; const currentCost = position.avgCost * contracts
+    const currentFloor = current.strike - position.avgCost / 100; const replacementFloor = recommendation.quote.strike - recommendation.openDebit
+    setRollSource({ optionSymbol: current.symbol, contracts, limitCredit: recommendation.closeCredit, accountId: position.accountId, replacementSymbol: recommendation.quote.symbol, estimatedNetDebit: recommendation.estimatedNetDebit, currentStrike: current.strike, currentExpiration: current.expiration, currentValue, currentCost, currentPL: currentValue - currentCost, replacementStrike: recommendation.quote.strike, replacementExpiration: recommendation.quote.expiration, replacementAsk: recommendation.openDebit, replacementValue: recommendation.openDebit * 100 * contracts, reasons: [...recommendation.fit.reasons, `effective floor ${usd(currentFloor)} → ${usd(replacementFloor)}`] })
     window.dispatchEvent(new CustomEvent('simonfire:put-quote', { detail: { symbol: underlying, optionSymbol: recommendation.quote.symbol, underlyingPrice: result.underlyingPrice, strike: recommendation.quote.strike, expiration: recommendation.quote.expiration, premium: recommendation.openDebit } }))
     document.getElementById('protective-put-inputs')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
+  // Run once when the protective-put workspace opens; manual refresh remains available.
+  // oxlint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (autoChecked.current || !livePuts.length) return
+    autoChecked.current = true
+    void Promise.all(livePuts.map((put) => startRoll(put, false)))
+  }, [])
+  useEffect(() => { const timer = window.setInterval(() => setQuoteClock(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
   const preview = async (roll: HedgeRoll) => {
     const order = buildPutPreviewOrder(roll.optionSymbol ?? '', roll.contracts, roll.premiumPerShare)
     if (!order || !roll.accountId) {
@@ -710,7 +729,8 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
   const confirmTotal = (confirmContracts ?? 0) * (confirmLimit ?? 0) * 100
   const statusStyle: Record<HedgeRoll['status'], string> = { queued: 'bg-[#c7a96b]/10 text-[#d8bd7a]', active: 'bg-pos/10 text-pos', rolled: 'bg-[#10233f] text-[#5aa2ff]', closed: 'bg-surface-2 text-muted' }
   return <div className="space-y-4">
-    {!!livePuts.length && <div className="grid gap-3 lg:grid-cols-2">{livePuts.map((put) => <CurrentPutCard key={put.id} put={put} account={accounts.find((account) => account.id === put.accountId)} check={putChecks[put.id]} checking={recommending === put.id} onCheck={() => startRoll(put)}/>)}</div>}
+    <div className="card p-5"><div className="flex flex-wrap items-center justify-between gap-4"><div><h3 className="font-semibold">Your protective-put plan</h3><p className="mt-1 text-xs text-faint">Check the hedge, act only when needed, then preview every order before submission.</p></div><label className="text-xs text-muted">Roll when expiration is within <span className="ml-2 inline-flex items-center rounded-lg border border-border bg-surface-2 px-2"><input type="number" min="7" max="120" value={rollWindowDays} onChange={(event) => setRollWindowDays(Math.max(7, Math.min(120, Number(event.target.value) || 60)))} className="num w-12 bg-transparent py-1.5 text-right text-ink outline-none"/><span className="ml-1">days</span></span></label></div><RollWorkflow rolls={queued} checked={Object.keys(putChecks).length > 0}/></div>
+    {!!livePuts.length && <div className="grid gap-3 lg:grid-cols-2">{livePuts.map((put) => <CurrentPutCard key={put.id} put={put} account={accounts.find((account) => account.id === put.accountId)} check={putChecks[put.id]} checking={recommending === put.id} now={quoteClock} rollWindowDays={rollWindowDays} onCheck={() => startRoll(put)}/>)}</div>}
     <div className="card p-5">
       <div className="flex flex-wrap items-end gap-3">
         <ListChecks size={19} className="mb-2 text-brand"/>
@@ -720,6 +740,7 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
       </div>
       {plan && <div className="mt-4 rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="num text-sm">{plan.ticket}</div><div className="mt-2 text-xs text-faint">Gross debit {usd(plan.grossPremium)} · roll by {shortDate(plan.rollDate)} · {plan.optionSymbol ? `contract ${plan.optionSymbol}` : 'select a live quote to capture the contract symbol'}</div></div>}
       {rollSource && <div className="mt-3 rounded-xl border border-[#c7a96b]/30 bg-[#c7a96b]/5 p-4 text-xs"><div className="font-semibold text-[#d8bd7a]">Roll recommendation loaded</div><div className="mt-1 text-muted">Sell to close {rollSource.contracts} × {rollSource.optionSymbol} at ${rollSource.limitCredit.toFixed(2)} credit, then buy the selected replacement. Estimated net roll {rollSource.estimatedNetDebit >= 0 ? 'debit' : 'credit'}: <span className="num">{usd(Math.abs(rollSource.estimatedNetDebit))}</span>.</div></div>}
+      {rollSource && <RollComparison source={rollSource}/>}
       {rollError && <div className="mt-3 rounded-lg border border-neg/30 bg-neg/10 p-3 text-xs text-neg">{rollError}</div>}
     </div>
     <div className="card overflow-x-auto p-0">
@@ -732,6 +753,8 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
         </tbody>
       </table>
     </div>
+    {!!completedRolls.length && <CompletedRollHistory rolls={completedRolls} accounts={accounts}/>}
+    {!!duplicateRolls.length && <details className="card p-0"><summary className="cursor-pointer p-5 text-sm font-semibold">Hidden duplicate roll records ({duplicateRolls.length})</summary><div className="border-t border-border-soft p-4 text-xs text-muted">These duplicate planning records are excluded from the active workflow. Remove them from the tracker after confirming they are not distinct Schwab orders.</div></details>}
     <Modal
       open={!!confirmRoll}
       onClose={() => !placing && setConfirmRoll(null)}
@@ -757,9 +780,26 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
   </div>
 }
 
-function CurrentPutCard({ put, account, check, checking, onCheck }: { put: Position; account?: Account; check?: { bid: number; ask: number; mark: number; value: number; dte: number; rollBy: string; recommendation: 'ROLL' | 'HOLD'; reason: string; checkedAt: string }; checking: boolean; onCheck: () => void }) {
+function CurrentPutCard({ put, account, check, checking, now, rollWindowDays, onCheck }: { put: Position; account?: Account; check?: { bid: number; ask: number; mark: number; value: number; dte: number; rollBy: string; recommendation: 'ROLL' | 'HOLD'; reason: string; checkedAt: string }; checking: boolean; now: number; rollWindowDays: number; onCheck: () => void }) {
   const brokerValue = put.shares * put.lastPrice
-  return <section className="card p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-faint">Current protective put</div><h3 className="mt-1 text-lg font-semibold">{put.underlying ?? put.symbol} ${put.strike?.toFixed(2) ?? '—'} put</h3><div className="mt-1 font-mono text-[10px] text-faint">{optionSymbolForPosition(put) || put.symbol} · {account?.name ?? put.accountId}</div></div>{check ? <span className={clsx('rounded-full px-3 py-1 text-xs font-semibold', check.recommendation === 'ROLL' ? 'bg-[#c7a96b]/15 text-[#e1c887]' : 'bg-pos/10 text-pos')}>{check.recommendation === 'ROLL' ? 'Roll recommended' : 'Hold — no roll yet'}</span> : <span className="rounded-full bg-surface-2 px-3 py-1 text-xs text-muted">Needs live check</span>}</div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4"><SummaryMetric label="Current put value" value={usd(check?.value ?? brokerValue)}/><SummaryMetric label="Live mark / share" value={check ? usd(check.mark) : 'Refresh quote'}/><SummaryMetric label="Bid / ask" value={check ? `${usd(check.bid)} / ${usd(check.ask)}` : 'Refresh quote'}/><SummaryMetric label="Time remaining" value={check ? `${check.dte} DTE` : put.expiration ? shortDate(put.expiration) : 'Unknown'}/></div>{check && <div className={clsx('mt-4 rounded-xl border p-3 text-xs leading-5', check.recommendation === 'ROLL' ? 'border-[#c7a96b]/25 bg-[#c7a96b]/5 text-[#e1c887]' : 'border-pos/20 bg-pos/5 text-muted')}><strong className={check.recommendation === 'ROLL' ? 'text-[#e1c887]' : 'text-pos'}>{check.recommendation === 'ROLL' ? 'Why roll:' : 'Why hold:'}</strong> {check.reason}<div className="mt-1 text-[10px] text-faint">Value uses the live mark. Estimated immediate sale proceeds use the bid: {usd(check.bid * 100 * Math.trunc(put.shares))}. Quotes checked {new Date(check.checkedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.</div></div>}<div className="mt-4 flex items-center justify-between gap-3"><p className="text-[10px] text-faint">Rule: recommend rolling at 60 days to expiration or less.</p><Button onClick={onCheck} disabled={checking || !['QQQ', 'SPY'].includes(normTicker(put.underlying ?? ''))}>{checking ? <><LoaderCircle size={14} className="animate-spin"/> Checking Schwab…</> : check ? 'Refresh value & decision' : 'Check value & roll decision'}</Button></div></section>
+  const cost = put.avgCost * put.shares; const pnl = (check?.value ?? brokerValue) - cost; const stale = !!check && now - new Date(check.checkedAt).getTime() > 5 * 60_000
+  return <section className="card p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-[10px] font-semibold uppercase tracking-[.14em] text-faint">Current protective put</div><h3 className="mt-1 text-lg font-semibold">{put.underlying ?? put.symbol} ${put.strike?.toFixed(2) ?? '—'} put</h3><div className="mt-1 font-mono text-[10px] text-faint">{optionSymbolForPosition(put) || put.symbol} · {account?.name ?? put.accountId}</div></div>{check ? <span className={clsx('rounded-full px-3 py-1 text-xs font-semibold', check.recommendation === 'ROLL' ? 'bg-[#c7a96b]/15 text-[#e1c887]' : 'bg-pos/10 text-pos')}>{check.recommendation === 'ROLL' ? 'Roll recommended' : 'Hold — no roll yet'}</span> : <span className="rounded-full bg-surface-2 px-3 py-1 text-xs text-muted">Checking live quote…</span>}</div>{stale && <div className="mt-3 rounded-lg border border-[#c7a96b]/25 bg-[#c7a96b]/5 px-3 py-2 text-xs text-[#e1c887]">Quote is over five minutes old. Refresh before making a decision.</div>}<div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4"><SummaryMetric label="Market value" value={usd(check?.value ?? brokerValue)}/><SummaryMetric label="Original cost" value={usd(cost)}/><SummaryMetric label="Unrealized P/L" value={usd(pnl, { sign: true })} tone={pnl < 0 ? 'warn' : undefined}/><SummaryMetric label="Bid liquidation value" value={check ? usd(check.bid * 100 * Math.trunc(put.shares)) : 'Refreshing'}/><SummaryMetric label="Live mark / share" value={check ? usd(check.mark) : 'Refreshing'}/><SummaryMetric label="Bid / ask" value={check ? `${usd(check.bid)} / ${usd(check.ask)}` : 'Refreshing'}/><SummaryMetric label="Expiration" value={put.expiration ? shortDate(put.expiration) : 'Unknown'}/><SummaryMetric label="Time remaining" value={check ? `${check.dte} DTE` : 'Refreshing'}/></div>{check && <div className={clsx('mt-4 rounded-xl border p-3 text-xs leading-5', check.recommendation === 'ROLL' ? 'border-[#c7a96b]/25 bg-[#c7a96b]/5 text-[#e1c887]' : 'border-pos/20 bg-pos/5 text-muted')}><strong className={check.recommendation === 'ROLL' ? 'text-[#e1c887]' : 'text-pos'}>{check.recommendation === 'ROLL' ? 'Why roll:' : 'Why hold:'}</strong> {check.reason}<div className="mt-1 text-[10px] text-faint">Decision is based on your {rollWindowDays}-day timing rule. Liquidity and replacement quality are checked before a ticket is prepared. Quote checked {new Date(check.checkedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.</div></div>}<div className="mt-4 flex justify-end"><Button onClick={onCheck} disabled={checking || !['QQQ', 'SPY'].includes(normTicker(put.underlying ?? ''))}>{checking ? <><LoaderCircle size={14} className="animate-spin"/> Checking Schwab…</> : check?.recommendation === 'ROLL' ? 'Find best replacement' : 'Refresh value & decision'}</Button></div></section>
+}
+
+function RollWorkflow({ rolls, checked }: { rolls: HedgeRoll[]; checked: boolean }) {
+  const roll = rolls[0]; const complete = [checked, !!roll, !!roll?.previewedAt, !!roll?.closeOrderId, roll?.closeOrderStatus === 'FILLED', !!roll?.orderId]
+  const labels = ['Check', 'Review', 'Preview', 'Close', 'Confirm fill', 'Buy replacement']
+  return <div className="mt-5 grid grid-cols-3 gap-2 sm:grid-cols-6">{labels.map((label, index) => <div key={label} className={clsx('rounded-lg border px-2 py-2 text-center text-[10px]', complete[index] ? 'border-pos/20 bg-pos/5 text-pos' : index === complete.findIndex((done) => !done) ? 'border-[#c7a96b]/30 bg-[#c7a96b]/5 text-[#e1c887]' : 'border-border-soft text-faint')}><span className="block font-bold">{index + 1}</span>{label}</div>)}</div>
+}
+
+function RollComparison({ source }: { source: { currentStrike: number; currentExpiration: string; currentValue: number; currentCost: number; currentPL: number; replacementStrike: number; replacementExpiration: string; replacementAsk: number; replacementValue: number; estimatedNetDebit: number; reasons: string[] } }) {
+  return <div className="mt-3 rounded-xl border border-border-soft p-4"><div className="text-xs font-semibold">Current put vs recommended replacement</div><div className="mt-3 grid gap-3 sm:grid-cols-2"><div className="rounded-lg bg-surface-2/50 p-3"><div className="text-[10px] uppercase tracking-wider text-faint">Sell current</div><div className="mt-2 grid grid-cols-2 gap-2 text-xs"><span className="text-muted">Strike</span><span className="num text-right">{usd(source.currentStrike)}</span><span className="text-muted">Expiration</span><span className="text-right">{shortDate(source.currentExpiration)}</span><span className="text-muted">Market value</span><span className="num text-right">{usd(source.currentValue)}</span><span className="text-muted">Unrealized P/L</span><span className={clsx('num text-right', source.currentPL >= 0 ? 'text-pos' : 'text-neg')}>{usd(source.currentPL, { sign: true })}</span></div></div><div className="rounded-lg bg-surface-2/50 p-3"><div className="text-[10px] uppercase tracking-wider text-faint">Buy replacement</div><div className="mt-2 grid grid-cols-2 gap-2 text-xs"><span className="text-muted">Strike</span><span className="num text-right">{usd(source.replacementStrike)}</span><span className="text-muted">Expiration</span><span className="text-right">{shortDate(source.replacementExpiration)}</span><span className="text-muted">Ask / share</span><span className="num text-right">{usd(source.replacementAsk)}</span><span className="text-muted">Gross debit</span><span className="num text-right">{usd(source.replacementValue)}</span></div></div></div><div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="text-faint">{source.reasons.join(' · ')}</span><strong className={source.estimatedNetDebit > 0 ? 'text-neg' : 'text-pos'}>Estimated net {source.estimatedNetDebit >= 0 ? 'debit' : 'credit'} {usd(Math.abs(source.estimatedNetDebit))}</strong></div></div>
+}
+
+function CompletedRollHistory({ rolls, accounts }: { rolls: HedgeRoll[]; accounts: Account[] }) {
+  const total = rolls.reduce((sum, roll) => sum + (roll.closeEstimatedPL ?? 0), 0)
+  const cost = rolls.reduce((sum, roll) => sum + roll.grossPremium - (roll.closeLimitCredit ?? 0) * 100 * (roll.closeContracts ?? 0), 0)
+  return <details className="card p-0"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5"><div><h3 className="font-semibold">Completed roll history</h3><p className="mt-1 text-xs text-faint">{rolls.length} completed · estimated put P/L <span className={total >= 0 ? 'text-pos' : 'text-neg'}>{usd(total, { sign: true })}</span> · cumulative net hedge cost {usd(cost)}</p></div><ChevronRight size={17} className="text-faint"/></summary><div className="border-t border-border-soft p-4"><div className="space-y-2">{rolls.map((roll) => <div key={roll.id} className="grid gap-2 rounded-lg bg-surface-2/40 p-3 text-xs sm:grid-cols-[1fr_auto_auto]"><div><strong>{roll.proxy} ${roll.strike.toFixed(2)} put</strong><div className="mt-1 text-faint">{accounts.find((account) => account.id === roll.accountId)?.name ?? roll.accountId} · {shortDate(roll.expiration)} · {roll.status}</div></div><div className="num sm:text-right"><span className="text-faint">Net hedge cost</span><div>{usd(roll.grossPremium - (roll.closeLimitCredit ?? 0) * 100 * (roll.closeContracts ?? 0))}</div></div><div className="num sm:text-right"><span className="text-faint">Put P/L</span><div className={(roll.closeEstimatedPL ?? 0) >= 0 ? 'text-pos' : 'text-neg'}>{roll.closeEstimatedPL == null ? 'Unavailable' : `${usd(roll.closeEstimatedPL, { sign: true })} est.`}</div></div></div>)}</div><p className="mt-3 text-[10px] text-faint">P/L is estimated from recorded cost basis and the close limit because Schwab’s current order-status response does not include an execution price. Confirm against brokerage records for tax reporting.</p></div></details>
 }
 
 export function ProtectivePutTutorial() {

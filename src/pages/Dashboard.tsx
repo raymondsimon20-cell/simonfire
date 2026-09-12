@@ -29,6 +29,7 @@ import { BucketBadge } from '../components/HoldingCell'
 import { bucketOf } from '../lib/buckets'
 import { BUCKETS, BUCKET_COLOR } from '../lib/buckets'
 import { useToast } from '../components/Toast'
+import { PlanHealth } from '../components/PlanHealth'
 
 export default function Dashboard() {
   const { data, applyImport, syncAll } = useStore()
@@ -85,6 +86,7 @@ export default function Dashboard() {
 
   return (
     <div>
+      <PlanHealth />
       <PortfolioHero net={s.net} gross={s.gross} dayChange={s.dayChange} dayPct={s.dayChangePct} series={(scope === 'all' ? data.twr?.all : data.twr?.byAccount[scope]) ?? []} lastSyncAt={lastSyncAt} />
 
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">

@@ -124,6 +124,15 @@ export interface AppData {
   // Moving-average (50/100/200 SMA) snapshot per holding, for rebalance insights.
   insights?: Insights
   hedgeRolls?: HedgeRoll[]
+  incomePlan?: IncomePlan
+}
+
+export interface IncomePlan {
+  annualW2Target: number
+  monthlySpending: number
+  estimatedTaxRate: number // 0–100
+  distributionCutPct: number // 0–100 stress-test reduction
+  cashReserveMonths: number
 }
 
 export interface SymbolRule {

@@ -46,7 +46,7 @@ function Logo() {
 }
 
 const NAV = [
-  { to: '/', label: 'Overview', end: true, icon: LayoutDashboard },
+  { to: '/', label: 'Today', end: true, icon: LayoutDashboard },
   { to: '/positions', label: 'Positions', icon: ChartNoAxesCombined },
   { to: '/history', label: 'Historical Value', icon: History },
   { to: '/transactions', label: 'Transactions', icon: ReceiptText },

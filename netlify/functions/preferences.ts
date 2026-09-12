@@ -8,6 +8,13 @@ type SharedPreferences = {
   targetAlloc?: Record<string, number>
   keepList?: string[]
   soldSymbols?: string[]
+  incomePlan?: {
+    annualW2Target: number
+    monthlySpending: number
+    estimatedTaxRate: number
+    distributionCutPct: number
+    cashReserveMonths: number
+  }
 }
 
 const store = () => getStore('simonfire')
@@ -43,6 +50,18 @@ function clean(input: any): SharedPreferences {
   const strings = (value: unknown, limit: number) => Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string' && item.length <= 160).slice(0, limit)
     : []
+  const numberIn = (value: unknown, min: number, max: number, fallback: number) => {
+    const number = Number(value)
+    return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback
+  }
+  const rawPlan = input?.incomePlan
+  const incomePlan = rawPlan && typeof rawPlan === 'object' ? {
+    annualW2Target: numberIn(rawPlan.annualW2Target, 0, 10_000_000, 0),
+    monthlySpending: numberIn(rawPlan.monthlySpending, 0, 1_000_000, 0),
+    estimatedTaxRate: numberIn(rawPlan.estimatedTaxRate, 0, 60, 20),
+    distributionCutPct: numberIn(rawPlan.distributionCutPct, 0, 100, 20),
+    cashReserveMonths: numberIn(rawPlan.cashReserveMonths, 0, 60, 6),
+  } : undefined
   return {
     bucketOverrides,
     tagRules,
@@ -50,6 +69,7 @@ function clean(input: any): SharedPreferences {
     targetAlloc,
     keepList: strings(input?.keepList, 2_000),
     soldSymbols: strings(input?.soldSymbols, 2_000),
+    incomePlan,
   }
 }
 

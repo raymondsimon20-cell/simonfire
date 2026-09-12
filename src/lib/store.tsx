@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { Account, AppData, Connection, HedgeRoll, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
+import type { Account, AppData, Connection, HedgeRoll, IncomePlan, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
@@ -83,6 +83,7 @@ function classifyKnownOthers(d: AppData) {
 }
 
 const STORAGE_KEY = 'simonfire.data.v1'
+export const DEFAULT_INCOME_PLAN: IncomePlan = { annualW2Target: 0, monthlySpending: 0, estimatedTaxRate: 20, distributionCutPct: 20, cashReserveMonths: 6 }
 
 // ---- Persistence (swap this module for a Supabase-backed one later) ----
 function load(): AppData {
@@ -95,6 +96,7 @@ function load(): AppData {
         if (!parsed.soldSymbols) parsed.soldSymbols = []
         if (!parsed.tagRules) parsed.tagRules = []
         if (!parsed.bucketOverrides) parsed.bucketOverrides = {}
+        if (!parsed.incomePlan) parsed.incomePlan = { ...DEFAULT_INCOME_PLAN }
         for (const p of parsed.positions) p.allocationBucket = parsed.bucketOverrides[`${p.accountId}|${p.symbol}`]
         // Backfill sample analytics for datasets stored before these existed.
         if (parsed.source === 'sample' && (!parsed.twr || !parsed.insights)) {
@@ -138,6 +140,7 @@ function sharedPreferences(data: AppData): SharedPreferences {
     targetAlloc: data.targetAlloc,
     keepList: data.keepList ?? DEFAULT_KEEP,
     soldSymbols: data.soldSymbols ?? [],
+    incomePlan: data.incomePlan ?? DEFAULT_INCOME_PLAN,
   }
 }
 
@@ -148,6 +151,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   data.targetAlloc = preferences.targetAlloc
   data.keepList = preferences.keepList ?? DEFAULT_KEEP
   data.soldSymbols = preferences.soldSymbols ?? []
+  data.incomePlan = preferences.incomePlan ?? data.incomePlan ?? { ...DEFAULT_INCOME_PLAN }
   for (const position of data.positions) {
     position.allocationBucket = data.bucketOverrides[`${position.accountId}|${position.symbol}`]
   }
@@ -183,6 +187,7 @@ interface StoreCtx {
   unsell: (accountId: string, symbol: string) => void
   setTargetAlloc: (alloc: Record<string, number>) => void
   setPositionBucket: (accountId: string, symbol: string, bucket: NonNullable<Position['allocationBucket']>) => void
+  setIncomePlan: (plan: IncomePlan) => void
   // Tag rules
   addRule: (rule: Omit<TagRule, 'id'>) => void
   updateRule: (id: string, patch: Partial<TagRule>) => void
@@ -476,6 +481,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [mutate],
   )
 
+  const setIncomePlan: StoreCtx['setIncomePlan'] = useCallback(
+    (plan) => mutate((d) => { d.incomePlan = plan; return d }),
+    [mutate],
+  )
+
   // Mark a holding sold: log the realized sale and drop it from the tracker.
   // Does NOT place a brokerage order — that's done at Schwab.
   const sellOne = (d: AppData, accountId: string, symbol: string) => {
@@ -614,6 +624,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       unsell,
       setTargetAlloc,
       setPositionBucket,
+      setIncomePlan,
       addRule,
       updateRule,
       removeRule,
@@ -643,6 +654,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       unsell,
       setTargetAlloc,
       setPositionBucket,
+      setIncomePlan,
       addRule,
       updateRule,
       removeRule,

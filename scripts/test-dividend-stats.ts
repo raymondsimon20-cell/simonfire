@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { dividendStats } from '../src/lib/calc'
 import { resolveDividendSymbols } from '../src/lib/dividend-symbol'
+import { previewDividendEnrichment, type ImportResult } from '../src/lib/import'
 import type { Position, Transaction } from '../src/lib/types'
 
 const positions: Position[] = [
@@ -103,5 +104,15 @@ resolveDividendSymbols(resolverPositions, resolverTransactions)
 assert.equal(resolverTransactions.find((row) => row.id === 'learned')?.symbol, 'QQQI')
 assert.equal(resolverTransactions.find((row) => row.id === 'ticker')?.symbol, 'TSYY')
 assert.equal(resolverTransactions.find((row) => row.id === 'amount')?.symbol, 'QQQI')
+
+const importAccount = { id: 'csv-account', broker: 'Schwab', name: 'CSV', fullName: 'CSV', mask: '9391', type: 'Margin' as const, isMargin: true, cash: 0, marginBalance: 0 }
+const csvDividend = txn({ id: 'csv-dividend', accountId: importAccount.id, date: '2026-08-20', type: 'Dividend', symbol: 'TSYY', description: 'Cash dividend TSYY', amount: 19 })
+const importResult: ImportResult = { accounts: [importAccount], positions: [], transactions: [csvDividend], warnings: [] }
+const existingAccount = { ...importAccount, id: 'acc_9391' }
+const missingSymbol = txn({ id: 'api-dividend', accountId: existingAccount.id, date: '2026-08-20', type: 'Dividend', description: 'CASH DIVIDEND TSYY', amount: 19 })
+const enrichment = previewDividendEnrichment(importResult, [existingAccount], [missingSymbol])
+assert.deepEqual(enrichment.matches.map(({ transactionId, symbol }) => ({ transactionId, symbol })), [{ transactionId: 'api-dividend', symbol: 'TSYY' }])
+assert.equal(enrichment.ambiguous.length, 0)
+assert.equal(enrichment.unmatched.length, 0)
 
 console.log('dividendStats tests passed')

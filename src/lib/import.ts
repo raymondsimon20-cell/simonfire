@@ -4,6 +4,7 @@
 
 import type { Account, AccountType, Position, Transaction, TxnType } from './types'
 import { classifySchwabTransaction } from './transaction-classification'
+import { dividendDescriptionKey } from './dividend-symbol'
 
 export interface ImportFallback {
   broker: string
@@ -17,6 +18,57 @@ export interface ImportResult {
   positions: Position[]
   transactions: Transaction[]
   warnings: string[]
+}
+
+export interface DividendEnrichmentMatch {
+  transactionId: string
+  symbol: string
+  date: string
+  amount: number
+  description: string
+}
+
+export interface DividendEnrichmentPreview {
+  matches: DividendEnrichmentMatch[]
+  ambiguous: Transaction[]
+  unmatched: Transaction[]
+  csvDividendCount: number
+}
+
+export function previewDividendEnrichment(imported: ImportResult, existingAccounts: Account[], existingTransactions: Transaction[]): DividendEnrichmentPreview {
+  const importedAccounts = new Map(imported.accounts.map((account) => [account.id, account]))
+  const used = new Set<string>()
+  const matches: DividendEnrichmentMatch[] = []
+  const ambiguous: Transaction[] = []
+  const unmatched: Transaction[] = []
+  const csvDividends = imported.transactions.filter((transaction) => transaction.type === 'Dividend' && !!transaction.symbol)
+  for (const csvTransaction of csvDividends) {
+    const importedAccount = importedAccounts.get(csvTransaction.accountId)
+    const accountCandidates = importedAccount?.mask
+      ? existingAccounts.filter((account) => account.mask === importedAccount.mask).map((account) => account.id)
+      : existingAccounts.length === 1 ? [existingAccounts[0].id] : []
+    let candidates = existingTransactions.filter((transaction) =>
+      !used.has(transaction.id) && transaction.type === 'Dividend' && !transaction.symbol
+      && transaction.date === csvTransaction.date && Math.abs(transaction.amount - csvTransaction.amount) < 0.011,
+    )
+    if (accountCandidates.length) candidates = candidates.filter((transaction) => accountCandidates.includes(transaction.accountId))
+    if (candidates.length > 1) {
+      const csvDescription = dividendDescriptionKey(csvTransaction.description)
+      const scored = candidates.map((transaction) => {
+        const existingDescription = dividendDescriptionKey(transaction.description)
+        const score = csvDescription === existingDescription ? 3 : csvDescription && existingDescription && (csvDescription.includes(existingDescription) || existingDescription.includes(csvDescription)) ? 2 : 0
+        return { transaction, score }
+      }).sort((a, b) => b.score - a.score)
+      if (scored[0].score > 0 && scored[0].score > (scored[1]?.score ?? -1)) candidates = [scored[0].transaction]
+    }
+    if (candidates.length === 1) {
+      const existing = candidates[0]
+      used.add(existing.id)
+      matches.push({ transactionId: existing.id, symbol: csvTransaction.symbol!.trim().toUpperCase(), date: existing.date, amount: existing.amount, description: existing.description })
+    } else if (candidates.length > 1) ambiguous.push(csvTransaction)
+    else unmatched.push(csvTransaction)
+  }
+  return { matches, ambiguous, unmatched, csvDividendCount: csvDividends.length }
 }
 
 const uid = () => 'i' + Math.random().toString(36).slice(2, 9)

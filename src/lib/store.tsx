@@ -164,6 +164,7 @@ interface StoreCtx {
   addTransaction: (t: Omit<Transaction, 'id' | 'tags'> & { tags?: string[] }) => void
   updateTransaction: (id: string, patch: Partial<Transaction>) => void
   assignTransactionSymbol: (id: string, symbol: string) => void
+  enrichDividendSymbols: (matches: { transactionId: string; symbol: string }[]) => void
   deleteTransaction: (id: string) => void
   addTag: (id: string, tag: string) => void
   removeTag: (id: string, tag: string) => void
@@ -287,6 +288,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         d.symbolRules.push({ id: uid(), contains, symbol, accountId: transaction.accountId })
         resolveDividendSymbols(d.positions, d.transactions, d.symbolRules)
       }
+      return d
+    }),
+    [mutate],
+  )
+
+  const enrichDividendSymbols: StoreCtx['enrichDividendSymbols'] = useCallback(
+    (matches) => mutate((d) => {
+      for (const match of matches) {
+        const transaction = d.transactions.find((item) => item.id === match.transactionId)
+        const symbol = match.symbol.trim().toUpperCase()
+        if (!transaction || !symbol) continue
+        transaction.symbol = symbol
+        const contains = dividendDescriptionKey(transaction.description)
+        if (!contains) continue
+        d.symbolRules = (d.symbolRules ?? []).filter((rule) => !(rule.accountId === transaction.accountId && rule.contains === contains))
+        d.symbolRules.push({ id: uid(), contains, symbol, accountId: transaction.accountId })
+      }
+      resolveDividendSymbols(d.positions, d.transactions, d.symbolRules)
       return d
     }),
     [mutate],
@@ -576,6 +595,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addTransaction,
       updateTransaction,
       assignTransactionSymbol,
+      enrichDividendSymbols,
       deleteTransaction,
       addTag,
       removeTag,
@@ -604,6 +624,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addTransaction,
       updateTransaction,
       assignTransactionSymbol,
+      enrichDividendSymbols,
       deleteTransaction,
       addTag,
       removeTag,

@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
+    "types": ["node"],
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "/tmp/simonfire-realized-pl-tests",
+    "rootDir": "..",
+    "noEmit": false,
+    "esModuleInterop": true
+  },
+  "include": ["test-realized-pl.ts", "../src/lib/realized-pl.ts", "../src/lib/types.ts"]
+}

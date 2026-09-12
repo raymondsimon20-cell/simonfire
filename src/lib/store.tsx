@@ -13,6 +13,7 @@ import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
 import { loadSharedPreferences, saveSharedPreferences, type SharedPreferences } from './api'
 import { dividendDescriptionKey, resolveDividendSymbols } from './dividend-symbol'
+import { populateRealizedProfitLoss } from './realized-pl'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -105,6 +106,7 @@ function load(): AppData {
         applyRulesTo(parsed)
         if (!parsed.symbolRules) parsed.symbolRules = []
         resolveDividendSymbols(parsed.positions, parsed.transactions, parsed.symbolRules)
+        populateRealizedProfitLoss(parsed.positions, parsed.transactions)
         return parsed
       }
     }
@@ -438,6 +440,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         classifyKnownOthers(d)
         applyRulesTo(d)
         resolveDividendSymbols(d.positions, d.transactions, d.symbolRules)
+        populateRealizedProfitLoss(d.positions, d.transactions)
         // Reflect the import as a connection so the Connections page shows it.
         const broker = result.broker || 'Schwab'
         d.connections = [

@@ -80,6 +80,7 @@ export interface Transaction {
   strike?: number
   exp?: string
   pl?: number // realized P/L on sells
+  plEstimated?: boolean // reconstructed from available trade/cost-basis data
   tags: string[]
   classificationSource?: 'schwab' | 'automatic' | 'rule' | 'manual'
 }

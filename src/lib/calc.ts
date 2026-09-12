@@ -537,6 +537,7 @@ export interface MonthClose {
   assets: number
   liabilities: number
   netEquity: number
+  realizedEstimated: boolean
   bridge: { label: string; value: number; kind: 'base' | 'up' | 'down' | 'total' }[]
 }
 
@@ -570,7 +571,8 @@ export function monthClose(
     const realized = t
       .filter((x) => x.type === 'Sell')
       .reduce((s, x) => s + (x.pl ?? 0), 0)
-    return { contributions, netOperating: cf.netOperating, realized }
+    const realizedEstimated = t.some((x) => x.type === 'Sell' && x.pl != null && x.plEstimated)
+    return { contributions, netOperating: cf.netOperating, realized, realizedEstimated }
   }
 
   // Build equity series backward from the current net equity.
@@ -614,11 +616,12 @@ export function monthClose(
     assets,
     liabilities,
     netEquity,
+    realizedEstimated: f.realizedEstimated,
     bridge: [
       { label: 'Opening', value: opening, kind: 'base' },
       { label: 'Contrib.', value: f.contributions, kind: f.contributions >= 0 ? 'up' : 'down' },
       { label: 'Net Oper.', value: f.netOperating, kind: f.netOperating >= 0 ? 'up' : 'down' },
-      { label: 'Realized P/L', value: f.realized, kind: f.realized >= 0 ? 'up' : 'down' },
+      { label: f.realizedEstimated ? 'Realized P/L (est.)' : 'Realized P/L', value: f.realized, kind: f.realized >= 0 ? 'up' : 'down' },
       { label: 'Accts Added', value: 0, kind: 'up' },
       { label: 'Mkt & Other', value: mkt, kind: mkt >= 0 ? 'up' : 'down' },
       { label: 'Closing', value: closingVal, kind: 'total' },

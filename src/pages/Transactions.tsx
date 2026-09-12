@@ -189,7 +189,7 @@ export default function Transactions() {
                 <td className="num px-4 py-3 text-right">{num(t.units)}</td>
                 <td className="num px-4 py-3 text-right text-faint">{t.fee ? usd(t.fee) : '-'}</td>
                 <td className={clsx('num px-4 py-3 text-right', t.pl != null ? (t.pl >= 0 ? 'text-pos' : 'text-neg') : 'text-faint')}>
-                  {t.pl != null ? usd(t.pl, { sign: true }) : '-'}
+                  {t.pl != null ? <span title={t.plEstimated ? 'Estimated from available trade history and average cost; not a tax-lot figure' : undefined}>{t.plEstimated ? '≈' : ''}{usd(t.pl, { sign: true })}</span> : '-'}
                 </td>
                 <td className="px-2 py-3">
                   <button

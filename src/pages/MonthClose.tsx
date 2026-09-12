@@ -83,6 +83,7 @@ export default function MonthClose() {
         <Card>
           <div className="mb-4 text-lg font-semibold">Equity Change Bridge</div>
           <Waterfall steps={mc.bridge} height={300} />
+          {mc.realizedEstimated && <p className="mt-2 text-xs text-faint">Realized P/L is estimated from available trades and average cost. Schwab tax lots may differ.</p>}
         </Card>
       </div>
     </div>

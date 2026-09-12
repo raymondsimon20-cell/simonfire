@@ -306,6 +306,7 @@ export function parseSchwabFiles(
         const cQty = find('quantity', 'qty')
         const cFees = find('fees & comm', 'fees')
         const cAmount = find('amount')
+        const cPl = find('realized gain/loss', 'gain/loss', 'profit/loss', 'p/l')
         const dateRaw = cells[cDate]?.trim()
         if (!dateRaw || /transactions total|^date$/i.test(dateRaw)) continue
         const action = cells[cAction]?.trim() ?? ''
@@ -328,7 +329,7 @@ export function parseSchwabFiles(
           amount,
           units: units || 0,
           fee: cFees >= 0 ? toNum(cells[cFees]) : undefined,
-          pl: undefined,
+          pl: cPl >= 0 && cells[cPl]?.trim() ? toNum(cells[cPl]) : undefined,
           tags: [],
           classificationSource: type === 'Other' ? 'schwab' : 'automatic',
         })

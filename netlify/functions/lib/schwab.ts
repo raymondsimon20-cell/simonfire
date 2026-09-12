@@ -4,6 +4,7 @@
 import { getStore } from '@netlify/blobs'
 import { classifySchwabTransaction } from '../../../src/lib/transaction-classification'
 import { resolveDividendSymbols } from '../../../src/lib/dividend-symbol'
+import { populateRealizedProfitLoss } from '../../../src/lib/realized-pl'
 
 const TOKEN_URL = 'https://api.schwabapi.com/v1/oauth/token'
 const AUTH_URL = 'https://api.schwabapi.com/v1/oauth/authorize'
@@ -572,6 +573,8 @@ export async function fetchPortfolio(token: string) {
   for (const t of transactions)
     if (t.type === 'Dividend' && t.symbol) divBy.set(t.accountId + '|' + t.symbol, (divBy.get(t.accountId + '|' + t.symbol) ?? 0) + t.amount)
   for (const p of positions) p.dividendsReceived = +(divBy.get(p.accountId + '|' + p.symbol) ?? 0).toFixed(2)
+
+  populateRealizedProfitLoss(positions, transactions)
 
   transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
 

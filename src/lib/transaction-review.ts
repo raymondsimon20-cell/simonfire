@@ -22,3 +22,9 @@ export function duplicateTransactionIds(transactions: Transaction[]) {
   }
   return duplicates
 }
+
+export function isClosingSale(transaction: Transaction) {
+  if (transaction.type !== 'Sell') return false
+  const description = transaction.description.toUpperCase().replace(/[_-]+/g, ' ')
+  return !(/\bSELL(?:S)? TO OPEN\b|\bSTO\b|\bSELL SHORT\b|\bSHORT SALE\b/.test(description))
+}

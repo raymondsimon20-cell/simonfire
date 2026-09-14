@@ -1,4 +1,5 @@
 import type { Position, Transaction } from './types'
+import { isClosingSale } from './transaction-review'
 
 const EPSILON = 0.000001
 
@@ -21,7 +22,7 @@ export function populateRealizedProfitLoss(positions: Position[], transactions: 
 
   const groups = new Map<string, Transaction[]>()
   for (const transaction of transactions) {
-    if (!transaction.symbol || (transaction.type !== 'Buy' && transaction.type !== 'Sell')) continue
+    if (!transaction.symbol || (transaction.type !== 'Buy' && !isClosingSale(transaction))) continue
     const k = key(transaction.accountId, transaction.symbol)
     const rows = groups.get(k) ?? []
     rows.push(transaction)

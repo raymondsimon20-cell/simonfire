@@ -29,4 +29,10 @@ const tx = (row: Partial<Transaction> & Pick<Transaction, 'id' | 'date' | 'type'
   assert.equal(transactions[0].plEstimated, undefined)
 }
 
+{
+  const transactions = [tx({ id: 'sto', date: '2026-02-01', type: 'Sell', symbol: 'QQQ260320P00400000', description: 'SELL TO OPEN 2 QQQ PUT', amount: 600, units: -2 })]
+  populateRealizedProfitLoss([], transactions)
+  assert.equal(transactions[0].pl, undefined)
+}
+
 console.log('realized P/L tests passed')

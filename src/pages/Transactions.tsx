@@ -11,7 +11,7 @@ import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Transaction } from '../lib/types'
 import { usePersistentState } from '../lib/persistent-state'
 import { dateRangeStart, localISODate } from '../lib/date-range'
-import { duplicateTransactionIds } from '../lib/transaction-review'
+import { duplicateTransactionIds, isClosingSale } from '../lib/transaction-review'
 
 export default function Transactions() {
   const { data, deleteTransaction, archiveTransactions, restoreTransaction, dateRange } = useStore()
@@ -29,14 +29,14 @@ export default function Transactions() {
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
 
   const duplicateIds = useMemo(() => duplicateTransactionIds(transactions), [transactions])
-  const missingPlCount = useMemo(() => transactions.filter((transaction) => transaction.type === 'Sell' && transaction.pl == null).length, [transactions])
+  const missingPlCount = useMemo(() => transactions.filter((transaction) => isClosingSale(transaction) && transaction.pl == null).length, [transactions])
 
   const filtered = useMemo(
     () =>
       transactions.filter((t) => {
         if (type !== 'all' && t.type !== type) return false
         if (symbol && !(t.symbol ?? '').toLowerCase().includes(symbol.toLowerCase())) return false
-        if (review === 'missing-pl' && !(t.type === 'Sell' && t.pl == null)) return false
+        if (review === 'missing-pl' && !(isClosingSale(t) && t.pl == null)) return false
         if (review === 'duplicates' && !duplicateIds.has(t.id)) return false
         const globalFrom = dateRangeStart(dateRange)
         if ((from || globalFrom) && t.date < (from || globalFrom)) return false

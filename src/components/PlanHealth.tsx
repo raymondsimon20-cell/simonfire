@@ -7,6 +7,7 @@ import { pct, relTime, usd } from '../lib/format'
 import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
 import type { Account, IncomePlan, Transaction } from '../lib/types'
 import { averagePortfolioSpending, spendingExclusionKey } from '../lib/spending'
+import { isClosingSale } from '../lib/transaction-review'
 import clsx from 'clsx'
 
 const localToday = () => {
@@ -44,7 +45,7 @@ export function PlanHealth() {
     const highRiskWeight = buckets.buckets['High Yield'].weight + buckets.buckets.Leveraged.weight
     const unassigned = transactions.filter((transaction) => transaction.type === 'Dividend' && !transaction.symbol).length
     const uncategorized = transactions.filter((transaction) => transaction.type === 'Other').length
-    const missingPl = transactions.filter((transaction) => transaction.type === 'Sell' && transaction.pl == null).length
+    const missingPl = transactions.filter((transaction) => isClosingSale(transaction) && transaction.pl == null).length
     const pendingRolls = (data.hedgeRolls ?? []).filter((roll) => !['closed', 'rolled'].includes(roll.status)).length
     const syncedDate = lastSyncAt.slice(0, 10)
     const stale = !syncedDate || syncedDate < localToday()

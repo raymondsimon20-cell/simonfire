@@ -51,6 +51,7 @@ export function reconcileCsvAuthority(
   apiTransactions: Transaction[],
   csvPositions: CsvPositionAuthority[],
   csvTransactions: CsvTransactionAuthority[],
+  includeCsvOnlyPositions = false,
 ) {
   const accountByMask = new Map(accounts.map((account) => [account.mask, account]))
   const positions: Position[] = apiPositions.map((position) => ({ ...position, dataSource: 'api' }))
@@ -61,12 +62,17 @@ export function reconcileCsvAuthority(
     const key = `${row.accountMask}|${securityKey(row.position.symbol)}`
     const index = positionIndex.get(key)
     const api = index == null ? undefined : positions[index]
+    // A live API position list owns current inventory. A CSV-only position is
+    // retained only while viewing an imported dataset before a live sync.
+    if (!api && !includeCsvOnlyPositions) continue
     const merged: Position = {
       ...api,
       ...row.position,
       id: api?.id ?? `csv-pos-${key}`,
       accountId: account.id,
-      // Quotes and current market-data fields remain live API supplements.
+      // Current inventory and market data remain live API supplements. The CSV
+      // supplies the accounting identity and cost-basis snapshot.
+      shares: api?.shares ?? row.position.shares,
       lastPrice: api?.lastPrice ?? row.position.lastPrice,
       prevClose: api?.prevClose ?? row.position.prevClose,
       annualDividend: api?.annualDividend ?? row.position.annualDividend,

@@ -136,7 +136,7 @@ const csvSale = txn({ id: 'csv-sale', accountId: importAccount.id, date: '2026-0
 const apiSale = txn({ id: 'api-sale', accountId: existingAccount.id, date: '2026-09-01', type: 'Sell', symbol: 'QQQ', description: 'API wording', amount: 1100, units: -10 })
 const authority = captureCsvAuthority([importAccount], [csvPosition], [csvSale], '2026-09-14T12:00:00Z')
 const reconciled = reconcileCsvAuthority([existingAccount], [apiPosition], [apiSale], authority.positions, authority.transactions)
-assert.equal(reconciled.positions[0].shares, 12)
+assert.equal(reconciled.positions[0].shares, 10)
 assert.equal(reconciled.positions[0].avgCost, 91)
 assert.equal(reconciled.positions[0].lastPrice, 105)
 assert.equal(reconciled.positions[0].annualDividend, 4)

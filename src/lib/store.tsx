@@ -167,7 +167,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   data.csvPositionAuthority = preferences.csvPositionAuthority ?? data.csvPositionAuthority ?? []
   data.csvTransactionAuthority = preferences.csvTransactionAuthority ?? data.csvTransactionAuthority ?? []
   if (data.csvPositionAuthority.length || data.csvTransactionAuthority.length) {
-    const reconciled = reconcileCsvAuthority(data.accounts, data.positions, data.transactions, data.csvPositionAuthority, data.csvTransactionAuthority)
+    const reconciled = reconcileCsvAuthority(data.accounts, data.positions, data.transactions, data.csvPositionAuthority, data.csvTransactionAuthority, data.source !== 'live')
     data.positions = reconciled.positions
     data.transactions = reconciled.transactions
   }

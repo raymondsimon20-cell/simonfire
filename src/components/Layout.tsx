@@ -257,7 +257,7 @@ export default function Layout() {
 
   return (
     <div className={clsx('min-h-full', privacy && 'privacy-mode')}>
-      <div className="fixed right-32 top-4 z-40 lg:right-5"><PremiumTools /></div>
+      <div className="fixed bottom-4 left-4 z-40 lg:bottom-auto lg:left-[166px] lg:top-5"><PremiumTools /></div>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-white/[0.06] bg-[#090c11]/95 px-4 py-5 backdrop-blur-xl lg:flex">
         <div className="px-2"><Logo /></div>
         <div className="mt-8 flex items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint">
@@ -319,7 +319,7 @@ export default function Layout() {
       </header>
 
       <a href="#main-content" className="fixed left-3 top-3 z-[300] -translate-y-20 rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white focus:translate-y-0">Skip to content</a>
-      <main id="main-content" tabIndex={-1} className="mx-auto max-w-[1480px] px-4 py-7 sm:px-6 lg:ml-[248px] lg:px-10 lg:py-9 xl:px-12">
+      <main id="main-content" tabIndex={-1} className="mx-auto max-w-[1480px] px-4 py-7 pb-20 sm:px-6 lg:ml-[248px] lg:px-10 lg:py-9 xl:px-12">
         {(syncing || autoSyncing) && <div className="mb-4 flex items-center gap-2 rounded-xl border border-[#c7a96b]/20 bg-[#c7a96b]/8 px-4 py-2.5 text-xs text-[#dec78f]"><RefreshCw size={13} className="animate-spin" /> Securely refreshing portfolio data…</div>}
         {stalePositionCsv && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#e1c887]/20 bg-[#e1c887]/[.06] px-4 py-2.5 text-xs"><span>Position cost-basis CSV is {positionCsvAge} days old. Live quantities and prices remain current.</span><Link to="/data-quality" className="shrink-0 font-semibold text-[#e1c887]">Review</Link></div>}
         {undoLabel && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#5aa2ff]/20 bg-[#5aa2ff]/8 px-4 py-2.5 text-xs"><span>{undoLabel} completed.</span><button onClick={undoLast} className="font-semibold text-[#7fb5ff]">Undo</button></div>}

@@ -81,7 +81,6 @@ export default function Dividends() {
         Estimated income combines {usd(d.schwabForwardIncome)} from Schwab forward fundamentals and {usd(d.historicalEstimateIncome)} from historical fallbacks.
         Schwab and fund distributions can change; actual income may differ materially.
       </p>
-      {d.cappedForwardSymbols > 0 && <div className="mt-3 rounded-lg border border-[#c7a96b]/25 bg-[#c7a96b]/5 p-3 text-xs text-[#e1c887]">Conservative projection guard applied to {d.cappedForwardSymbols} symbol{d.cappedForwardSymbols === 1 ? '' : 's'} where Schwab’s forward amount exceeded 125% of the share-adjusted historical run rate. Open the symbol table to review which estimates were capped.</div>}
 
       {(d.unassignedTrailing12m !== 0 || d.unassignedAvailable !== 0) && (
         <div className="mt-4 rounded-lg border border-[#3a2a12] bg-[#241a0c]/60 p-3 text-xs text-[#e7c88f]">

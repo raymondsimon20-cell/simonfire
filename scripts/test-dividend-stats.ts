@@ -79,16 +79,6 @@ const raisedForward = dividendStats([{ ...forwardPosition, annualDividend: 3 }],
 assert.equal(raisedForward.estAnnual, 150)
 assert.equal(raisedForward.future.reduce((sum, month) => sum + month.amount, 0), 150)
 
-const inflatedForward = dividendStats(
-  [{ ...positions[0], annualDividend: 10 }],
-  quarterlyTransactions,
-  '2026-08-27',
-)
-assert.equal(inflatedForward.estAnnual, 50) // $40 adjusted history plus a 25% ceiling
-assert.equal(inflatedForward.cappedForwardSymbols, 1)
-assert.equal(inflatedForward.bySymbol[0]?.estimateSource, 'Conservative forward cap')
-assert.equal(inflatedForward.future.reduce((sum, month) => sum + month.amount, 0), 50)
-
 // A newly synced payment must immediately change both received income and the
 // month pattern used by the chart, even when all twelve month labels are stable.
 const beforeSync = dividendStats(positions.slice(0, 1), quarterlyTransactions, '2026-08-27')

@@ -81,6 +81,7 @@ export interface Transaction {
   exp?: string
   pl?: number // realized P/L on sells
   plEstimated?: boolean // reconstructed from available trade/cost-basis data
+  plSource?: 'broker' | 'estimated' | 'manual'
   tags: string[]
   classificationSource?: 'schwab' | 'automatic' | 'rule' | 'manual'
   positionEffect?: 'Opening' | 'Closing' | 'Unknown'
@@ -129,6 +130,7 @@ export interface AppData {
   spendingExclusions?: string[]
   lastSyncChanges?: SyncChangeSummary
   archivedTransactions?: Transaction[]
+  realizedPlOverrides?: Record<string, number>
 }
 
 export interface SyncChangeSummary {

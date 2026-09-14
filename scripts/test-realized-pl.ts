@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { populateRealizedProfitLoss } from '../src/lib/realized-pl'
+import { applyRealizedPlOverrides, populateRealizedProfitLoss, realizedPlOverrideKey } from '../src/lib/realized-pl'
 import type { Position, Transaction } from '../src/lib/types'
 
 const base = { accountId: 'a1', tags: [] as string[], description: 'trade', fee: undefined }
@@ -33,6 +33,14 @@ const tx = (row: Partial<Transaction> & Pick<Transaction, 'id' | 'date' | 'type'
   const transactions = [tx({ id: 'sto', date: '2026-02-01', type: 'Sell', symbol: 'QQQ260320P00400000', description: 'SELL TO OPEN 2 QQQ PUT', amount: 600, units: -2 })]
   populateRealizedProfitLoss([], transactions)
   assert.equal(transactions[0].pl, undefined)
+}
+
+{
+  const sale = tx({ id: 'manual', date: '2026-02-01', type: 'Sell', symbol: 'ABC', amount: 600, units: -5 })
+  applyRealizedPlOverrides([sale], { [realizedPlOverrideKey(sale)]: -42.5 })
+  assert.equal(sale.pl, -42.5)
+  assert.equal(sale.plSource, 'manual')
+  assert.equal(sale.plEstimated, false)
 }
 
 console.log('realized P/L tests passed')

@@ -9,6 +9,7 @@ type SharedPreferences = {
   keepList?: string[]
   soldSymbols?: string[]
   spendingExclusions?: string[]
+  realizedPlOverrides?: Record<string, number>
   incomePlan?: {
     annualW2Target: number
     monthlySpending: number
@@ -69,6 +70,7 @@ function clean(input: any): SharedPreferences {
     concentrationAlertPct: numberIn(rawPlan.concentrationAlertPct, 0, 100, 15),
     incomeCoverageAlertPct: numberIn(rawPlan.incomeCoverageAlertPct, 0, 200, 100),
   } : undefined
+  const realizedPlOverrides = Object.fromEntries(Object.entries(input?.realizedPlOverrides ?? {}).filter(([key, value]) => key.length <= 300 && Number.isFinite(value) && Math.abs(Number(value)) <= 100_000_000).slice(0, 5_000)) as Record<string, number>
   return {
     bucketOverrides,
     tagRules,
@@ -77,6 +79,7 @@ function clean(input: any): SharedPreferences {
     keepList: strings(input?.keepList, 2_000),
     soldSymbols: strings(input?.soldSymbols, 2_000),
     spendingExclusions: strings(input?.spendingExclusions, 2_000),
+    realizedPlOverrides,
     incomePlan,
   }
 }

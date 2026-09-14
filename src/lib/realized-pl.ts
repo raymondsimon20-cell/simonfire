@@ -7,6 +7,17 @@ function key(accountId: string, symbol: string) {
   return `${accountId}|${symbol.trim().toUpperCase()}`
 }
 
+export function realizedPlOverrideKey(transaction: Transaction) {
+  return [transaction.accountId, transaction.date, (transaction.symbol ?? '').replace(/\s+/g, '').toUpperCase(), transaction.amount.toFixed(2), transaction.units.toFixed(6)].join('|')
+}
+
+export function applyRealizedPlOverrides(transactions: Transaction[], overrides: Record<string, number> = {}) {
+  for (const transaction of transactions) {
+    const value = overrides[realizedPlOverrideKey(transaction)]
+    if (Number.isFinite(value)) { transaction.pl = value; transaction.plEstimated = false; transaction.plSource = 'manual' }
+  }
+}
+
 /**
  * Fill missing sell P/L values from the trade ledger.
  *
@@ -57,6 +68,7 @@ export function populateRealizedProfitLoss(positions: Position[], transactions: 
         const proceeds = Math.abs(transaction.amount)
         transaction.pl = +(proceeds - sold * averageCost).toFixed(2)
         transaction.plEstimated = true
+        transaction.plSource = 'estimated'
       }
 
       if (quantity > EPSILON && cost > EPSILON) {

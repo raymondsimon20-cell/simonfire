@@ -14,7 +14,7 @@ import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
 import { loadSharedPreferences, saveSharedPreferences, type SharedPreferences } from './api'
 import { dividendDescriptionKey, resolveDividendSymbols } from './dividend-symbol'
-import { populateRealizedProfitLoss } from './realized-pl'
+import { applyRealizedPlOverrides, populateRealizedProfitLoss, realizedPlOverrideKey } from './realized-pl'
 import { summarizeSync } from './sync-summary'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
@@ -113,6 +113,7 @@ function load(): AppData {
         if (!parsed.symbolRules) parsed.symbolRules = []
         resolveDividendSymbols(parsed.positions, parsed.transactions, parsed.symbolRules)
         populateRealizedProfitLoss(parsed.positions, parsed.transactions)
+        applyRealizedPlOverrides(parsed.transactions, parsed.realizedPlOverrides)
         return parsed
       }
     }
@@ -146,6 +147,7 @@ function sharedPreferences(data: AppData): SharedPreferences {
     soldSymbols: data.soldSymbols ?? [],
     incomePlan: data.incomePlan ?? DEFAULT_INCOME_PLAN,
     spendingExclusions: data.spendingExclusions ?? [],
+    realizedPlOverrides: data.realizedPlOverrides ?? {},
   }
 }
 
@@ -158,6 +160,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   data.soldSymbols = preferences.soldSymbols ?? []
   data.incomePlan = { ...DEFAULT_INCOME_PLAN, ...(data.incomePlan ?? {}), ...(preferences.incomePlan ?? {}) }
   data.spendingExclusions = preferences.spendingExclusions ?? []
+  data.realizedPlOverrides = preferences.realizedPlOverrides ?? data.realizedPlOverrides ?? {}
   for (const position of data.positions) {
     position.allocationBucket = data.bucketOverrides[`${position.accountId}|${position.symbol}`]
   }
@@ -165,6 +168,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   if (sold.size) data.positions = data.positions.filter((position) => !sold.has(soldKey(position.accountId, position.symbol)))
   applyRulesTo(data)
   resolveDividendSymbols(data.positions, data.transactions, data.symbolRules)
+  applyRealizedPlOverrides(data.transactions, data.realizedPlOverrides)
 }
 
 const uid = () => 'x' + Math.random().toString(36).slice(2, 10)
@@ -259,7 +263,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!sharedReady) return
     const timeout = window.setTimeout(() => { void saveSharedPreferences(sharedPreferences(data)) }, 350)
     return () => window.clearTimeout(timeout)
-  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, sharedReady])
+  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, sharedReady])
 
   const mutate = useCallback((fn: (d: AppData) => AppData, label?: string) => {
     setData((prev) => {
@@ -291,6 +295,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const i = d.transactions.findIndex((t) => t.id === id)
         if (i >= 0) {
           d.transactions[i] = { ...d.transactions[i], ...patch }
+          if (Object.prototype.hasOwnProperty.call(patch, 'pl')) {
+            const transaction = d.transactions[i]
+            d.realizedPlOverrides = d.realizedPlOverrides ?? {}
+            const key = realizedPlOverrideKey(transaction)
+            if (patch.pl == null) {
+              delete d.realizedPlOverrides[key]
+              transaction.pl = undefined
+              transaction.plEstimated = undefined
+              transaction.plSource = undefined
+              populateRealizedProfitLoss(d.positions, d.transactions)
+            } else {
+              d.realizedPlOverrides[key] = patch.pl
+              transaction.plEstimated = false
+              transaction.plSource = 'manual'
+            }
+          }
           // Category edits are intended classifications, not ephemeral row edits.
           // Persist a direction-scoped rule so fresh Schwab rows inherit the choice.
           if (patch.type) {
@@ -498,6 +518,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         applyRulesTo(d)
         resolveDividendSymbols(d.positions, d.transactions, d.symbolRules)
         populateRealizedProfitLoss(d.positions, d.transactions)
+        applyRealizedPlOverrides(d.transactions, d.realizedPlOverrides)
         // Reflect the import as a connection so the Connections page shows it.
         const broker = result.broker || 'Schwab'
         d.connections = [

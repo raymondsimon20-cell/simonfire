@@ -22,6 +22,7 @@ import { usd, num, shortDate, posNeg } from '../lib/format'
 import { Badge } from './ui'
 import clsx from 'clsx'
 import { spendingExclusionKey } from '../lib/spending'
+import { isClosingSale } from '../lib/transaction-review'
 
 function Tile({
   icon,
@@ -125,6 +126,14 @@ function SymbolEditor({ txn }: { txn: Transaction }) {
   return <label className="mt-3 block text-xs text-muted"><span>Dividend symbol</span><div className="mt-1 flex gap-2"><input list="dividend-symbols" value={value} onChange={(event) => setValue(event.target.value.toUpperCase())} placeholder="Ticker" className="min-w-0 flex-1 rounded-xl border border-border bg-surface-2 px-3 py-2.5 font-mono text-sm text-ink outline-none"/><datalist id="dividend-symbols">{choices.map((symbol) => <option key={symbol} value={symbol}/>)}</datalist><button onClick={() => value && assignTransactionSymbol(txn.id, value)} disabled={!value || value === txn.symbol} className="rounded-xl border border-border px-3 text-xs font-medium text-brand disabled:opacity-40">Save</button></div><span className="mt-1 block text-faint">Saved for matching payments on future syncs and other devices.</span></label>
 }
 
+function RealizedPlEditor({ txn }: { txn: Transaction }) {
+  const { updateTransaction } = useStore()
+  const [value, setValue] = useState(txn.pl?.toFixed(2) ?? '')
+  useEffect(() => setValue(txn.pl?.toFixed(2) ?? ''), [txn.id, txn.pl])
+  const valid = value.trim() !== '' && Number.isFinite(Number(value))
+  return <div className="mt-4 rounded-xl border border-border-soft bg-surface-2/40 p-3"><label className="text-xs text-muted"><span>Realized P/L</span><div className="mt-1 flex gap-2"><span className="flex min-w-0 flex-1 items-center rounded-lg border border-border bg-surface-2 px-3"><span className="text-faint">$</span><input type="number" step="0.01" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Enter Schwab realized gain or loss" className="num min-w-0 flex-1 bg-transparent px-1 py-2 text-sm text-ink outline-none"/></span><button onClick={() => valid && updateTransaction(txn.id, { pl: Number(value), plEstimated: false, plSource: 'manual' })} disabled={!valid} className="rounded-lg border border-border px-3 text-xs font-semibold text-brand disabled:opacity-40">Save</button>{txn.plSource === 'manual' && <button onClick={() => updateTransaction(txn.id, { pl: undefined, plEstimated: undefined, plSource: undefined })} className="rounded-lg border border-border px-3 text-xs text-muted">Clear</button>}</div></label><div className="mt-2 text-[10px] text-faint">Enter the realized gain or loss shown by Schwab, including its sign. Manual values persist after sync and across devices. Clearing restores any estimate the app can reconstruct.</div>{txn.pl != null && <div className="mt-2 text-[10px] font-medium text-pos">Current source: {txn.plSource === 'manual' ? 'Manual Schwab value' : txn.plEstimated ? 'App estimate' : 'Broker/imported value'}</div>}</div>
+}
+
 export function TransactionDrawer({
   txn,
   onClose,
@@ -211,6 +220,7 @@ export function TransactionDrawer({
               {txn.symbol && <Tile icon={<BarChart3 size={13} />} label="Symbol" value={txn.symbol} />}
               {txn.units !== 0 && <Tile icon={<BarChart3 size={13} />} label="Units" value={num(txn.units)} />}
             </div>
+            {isClosingSale(txn) && <RealizedPlEditor txn={txn} />}
 
             <div className="mb-3 mt-7 text-sm font-semibold text-muted">Snapshot Reference</div>
             <div className="grid grid-cols-2 gap-3">

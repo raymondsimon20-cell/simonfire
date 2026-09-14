@@ -92,12 +92,14 @@ export interface Transaction {
 export interface CsvPositionAuthority {
   accountMask: string
   importedAt: string
+  importBatchId?: string
   position: Omit<Position, 'id' | 'accountId'>
 }
 
 export interface CsvTransactionAuthority {
   accountMask: string
   importedAt: string
+  importBatchId?: string
   transaction: Omit<Transaction, 'id' | 'accountId'>
 }
 
@@ -147,6 +149,19 @@ export interface AppData {
   realizedPlOverrides?: Record<string, number>
   csvPositionAuthority?: CsvPositionAuthority[]
   csvTransactionAuthority?: CsvTransactionAuthority[]
+  importHistory?: ImportHistoryEntry[]
+  freshnessThresholds?: { positions: number; transactions: number; realizedPl: number }
+}
+
+export interface ImportHistoryEntry {
+  id: string
+  importedAt: string
+  files: string[]
+  positions: number
+  transactions: number
+  realizedPl: number
+  realizedPlKeys?: string[]
+  status: 'active' | 'rolled_back'
 }
 
 export interface SyncChangeSummary {
@@ -157,6 +172,9 @@ export interface SyncChangeSummary {
   newDividends: number
   valueChange: number
   latestTransactionDate: string
+  quantityChanges?: string[]
+  csvAuthoritativeRecords?: number
+  csvConflicts?: number
 }
 
 export interface IncomePlan {

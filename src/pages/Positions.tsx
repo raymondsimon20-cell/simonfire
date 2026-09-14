@@ -11,6 +11,7 @@ import type { Position } from '../lib/types'
 import { bucketOf, BUCKETS, type Bucket } from '../lib/buckets'
 import { useToast } from '../components/Toast'
 import clsx from 'clsx'
+import { SourceBadge } from '../components/SourceBadge'
 
 type SortKey =
   | 'symbol'
@@ -164,7 +165,7 @@ export default function Positions() {
         }
       />
 
-      {csvSnapshotDays != null && csvSnapshotDays >= 7 && <div className="mb-4 flex items-start gap-2 rounded-xl border border-[#e1c887]/25 bg-[#e1c887]/[.06] px-4 py-3 text-xs text-muted"><AlertTriangle size={16} className="mt-0.5 shrink-0 text-[#e1c887]"/><div><strong className="text-ink">Position CSV snapshot is {csvSnapshotDays} days old.</strong><div className="mt-0.5 text-faint">Share quantities and prices are current from Schwab. Cost basis still comes from the CSV snapshot; upload a newer Positions CSV after transfers, assignments, or cost-basis adjustments.</div></div></div>}
+      {csvSnapshotDays != null && csvSnapshotDays >= (data.freshnessThresholds?.positions ?? 7) && <div className="mb-4 flex items-start gap-2 rounded-xl border border-[#e1c887]/25 bg-[#e1c887]/[.06] px-4 py-3 text-xs text-muted"><AlertTriangle size={16} className="mt-0.5 shrink-0 text-[#e1c887]"/><div><strong className="text-ink">Position CSV snapshot is {csvSnapshotDays} days old.</strong><div className="mt-0.5 text-faint">Share quantities and prices are current from Schwab. Cost basis still comes from the CSV snapshot; upload a newer Positions CSV after transfers, assignments, or cost-basis adjustments.</div></div></div>}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Total Value" value={usd(totals.value)} icon={<DollarSign size={20} />} tile="green" />
@@ -204,7 +205,7 @@ export default function Positions() {
         <button onClick={() => setCompact((v) => !v)} className="ml-auto rounded-lg border border-border px-3 py-2 text-xs text-muted hover:text-ink">{compact ? 'Comfortable rows' : 'Compact rows'}</button>
       </div>
 
-      <div className="card mt-4 overflow-x-auto p-0">
+      <div className="card mt-4 hidden overflow-x-auto p-0 md:block">
         <table className="w-full min-w-[980px] text-sm">
           <thead>
             <tr className="border-b border-border-soft text-left text-xs text-muted">
@@ -271,6 +272,7 @@ export default function Positions() {
           </tbody>
         </table>
       </div>
+      <div className="mt-4 space-y-2 md:hidden">{rows.filtered.map(({ p, m, weight }) => <button key={p.id} onClick={() => setSelected(p)} className="card w-full p-4 text-left"><div className="flex items-start justify-between gap-3"><div><HoldingCell p={p}/><div className="mt-1 text-xs text-faint">{accName(p.accountId)} · {num(displayShares(p))} shares</div></div><div className="text-right"><div className="num font-semibold">{usd(m.value)}</div><div className="text-xs text-faint">{pct(weight * 100)} of portfolio</div></div></div><div className="mt-3 grid grid-cols-2 gap-2 border-t border-border-soft pt-3 text-xs"><div><span className="text-faint">Price </span><SourceBadge source="api"/><div className="num mt-1">{usd(displayPrice(p))}</div></div><div className="text-right"><span className="text-faint">Total gain </span><SourceBadge source={p.dataSource === 'csv' ? 'csv' : 'api'}/><div className={clsx('num mt-1', posNeg(m.totalGain))}>{usd(m.totalGain, { sign: true })}</div></div></div></button>)}</div>
 
       <PositionDrawer position={selected} onClose={() => setSelected(null)} />
     </div>

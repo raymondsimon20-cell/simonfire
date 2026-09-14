@@ -1,0 +1,52 @@
+import { AlertTriangle, ArchiveRestore, CheckCircle2, Clock, Database, Download, Upload } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { DEFAULT_FRESHNESS, useStore } from '../lib/store'
+import { duplicateTransactionIds, isClosingSale } from '../lib/transaction-review'
+import { PageHeader, Button } from '../components/ui'
+import { relTime } from '../lib/format'
+
+const ageDays = (at: string, now: string) => at ? Math.max(0, Math.floor((new Date(now).getTime() - new Date(at).getTime()) / 86_400_000)) : null
+const latest = (rows: { importedAt: string }[]) => rows.reduce((value, row) => row.importedAt > value ? row.importedAt : value, '')
+
+export default function DataQuality() {
+  const { data, rollbackImport, setFreshnessThresholds, restoreBackup } = useStore()
+  const duplicateCount = duplicateTransactionIds(data.transactions).size
+  const missingPl = data.transactions.filter((row) => isClosingSale(row) && row.pl == null).length
+  const unassigned = data.transactions.filter((row) => row.type === 'Dividend' && !row.symbol).length
+  const other = data.transactions.filter((row) => row.type === 'Other').length
+  const conflicts = data.lastSyncChanges?.csvConflicts ?? 0
+  const thresholds = data.freshnessThresholds ?? DEFAULT_FRESHNESS
+  const positionAge = ageDays(latest(data.csvPositionAuthority ?? []), data.lastSyncAt)
+  const transactionAge = ageDays(latest(data.csvTransactionAuthority ?? []), data.lastSyncAt)
+  const realizedRows = (data.csvTransactionAuthority ?? []).filter((row) => row.transaction.pl != null)
+  const realizedAge = ageDays(latest(realizedRows), data.lastSyncAt)
+  const stale = (positionAge != null && positionAge >= thresholds.positions) || (transactionAge != null && transactionAge >= thresholds.transactions) || (realizedAge != null && realizedAge >= thresholds.realizedPl)
+  const exceptions = duplicateCount + missingPl + unassigned + other + conflicts + (stale ? 1 : 0)
+  const confidence = exceptions === 0 ? 'High' : exceptions <= 5 ? 'Medium' : 'Low'
+
+  const downloadBackup = () => {
+    const blob = new Blob([JSON.stringify({ format: 'simonfire-backup', exportedAt: new Date().toISOString(), data }, null, 2)], { type: 'application/json' })
+    const anchor = document.createElement('a'); anchor.href = URL.createObjectURL(blob); anchor.download = `simonfire-backup-${new Date().toISOString().slice(0, 10)}.json`; anchor.click(); URL.revokeObjectURL(anchor.href)
+  }
+  const restore = (file?: File) => {
+    if (!file) return
+    void file.text().then((text) => {
+      const parsed = JSON.parse(text)
+      const backup = parsed?.format === 'simonfire-backup' ? parsed.data : parsed
+      if (confirm(`Restore ${backup?.positions?.length ?? 0} positions and ${backup?.transactions?.length ?? 0} transactions from ${file.name}? Current local data will be replaced.`)) restoreBackup(backup)
+    }).catch(() => alert('That file is not a valid SimonFIRE backup.'))
+  }
+
+  return <div><PageHeader title="Data Quality" subtitle="Sources, freshness, exceptions, imports, and recoverability" right={<><Button onClick={downloadBackup}><Download size={15}/> Export backup</Button><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"><Upload size={15}/> Restore backup<input type="file" accept="application/json,.json" className="hidden" onChange={(event) => restore(event.target.files?.[0])}/></label></>}/>
+    <div className="grid gap-4 sm:grid-cols-3"><Metric label="Overall confidence" value={confidence} good={confidence === 'High'} note={`${exceptions} item${exceptions === 1 ? '' : 's'} need attention`}/><Metric label="CSV position snapshot" value={positionAge == null ? 'Not uploaded' : `${positionAge} days old`} good={positionAge != null && positionAge < thresholds.positions} note="Cost basis source"/><Metric label="Latest API sync" value={relTime(data.lastSyncAt)} good={data.source === 'live'} note="Balances, inventory, prices, and orders"/></div>
+    <section className="card mt-5 p-5"><h2 className="font-semibold">Needs attention</h2><p className="mt-1 text-xs text-faint">Exceptions appear here only when they can affect a calculation or require review.</p><div className="mt-4 grid gap-2 sm:grid-cols-2">{duplicateCount > 0 && <Issue label={`${duplicateCount} potential duplicate records`} to="/transactions"/>}{missingPl > 0 && <Issue label={`${missingPl} closing sales missing P/L`} to="/transactions"/>}{unassigned > 0 && <Issue label={`${unassigned} dividends missing symbols`} to="/dividends"/>}{other > 0 && <Issue label={`${other} uncategorized transactions`} to="/transactions"/>}{conflicts > 0 && <Issue label={`${conflicts} API values differed from authoritative CSV values in the last sync`}/>} {stale && <Issue label="One or more CSV accounting snapshots are stale"/>}{exceptions === 0 && <div className="flex items-center gap-2 text-sm text-pos"><CheckCircle2 size={16}/> No material data exceptions found.</div>}</div></section>
+    <section className="card mt-5 p-5"><h2 className="font-semibold">Freshness controls</h2><p className="mt-1 text-xs text-faint">Choose when SimonFIRE should warn that an accounting export needs refreshing.</p><div className="mt-4 grid gap-3 sm:grid-cols-3"><Threshold label="Positions CSV" value={thresholds.positions} onChange={(positions) => setFreshnessThresholds({ ...thresholds, positions })}/><Threshold label="Transactions CSV" value={thresholds.transactions} onChange={(transactions) => setFreshnessThresholds({ ...thresholds, transactions })}/><Threshold label="Realized P/L CSV" value={thresholds.realizedPl} onChange={(realizedPl) => setFreshnessThresholds({ ...thresholds, realizedPl })}/></div></section>
+    <section className="card mt-5 p-5"><div className="flex items-center gap-2"><Database size={16} className="text-brand"/><h2 className="font-semibold">Import history</h2></div><p className="mt-1 text-xs text-faint">Every authoritative CSV import is recorded. Rolling back removes that batch’s authority; sync Schwab afterward to refresh affected live rows.</p><div className="mt-4 divide-y divide-border-soft">{(data.importHistory ?? []).map((entry) => <div key={entry.id} className="flex flex-wrap items-center gap-3 py-3 text-xs"><Clock size={14} className="text-faint"/><div className="min-w-0 flex-1"><div className="truncate font-medium">{entry.files.join(', ')}</div><div className="text-faint">{relTime(entry.importedAt)} · {entry.positions} positions · {entry.transactions} transactions · {entry.realizedPl} P/L values</div></div><span className={entry.status === 'active' ? 'text-pos' : 'text-faint'}>{entry.status === 'active' ? 'Active' : 'Rolled back'}</span>{entry.status === 'active' && <button onClick={() => confirm('Remove this CSV batch as an authoritative source? Sync Schwab afterward to refresh affected records.') && rollbackImport(entry.id)} className="inline-flex items-center gap-1 font-semibold text-[#e1c887]"><ArchiveRestore size={13}/> Roll back</button>}</div>)}{!(data.importHistory?.length) && <div className="py-6 text-sm text-faint">No CSV imports recorded yet.</div>}</div></section>
+    <section className="card mt-5 p-5"><h2 className="font-semibold">Calculation trust</h2><div className="mt-3 grid gap-2 text-xs sm:grid-cols-2"><Trust label="Balances and equity" source="Live Schwab API"/><Trust label="Current quantities and prices" source="Live Schwab API"/><Trust label="Cost basis" source={positionAge == null ? 'Schwab API until a CSV is uploaded' : 'Latest Positions CSV'}/><Trust label="Historical transactions and realized P/L" source="Schwab CSV when matched; API supplements gaps"/></div></section>
+  </div>
+}
+
+function Metric({ label, value, good, note }: { label: string; value: string; good: boolean; note: string }) { return <div className="card p-4"><div className="flex items-center justify-between text-xs text-faint"><span>{label}</span>{good ? <CheckCircle2 size={14} className="text-pos"/> : <AlertTriangle size={14} className="text-[#e1c887]"/>}</div><div className="mt-2 text-xl font-semibold">{value}</div><div className="mt-1 text-xs text-faint">{note}</div></div> }
+function Issue({ label, to }: { label: string; to?: string }) { const body = <><AlertTriangle size={14} className="text-[#e1c887]"/><span>{label}</span></>; return to ? <Link to={to} className="flex items-center gap-2 rounded-xl border border-[#e1c887]/15 bg-[#e1c887]/5 p-3 text-xs hover:border-[#e1c887]/30">{body}</Link> : <div className="flex items-center gap-2 rounded-xl border border-[#e1c887]/15 bg-[#e1c887]/5 p-3 text-xs">{body}</div> }
+function Threshold({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) { return <label className="rounded-xl border border-border-soft p-3 text-xs text-muted"><span>{label}</span><div className="mt-2 flex items-center gap-2"><input type="number" min="1" max="365" value={value} onChange={(event) => onChange(Math.max(1, Number(event.target.value) || 1))} className="num w-20 rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-ink"/><span className="text-faint">days</span></div></label> }
+function Trust({ label, source }: { label: string; source: string }) { return <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2"><span className="text-muted">{label}</span><span className="text-right font-medium">{source}</span></div> }

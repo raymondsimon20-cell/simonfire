@@ -11,6 +11,7 @@ import clsx from 'clsx'
 import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Transaction } from '../lib/types'
 import { estimateDividendDate } from '../lib/dividend-calendar'
+import { SourceBadge } from '../components/SourceBadge'
 
 const todayISO = () => {
   const now = new Date()
@@ -101,12 +102,12 @@ export default function Dividends() {
 
       <div className="mt-6 grid gap-4 xl:grid-cols-2">
         <div className="card">
-          <div className="mb-1 text-lg font-semibold">Historical Payment Pattern</div>
+          <div className="mb-1 flex items-center gap-2 text-lg font-semibold">Historical Payment Pattern <SourceBadge source="csv" label="CSV + API"/></div>
           <div className="mb-4 text-xs text-faint">Dividends actually received in each of the last 12 calendar months, including assigned and unassigned payments.</div>
           <PositiveBars key={`history-${lastSyncAt}`} data={historicalData} xKey="label" yKey="amount" height={280} color="#34d17d" />
         </div>
         <div className="card">
-          <div className="mb-1 text-lg font-semibold">Projected Next 12 Months</div>
+          <div className="mb-1 flex items-center gap-2 text-lg font-semibold">Projected Next 12 Months <SourceBadge source="estimated"/></div>
           <div className="mb-4 text-xs text-faint">Estimated forward income distributed using prior payment timing and today’s shares. This is a forecast, not received cash.</div>
           <PositiveBars key={`forecast-${lastSyncAt}`} data={futureData} xKey="label" yKey="amount" height={280} />
         </div>

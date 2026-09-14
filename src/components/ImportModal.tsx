@@ -65,7 +65,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
   const doApply = () => {
     if (realizedPreview) {
       if (!realizedPreview.matches.length) return
-      applyRealizedPlMatches(realizedPreview.matches)
+      applyRealizedPlMatches(realizedPreview.matches, realizedFile?.name)
       push('Realized P/L reconciled', 'success', `${realizedPreview.matches.length} missing values filled · ambiguous and unmatched rows unchanged`)
       reset(); onClose(); return
     }
@@ -75,7 +75,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
       enrichDividendSymbols(enrichment.matches)
       push('Dividend symbols enriched', 'success', `${enrichment.matches.length} existing payments updated · no transactions added`)
     } else {
-      applyImport({ accounts: result.accounts, positions: result.positions, transactions: result.transactions, broker }, mode)
+      applyImport({ accounts: result.accounts, positions: result.positions, transactions: result.transactions, broker, importFiles: [posFile?.name, txnFile?.name].filter((name): name is string => !!name) }, mode)
       push('Portfolio import complete', 'success', `${result.positions.length} positions · ${result.transactions.length} transactions`)
     }
     reset()

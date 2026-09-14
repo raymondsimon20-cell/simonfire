@@ -9,6 +9,11 @@ export function summarizeSync(previousPositions: Position[], previousTransaction
   const afterPositions = new Set(nextPositions.map(positionKey))
   const previousTxn = new Set(previousTransactions.map(transactionKey))
   const newRows = nextTransactions.filter((transaction) => !previousTxn.has(transactionKey(transaction)))
+  const beforeByPosition = new Map(previousPositions.map((position) => [positionKey(position), position]))
+  const quantityChanges = nextPositions.filter((position) => {
+    const before = beforeByPosition.get(positionKey(position))
+    return before && Math.abs(before.shares - position.shares) > 0.000001
+  }).map((position) => `${position.symbol} ${beforeByPosition.get(positionKey(position))!.shares} → ${position.shares}`)
   return {
     at,
     addedPositions: [...afterPositions].filter((key) => !beforePositions.has(key)).map((key) => key.split('|').at(-1)!),
@@ -17,5 +22,7 @@ export function summarizeSync(previousPositions: Position[], previousTransaction
     newDividends: newRows.filter((transaction) => transaction.type === 'Dividend').length,
     valueChange: +(value(nextPositions) - value(previousPositions)).toFixed(2),
     latestTransactionDate: nextTransactions.reduce((latest, transaction) => transaction.date > latest ? transaction.date : latest, ''),
+    quantityChanges,
+    csvAuthoritativeRecords: nextPositions.filter((row) => row.dataSource === 'csv').length + nextTransactions.filter((row) => row.dataSource === 'csv').length,
   }
 }

@@ -123,7 +123,7 @@ assert.equal(enrichment.ambiguous.length, 0)
 const realizedCsv = `"Symbol","Closed Date","Quantity","Proceeds","Gain/Loss ($)","Transaction Closed Date","Total Transaction Gain/Loss ($)"
 "SPXU","09/14/2026","44","$1,575.60","$67.28","09/14/2026","$64.44"
 "SPXU","09/14/2026","1","$35.81","-$11.55","09/14/2026","$64.44"`
-const aggregateSale = txn({ id: 'sale', accountId: existingAccount.id, date: '2026-09-14', type: 'Sell', symbol: 'SPXU', description: 'TRADE', amount: 1611.41, units: -45 })
+const aggregateSale = txn({ id: 'sale', accountId: existingAccount.id, date: '2026-09-14', type: 'Sell', symbol: 'SPXU', description: 'TRADE', amount: 1611.41, units: -45, pl: 12 })
 const realizedPreview = previewRealizedGainLoss(realizedCsv, [existingAccount], [aggregateSale], existingAccount.mask)
 assert.equal(realizedPreview.rows, 1)
 assert.equal(realizedPreview.matches.length, 1)

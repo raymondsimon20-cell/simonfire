@@ -87,6 +87,7 @@ function classifyKnownOthers(d: AppData) {
 
 const STORAGE_KEY = 'simonfire.data.v1'
 export const DEFAULT_INCOME_PLAN: IncomePlan = { annualW2Target: 0, monthlySpending: 0, estimatedTaxRate: 20, distributionCutPct: 20, cashReserveMonths: 6, marginEquityAlertPct: 50, concentrationAlertPct: 15, incomeCoverageAlertPct: 100 }
+export const DEFAULT_FRESHNESS = { positions: 7, transactions: 14, realizedPl: 30 }
 
 // ---- Persistence (swap this module for a Supabase-backed one later) ----
 function load(): AppData {
@@ -102,6 +103,8 @@ function load(): AppData {
         parsed.incomePlan = { ...DEFAULT_INCOME_PLAN, ...(parsed.incomePlan ?? {}) }
         if (!parsed.spendingExclusions) parsed.spendingExclusions = []
         if (!parsed.archivedTransactions) parsed.archivedTransactions = []
+        if (!parsed.importHistory) parsed.importHistory = []
+        parsed.freshnessThresholds = { ...DEFAULT_FRESHNESS, ...(parsed.freshnessThresholds ?? {}) }
         for (const p of parsed.positions) p.allocationBucket = parsed.bucketOverrides[`${p.accountId}|${p.symbol}`]
         // Backfill sample analytics for datasets stored before these existed.
         if (parsed.source === 'sample' && (!parsed.twr || !parsed.insights)) {
@@ -151,6 +154,8 @@ function sharedPreferences(data: AppData): SharedPreferences {
     realizedPlOverrides: data.realizedPlOverrides ?? {},
     csvPositionAuthority: data.csvPositionAuthority ?? [],
     csvTransactionAuthority: data.csvTransactionAuthority ?? [],
+    importHistory: data.importHistory ?? [],
+    freshnessThresholds: data.freshnessThresholds ?? DEFAULT_FRESHNESS,
   }
 }
 
@@ -166,6 +171,8 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   data.realizedPlOverrides = preferences.realizedPlOverrides ?? data.realizedPlOverrides ?? {}
   data.csvPositionAuthority = preferences.csvPositionAuthority ?? data.csvPositionAuthority ?? []
   data.csvTransactionAuthority = preferences.csvTransactionAuthority ?? data.csvTransactionAuthority ?? []
+  data.importHistory = preferences.importHistory ?? data.importHistory ?? []
+  data.freshnessThresholds = { ...DEFAULT_FRESHNESS, ...(preferences.freshnessThresholds ?? data.freshnessThresholds ?? {}) }
   if (data.csvPositionAuthority.length || data.csvTransactionAuthority.length) {
     const reconciled = reconcileCsvAuthority(data.accounts, data.positions, data.transactions, data.csvPositionAuthority, data.csvTransactionAuthority, data.source !== 'live')
     data.positions = reconciled.positions
@@ -194,7 +201,7 @@ interface StoreCtx {
   updateTransaction: (id: string, patch: Partial<Transaction>) => void
   assignTransactionSymbol: (id: string, symbol: string) => void
   enrichDividendSymbols: (matches: { transactionId: string; symbol: string }[]) => void
-  applyRealizedPlMatches: (matches: { transactionId: string; pl: number }[]) => void
+  applyRealizedPlMatches: (matches: { transactionId: string; pl: number }[], fileName?: string) => void
   deleteTransaction: (id: string) => void
   archiveTransactions: (ids: string[]) => void
   restoreTransaction: (id: string) => void
@@ -207,6 +214,9 @@ interface StoreCtx {
   addConnection: (broker: string) => void
   removeConnection: (id: string) => void
   applyImport: (result: ImportPayload, mode: 'replace' | 'merge', source?: 'imported' | 'live') => void
+  rollbackImport: (id: string) => void
+  setFreshnessThresholds: (value: AppData['freshnessThresholds']) => void
+  restoreBackup: (backup: AppData) => void
   reset: () => void
   // Target-plan / rebalance
   setKeepList: (list: string[]) => void
@@ -233,6 +243,7 @@ export interface ImportPayload {
   broker?: string
   twr?: TwrSeries
   insights?: Insights
+  importFiles?: string[]
 }
 
 const Ctx = createContext<StoreCtx | null>(null)
@@ -274,7 +285,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!sharedReady) return
     const timeout = window.setTimeout(() => { void saveSharedPreferences(sharedPreferences(data)) }, 350)
     return () => window.clearTimeout(timeout)
-  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, sharedReady])
+  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, data.importHistory, data.freshnessThresholds, sharedReady])
 
   const mutate = useCallback((fn: (d: AppData) => AppData, label?: string) => {
     setData((prev) => {
@@ -380,7 +391,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   const applyRealizedPlMatches: StoreCtx['applyRealizedPlMatches'] = useCallback(
-    (matches) => mutate((d) => {
+    (matches, fileName) => mutate((d) => {
+      const batchId = uid()
+      const importedAt = new Date().toISOString()
+      const realizedPlKeys: string[] = []
       d.realizedPlOverrides = d.realizedPlOverrides ?? {}
       for (const match of matches) {
         const transaction = d.transactions.find((row) => row.id === match.transactionId)
@@ -389,10 +403,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         transaction.plEstimated = false
         transaction.plSource = 'csv'
         transaction.dataSource = 'csv'
-        d.realizedPlOverrides[realizedPlOverrideKey(transaction)] = match.pl
-        const captured = captureCsvAuthority(d.accounts, [], [transaction], new Date().toISOString())
+        const overrideKey = realizedPlOverrideKey(transaction)
+        d.realizedPlOverrides[overrideKey] = match.pl
+        realizedPlKeys.push(overrideKey)
+        const captured = captureCsvAuthority(d.accounts, [], [transaction], importedAt, batchId)
         d.csvTransactionAuthority = mergeTransactionAuthority(d.csvTransactionAuthority ?? [], captured.transactions)
       }
+      d.importHistory = [{ id: batchId, importedAt, files: [fileName ?? 'Schwab Realized Gain/Loss CSV'], positions: 0, transactions: 0, realizedPl: matches.length, realizedPlKeys, status: 'active' as const }, ...(d.importHistory ?? [])].slice(0, 100)
       return d
     }, `Import realized P/L for ${matches.length} sale${matches.length === 1 ? '' : 's'}`), [mutate],
   )
@@ -523,8 +540,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       mutate((d) => {
         let nextPositions = result.positions
         let nextTransactions = result.transactions
+        let csvConflicts = 0
         if (source === 'imported') {
-          const captured = captureCsvAuthority(result.accounts, result.positions, result.transactions, now)
+          const batchId = uid()
+          const captured = captureCsvAuthority(result.accounts, result.positions, result.transactions, now, batchId)
+          d.importHistory = [{ id: batchId, importedAt: now, files: result.importFiles ?? ['Schwab CSV'], positions: result.positions.length, transactions: result.transactions.length, realizedPl: result.transactions.filter((row) => row.pl != null).length, status: 'active' as const }, ...(d.importHistory ?? [])].slice(0, 100)
           if (mode === 'replace') {
             if (captured.positions.length) d.csvPositionAuthority = captured.positions
             if (captured.transactions.length) d.csvTransactionAuthority = captured.transactions
@@ -538,8 +558,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const reconciled = reconcileCsvAuthority(result.accounts, result.positions, result.transactions, d.csvPositionAuthority ?? [], d.csvTransactionAuthority ?? [])
           nextPositions = reconciled.positions
           nextTransactions = reconciled.transactions
+          csvConflicts = reconciled.conflicts
         }
         const syncChanges = summarizeSync(d.positions, d.transactions, nextPositions, nextTransactions, now)
+        syncChanges.csvConflicts = csvConflicts
         d.source = source
         if (mode === 'replace') {
           d.accounts = result.accounts
@@ -591,6 +613,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const reset: StoreCtx['reset'] = useCallback(() => {
     const seed = buildSeed()
     setData(seed)
+    setScope('all')
+  }, [])
+
+  const rollbackImport: StoreCtx['rollbackImport'] = useCallback((id) => mutate((d) => {
+    const entry = (d.importHistory ?? []).find((row) => row.id === id)
+    d.csvPositionAuthority = (d.csvPositionAuthority ?? []).filter((row) => row.importBatchId !== id)
+    d.csvTransactionAuthority = (d.csvTransactionAuthority ?? []).filter((row) => row.importBatchId !== id)
+    for (const key of entry?.realizedPlKeys ?? []) delete d.realizedPlOverrides?.[key]
+    d.importHistory = (d.importHistory ?? []).map((row) => row.id === id ? { ...row, status: 'rolled_back' } : row)
+    return d
+  }, 'CSV import rollback'), [mutate])
+
+  const setFreshnessThresholds: StoreCtx['setFreshnessThresholds'] = useCallback((value) => mutate((d) => {
+    d.freshnessThresholds = { ...DEFAULT_FRESHNESS, ...(value ?? {}) }
+    return d
+  }), [mutate])
+
+  const restoreBackup: StoreCtx['restoreBackup'] = useCallback((backup) => {
+    if (!backup || backup.version !== 1 || !Array.isArray(backup.accounts) || !Array.isArray(backup.positions) || !Array.isArray(backup.transactions)) throw new Error('Invalid SimonFIRE backup')
+    setData(structuredClone(backup))
     setScope('all')
   }, [])
 
@@ -756,6 +798,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addConnection,
       removeConnection,
       applyImport,
+      rollbackImport,
+      setFreshnessThresholds,
+      restoreBackup,
       reset,
       setKeepList,
       sellPosition,
@@ -794,6 +839,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addConnection,
       removeConnection,
       applyImport,
+      rollbackImport,
+      setFreshnessThresholds,
+      restoreBackup,
       reset,
       setKeepList,
       sellPosition,

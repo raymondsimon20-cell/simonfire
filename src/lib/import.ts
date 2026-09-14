@@ -173,7 +173,7 @@ export function previewRealizedGainLoss(text: string, accounts: Account[], trans
   for (const group of groups.values()) {
     const { symbol, date, quantity, proceeds } = group; const pl = group.transactionPl ?? group.lotPl
     const accountIds = fallbackMask ? accounts.filter((account) => account.mask === fallbackMask).map((account) => account.id) : accounts.length === 1 ? [accounts[0].id] : []
-    let candidates = transactions.filter((transaction) => !used.has(transaction.id) && transaction.pl == null && isClosingSale(transaction) && transaction.date === date && securityKey(transaction.symbol ?? '') === securityKey(symbol))
+    let candidates = transactions.filter((transaction) => !used.has(transaction.id) && isClosingSale(transaction) && transaction.date === date && securityKey(transaction.symbol ?? '') === securityKey(symbol))
     if (accountIds.length) candidates = candidates.filter((transaction) => accountIds.includes(transaction.accountId))
     if (quantity > 0) candidates = candidates.filter((transaction) => Math.abs(Math.abs(transaction.units) - quantity) < 0.000001)
     if (proceeds > 0) candidates = candidates.filter((transaction) => Math.abs(Math.abs(transaction.amount) + Math.abs(transaction.fee ?? 0) - proceeds) < 0.02 || Math.abs(Math.abs(transaction.amount) - proceeds) < 0.02)

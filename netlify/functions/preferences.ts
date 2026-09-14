@@ -12,6 +12,8 @@ type SharedPreferences = {
   realizedPlOverrides?: Record<string, number>
   csvPositionAuthority?: unknown[]
   csvTransactionAuthority?: unknown[]
+  importHistory?: unknown[]
+  freshnessThresholds?: { positions: number; transactions: number; realizedPl: number }
   incomePlan?: {
     annualW2Target: number
     monthlySpending: number
@@ -75,6 +77,13 @@ function clean(input: any): SharedPreferences {
   const realizedPlOverrides = Object.fromEntries(Object.entries(input?.realizedPlOverrides ?? {}).filter(([key, value]) => key.length <= 300 && Number.isFinite(value) && Math.abs(Number(value)) <= 100_000_000).slice(0, 5_000)) as Record<string, number>
   const csvPositionAuthority = Array.isArray(input?.csvPositionAuthority) ? input.csvPositionAuthority.filter((row: any) => row && typeof row.accountMask === 'string' && row.position && typeof row.position.symbol === 'string').slice(0, 5_000) : []
   const csvTransactionAuthority = Array.isArray(input?.csvTransactionAuthority) ? input.csvTransactionAuthority.filter((row: any) => row && typeof row.accountMask === 'string' && row.transaction && typeof row.transaction.date === 'string' && typeof row.transaction.amount === 'number').slice(0, 20_000) : []
+  const importHistory = Array.isArray(input?.importHistory) ? input.importHistory.filter((row: any) => row && typeof row.id === 'string' && typeof row.importedAt === 'string' && Array.isArray(row.files)).slice(0, 100) : []
+  const rawFreshness = input?.freshnessThresholds ?? {}
+  const freshnessThresholds = {
+    positions: numberIn(rawFreshness.positions, 1, 365, 7),
+    transactions: numberIn(rawFreshness.transactions, 1, 365, 14),
+    realizedPl: numberIn(rawFreshness.realizedPl, 1, 365, 30),
+  }
   return {
     bucketOverrides,
     tagRules,
@@ -86,6 +95,8 @@ function clean(input: any): SharedPreferences {
     realizedPlOverrides,
     csvPositionAuthority,
     csvTransactionAuthority,
+    importHistory,
+    freshnessThresholds,
     incomePlan,
   }
 }

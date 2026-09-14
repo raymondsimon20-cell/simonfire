@@ -1,6 +1,6 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
-import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles, History, FileText } from 'lucide-react'
+import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles, History, FileText, ShieldCheck } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { relTime } from '../lib/format'
@@ -57,6 +57,7 @@ const NAV = [
   { to: '/ledger', label: 'Ledger', icon: BookOpenText },
   { to: '/allocation', label: 'Allocation', icon: Goal },
   { to: '/reports', label: 'Reports', icon: FileText },
+  { to: '/data-quality', label: 'Data Quality', icon: ShieldCheck },
   { to: '/connections', label: 'Connections', icon: Cable },
 ]
 
@@ -205,6 +206,9 @@ export default function Layout() {
   const [privacy, setPrivacy] = useState(() => localStorage.getItem('simonfire.privacy') === 'on')
   const { push } = useToast()
   const location = useLocation()
+  const latestPositionCsv = (data.csvPositionAuthority ?? []).reduce((latest, row) => row.importedAt > latest ? row.importedAt : latest, '')
+  const positionCsvAge = latestPositionCsv ? Math.max(0, Math.floor((new Date(data.lastSyncAt).getTime() - new Date(latestPositionCsv).getTime()) / 86_400_000)) : null
+  const stalePositionCsv = positionCsvAge != null && positionCsvAge >= (data.freshnessThresholds?.positions ?? 7)
 
   useEffect(() => {
     const label = NAV.find((n) => n.to === location.pathname)?.label ?? (location.pathname.startsWith('/account/') ? 'Account' : 'Portfolio')
@@ -314,6 +318,7 @@ export default function Layout() {
 
       <main className="mx-auto max-w-[1480px] px-4 py-7 sm:px-6 lg:ml-[248px] lg:px-10 lg:py-9 xl:px-12">
         {(syncing || autoSyncing) && <div className="mb-4 flex items-center gap-2 rounded-xl border border-[#c7a96b]/20 bg-[#c7a96b]/8 px-4 py-2.5 text-xs text-[#dec78f]"><RefreshCw size={13} className="animate-spin" /> Securely refreshing portfolio data…</div>}
+        {stalePositionCsv && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#e1c887]/20 bg-[#e1c887]/[.06] px-4 py-2.5 text-xs"><span>Position cost-basis CSV is {positionCsvAge} days old. Live quantities and prices remain current.</span><Link to="/data-quality" className="shrink-0 font-semibold text-[#e1c887]">Review</Link></div>}
         {undoLabel && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#5aa2ff]/20 bg-[#5aa2ff]/8 px-4 py-2.5 text-xs"><span>{undoLabel} completed.</span><button onClick={undoLast} className="font-semibold text-[#7fb5ff]">Undo</button></div>}
         <div className="mb-5 flex justify-end lg:hidden">
           <AccountScope />

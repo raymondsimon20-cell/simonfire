@@ -19,6 +19,7 @@ import { usd, pct, num, posNeg } from '../lib/format'
 import clsx from 'clsx'
 import { BucketBadge } from './HoldingCell'
 import { bucketOf } from '../lib/buckets'
+import { SourceBadge } from './SourceBadge'
 
 type Mode = 'Auto' | 'On' | 'Off'
 
@@ -124,8 +125,8 @@ export function PositionDrawer({
             {/* Position Summary */}
             <Section title="Position Summary" />
             <div className="grid grid-cols-2 gap-3">
-              <Stat icon={<BarChart3 size={13} />} label="Shares" value={num(p.shares)} />
-              <Stat icon={<DollarSign size={13} />} label="Price" value={usd(p.lastPrice)} />
+              <Stat icon={<BarChart3 size={13} />} label={<span className="flex items-center gap-1.5">Shares <SourceBadge source="api"/></span>} value={num(p.shares)} />
+              <Stat icon={<DollarSign size={13} />} label={<span className="flex items-center gap-1.5">Price <SourceBadge source="api"/></span>} value={usd(p.lastPrice)} />
               <div className="col-span-2">
                 <Stat icon={<Calendar size={13} />} label="Market Value" value={usd(detail.m.value)} />
               </div>
@@ -151,8 +152,8 @@ export function PositionDrawer({
             {/* Cost Basis & Unrealized Gain */}
             <Section title="Cost Basis & Unrealized Gain" />
             <div className="grid grid-cols-2 gap-3">
-              <Stat icon={<DollarSign size={13} />} label="Cost Basis" value={usd(detail.m.costBasis)} />
-              <Stat icon={<DollarSign size={13} />} label="Avg Cost/Share" value={usd(p.avgCost)} />
+              <Stat icon={<DollarSign size={13} />} label={<span className="flex items-center gap-1.5">Cost Basis <SourceBadge source={p.dataSource === 'csv' ? 'csv' : 'api'}/></span>} value={usd(detail.m.costBasis)} />
+              <Stat icon={<DollarSign size={13} />} label={<span className="flex items-center gap-1.5">Avg Cost <SourceBadge source={p.dataSource === 'csv' ? 'csv' : 'api'}/></span>} value={usd(p.avgCost)} />
               <Stat
                 icon={detail.m.totalGain >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
                 label="Unrealized Gain ($)"
@@ -166,6 +167,7 @@ export function PositionDrawer({
                 valueClass={posNeg(detail.m.totalGain)}
               />
             </div>
+            <div className="mt-3 rounded-xl border border-border-soft bg-black/10 p-3 text-[10px] leading-5 text-faint"><strong className="text-muted">Calculation audit:</strong> market value = current API quantity × current API price. Unrealized gain = market value − (current quantity × CSV/API average cost). Total return adds tracked dividends and realized gains.</div>
 
             {/* Income & Total Return */}
             <div className="mb-3 mt-7 flex items-center justify-between">

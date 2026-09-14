@@ -12,13 +12,13 @@ export function transactionAuthorityKey(mask: string, transaction: Pick<Transact
   return [mask, transaction.date, transaction.type, security, cents(transaction.amount), Math.round(Math.abs(transaction.units) * 1_000_000)].join('|')
 }
 
-export function captureCsvAuthority(accounts: Account[], positions: Position[], transactions: Transaction[], importedAt: string) {
+export function captureCsvAuthority(accounts: Account[], positions: Position[], transactions: Transaction[], importedAt: string, importBatchId?: string) {
   return {
     positions: positions.map(({ id: _id, accountId, ...position }) => ({
-      accountMask: accountMask(accounts, accountId), importedAt, position: { ...position, dataSource: 'csv' as const },
+      accountMask: accountMask(accounts, accountId), importedAt, importBatchId, position: { ...position, dataSource: 'csv' as const },
     })),
     transactions: transactions.map(({ id: _id, accountId, ...transaction }) => ({
-      accountMask: accountMask(accounts, accountId), importedAt, transaction: { ...transaction, dataSource: 'csv' as const },
+      accountMask: accountMask(accounts, accountId), importedAt, importBatchId, transaction: { ...transaction, dataSource: 'csv' as const },
     })),
   }
 }
@@ -53,6 +53,7 @@ export function reconcileCsvAuthority(
   csvTransactions: CsvTransactionAuthority[],
   includeCsvOnlyPositions = false,
 ) {
+  let conflicts = 0
   const accountByMask = new Map(accounts.map((account) => [account.mask, account]))
   const positions: Position[] = apiPositions.map((position) => ({ ...position, dataSource: 'api' }))
   const positionIndex = new Map(positions.map((position, index) => [`${accountMask(accounts, position.accountId)}|${securityKey(position.symbol)}`, index]))
@@ -65,6 +66,7 @@ export function reconcileCsvAuthority(
     // A live API position list owns current inventory. A CSV-only position is
     // retained only while viewing an imported dataset before a live sync.
     if (!api && !includeCsvOnlyPositions) continue
+    if (api && Math.abs(api.avgCost - row.position.avgCost) > 0.005) conflicts++
     const merged: Position = {
       ...api,
       ...row.position,
@@ -97,6 +99,7 @@ export function reconcileCsvAuthority(
     const key = transactionAuthorityKey(row.accountMask, row.transaction)
     const index = transactionIndex.get(key)?.shift()
     const api = index == null ? undefined : transactions[index]
+    if (api && (api.type !== row.transaction.type || api.description !== row.transaction.description || (api.pl ?? null) !== (row.transaction.pl ?? null))) conflicts++
     const merged: Transaction = {
       ...api,
       ...row.transaction,
@@ -109,5 +112,5 @@ export function reconcileCsvAuthority(
     else transactions[index] = merged
   }
   transactions.sort((a, b) => b.date.localeCompare(a.date))
-  return { positions, transactions }
+  return { positions, transactions, conflicts }
 }

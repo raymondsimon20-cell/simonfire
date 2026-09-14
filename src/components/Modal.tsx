@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 export function Modal({
@@ -29,7 +30,7 @@ export function Modal({
   }, [open, onClose])
 
   if (!open) return null
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 grid place-items-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div
@@ -52,6 +53,7 @@ export function Modal({
         <div className="mt-5">{children}</div>
         {footer && <div className="mt-6 flex justify-end gap-2">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

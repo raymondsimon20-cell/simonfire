@@ -181,6 +181,7 @@ interface StoreCtx {
   assignTransactionSymbol: (id: string, symbol: string) => void
   enrichDividendSymbols: (matches: { transactionId: string; symbol: string }[]) => void
   deleteTransaction: (id: string) => void
+  archiveTransactions: (ids: string[]) => void
   restoreTransaction: (id: string) => void
   undoLabel: string
   undoLast: () => void
@@ -366,6 +367,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       d.archivedTransactions = (d.archivedTransactions ?? []).filter((t) => t.id !== id)
       return d
     }, 'Restore transaction'), [mutate],
+  )
+
+  const archiveTransactions: StoreCtx['archiveTransactions'] = useCallback(
+    (ids) => mutate((d) => {
+      const selected = new Set(ids)
+      const archived = d.transactions.filter((transaction) => selected.has(transaction.id))
+      d.archivedTransactions = [...archived, ...(d.archivedTransactions ?? [])]
+      d.transactions = d.transactions.filter((transaction) => !selected.has(transaction.id))
+      return d
+    }, `Archive ${ids.length} duplicate transaction${ids.length === 1 ? '' : 's'}`), [mutate],
   )
 
   const addTag: StoreCtx['addTag'] = useCallback(
@@ -665,6 +676,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       assignTransactionSymbol,
       enrichDividendSymbols,
       deleteTransaction,
+      archiveTransactions,
       restoreTransaction,
       undoLabel,
       undoLast,
@@ -701,6 +713,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       assignTransactionSymbol,
       enrichDividendSymbols,
       deleteTransaction,
+      archiveTransactions,
       restoreTransaction,
       undoLabel,
       undoLast,

@@ -1,5 +1,10 @@
 import { strict as assert } from 'node:assert'
 import { classifySchwabTransaction as classify, normalizeTransactionPattern, transactionPatternMatches } from '../src/lib/transaction-classification'
+import { duplicateTransactionIds } from '../src/lib/transaction-review'
+import type { Transaction } from '../src/lib/types'
+
+const duplicateBase = { accountId: 'a', date: '2026-09-01', type: 'Dividend', symbol: 'QQQ', amount: 12.34, units: 0, description: 'Cash  dividend QQQ', tags: [] } as Omit<Transaction, 'id'>
+assert.deepEqual([...duplicateTransactionIds([{ ...duplicateBase, id: 'first' }, { ...duplicateBase, id: 'second', description: ' cash DIVIDEND qqq ' }, { ...duplicateBase, id: 'different', amount: 12.35 }])], ['second'])
 
 assert.equal(classify({ rawType: 'JOURNAL', description: 'Foreign Tax Paid ACME LTD', amount: -12.34 }), 'Tax Withholding')
 assert.equal(classify({ rawType: 'JOURNAL', description: 'Federal Tax Withheld', amount: -45 }), 'Tax Withholding')

@@ -11,5 +11,5 @@
     "rootDir": "..",
     "outDir": "/tmp/simonfire-transaction-tests"
   },
-  "include": ["test-transaction-classification.ts", "../src/lib/transaction-classification.ts", "../src/lib/types.ts"]
+  "include": ["test-transaction-classification.ts", "../src/lib/transaction-classification.ts", "../src/lib/transaction-review.ts", "../src/lib/types.ts"]
 }

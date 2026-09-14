@@ -11,9 +11,10 @@ import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Transaction } from '../lib/types'
 import { usePersistentState } from '../lib/persistent-state'
 import { dateRangeStart, localISODate } from '../lib/date-range'
+import { duplicateTransactionIds } from '../lib/transaction-review'
 
 export default function Transactions() {
-  const { data, deleteTransaction, restoreTransaction, dateRange } = useStore()
+  const { data, deleteTransaction, archiveTransactions, restoreTransaction, dateRange } = useStore()
   const { transactions, accounts } = useScoped()
   const [modal, setModal] = useState(false)
   const [type, setType] = usePersistentState('simonfire.transactions.type', 'all')
@@ -23,20 +24,26 @@ export default function Transactions() {
   const [showTotals, setShowTotals] = useState(false)
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  const [review, setReview] = usePersistentState('simonfire.transactions.review', 'all')
 
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
+
+  const duplicateIds = useMemo(() => duplicateTransactionIds(transactions), [transactions])
+  const missingPlCount = useMemo(() => transactions.filter((transaction) => transaction.type === 'Sell' && transaction.pl == null).length, [transactions])
 
   const filtered = useMemo(
     () =>
       transactions.filter((t) => {
         if (type !== 'all' && t.type !== type) return false
         if (symbol && !(t.symbol ?? '').toLowerCase().includes(symbol.toLowerCase())) return false
+        if (review === 'missing-pl' && !(t.type === 'Sell' && t.pl == null)) return false
+        if (review === 'duplicates' && !duplicateIds.has(t.id)) return false
         const globalFrom = dateRangeStart(dateRange)
         if ((from || globalFrom) && t.date < (from || globalFrom)) return false
         if ((to || localISODate()) && t.date > (to || localISODate())) return false
         return true
       }),
-    [transactions, type, symbol, from, to, dateRange],
+    [transactions, type, symbol, review, duplicateIds, from, to, dateRange],
   )
 
   const totalsByType = useMemo(() => {
@@ -131,6 +138,7 @@ export default function Transactions() {
             ))}
           </select>
         </label>
+        <label className="flex items-center gap-2 text-sm text-muted">Review:<select value={review} onChange={(event) => setReview(event.target.value)} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none"><option value="all">All records</option><option value="missing-pl">Sales missing P/L ({missingPlCount})</option><option value="duplicates">Potential duplicates ({duplicateIds.size})</option></select></label>
         <label className="flex items-center gap-2 text-sm text-muted">
           Symbol:
           <span className="relative">
@@ -159,6 +167,7 @@ export default function Transactions() {
             className="rounded-lg border border-border bg-surface-2 px-2 py-2 text-sm outline-none [color-scheme:dark]"
           />
         </label>
+        {review === 'duplicates' && duplicateIds.size > 0 && <Button onClick={() => { if (confirm(`Archive ${duplicateIds.size} duplicate record${duplicateIds.size === 1 ? '' : 's'}? One copy of each matching transaction will remain and archived records can be restored.`)) archiveTransactions([...duplicateIds]) }}><Trash2 size={14}/> Archive shown duplicates</Button>}
         <span className="ml-auto text-xs text-faint">{filtered.length} transactions</span>
       </div>
 
@@ -189,7 +198,7 @@ export default function Transactions() {
                 <td className="num px-4 py-3 text-right text-faint">{t.strike ?? '-'}</td>
                 <td className="num px-4 py-3 text-right text-faint">{t.exp ?? '-'}</td>
                 <td className="px-4 py-3 text-xs text-muted">{accName(t.accountId)}</td>
-                <td className="max-w-[260px] truncate px-4 py-3 text-muted">{t.description}</td>
+                <td className="max-w-[260px] truncate px-4 py-3 text-muted">{t.description}{duplicateIds.has(t.id) && <span className="ml-2 rounded bg-[#c7a96b]/10 px-1.5 py-0.5 text-[10px] text-[#e1c887]" title="Same account, date, type, symbol, amount, units, and normalized description as an earlier record">Potential duplicate</span>}</td>
                 <td className={clsx('num px-4 py-3 text-right font-medium', t.amount > 0 ? 'text-pos' : t.amount < 0 ? 'text-neg' : 'text-faint')}>
                   {t.amount === 0 ? usd(0) : usd(t.amount, { sign: true })}
                 </td>

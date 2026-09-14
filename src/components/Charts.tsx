@@ -67,11 +67,13 @@ export function PositiveBars({
   xKey,
   yKey,
   height = 260,
+  color = BASE,
 }: {
   data: any[]
   xKey: string
   yKey: string
   height?: number
+  color?: string
 }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -79,7 +81,7 @@ export function PositiveBars({
         <XAxis dataKey={xKey} tick={axisStyle} axisLine={false} tickLine={false} minTickGap={8} />
         <YAxis tick={axisStyle} axisLine={false} tickLine={false} tickFormatter={money} width={48} />
         <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }} content={<ChartTip />} />
-        <Bar dataKey={yKey} radius={[4, 4, 0, 0]} fill={BASE} />
+        <Bar dataKey={yKey} radius={[4, 4, 0, 0]} fill={color} />
       </BarChart>
     </ResponsiveContainer>
   )

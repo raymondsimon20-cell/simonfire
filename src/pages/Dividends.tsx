@@ -28,9 +28,22 @@ export default function Dividends() {
   const d = useMemo(() => dividendStats(positions, transactions, today), [positions, transactions, today, lastSyncAt])
 
   const futureData = d.future.map((f) => ({
-    label: new Date(f.month + '-01').toLocaleDateString('en-US', { month: 'short' }),
+    label: new Date(f.month + '-01T00:00:00').toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
     amount: f.amount,
   }))
+  const historicalData = useMemo(() => {
+    const end = new Date(`${today.slice(0, 7)}-01T00:00:00`)
+    return Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(end.getFullYear(), end.getMonth() - 11 + index, 1)
+      const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+      return {
+        label: date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+        amount: transactions
+          .filter((transaction) => transaction.type === 'Dividend' && transaction.date <= today && transaction.date.slice(0, 7) === month)
+          .reduce((sum, transaction) => sum + transaction.amount, 0),
+      }
+    })
+  }, [today, transactions])
 
   const exportCsv = () =>
     downloadCsv('dividends.csv', [
@@ -85,10 +98,17 @@ export default function Dividends() {
         onSelect={(id) => setSelectedDividend(transactions.find((transaction) => transaction.id === id) ?? null)}
       />
 
-      <div className="card mt-6">
-        <div className="mb-1 text-lg font-semibold">Historical Payment Pattern (Next 12 Calendar Months)</div>
-        <div className="mb-4 text-xs text-faint">Current forward income is distributed using each symbol’s prior payment-month pattern and today’s shares. New payers are spread evenly until payment history establishes a pattern.</div>
-        <PositiveBars key={lastSyncAt} data={futureData} xKey="label" yKey="amount" height={280} />
+      <div className="mt-6 grid gap-4 xl:grid-cols-2">
+        <div className="card">
+          <div className="mb-1 text-lg font-semibold">Historical Payment Pattern</div>
+          <div className="mb-4 text-xs text-faint">Dividends actually received in each of the last 12 calendar months, including assigned and unassigned payments.</div>
+          <PositiveBars key={`history-${lastSyncAt}`} data={historicalData} xKey="label" yKey="amount" height={280} color="#34d17d" />
+        </div>
+        <div className="card">
+          <div className="mb-1 text-lg font-semibold">Projected Next 12 Months</div>
+          <div className="mb-4 text-xs text-faint">Estimated forward income distributed using prior payment timing and today’s shares. This is a forecast, not received cash.</div>
+          <PositiveBars key={`forecast-${lastSyncAt}`} data={futureData} xKey="label" yKey="amount" height={280} />
+        </div>
       </div>
 
       <div className="card mt-6 overflow-x-auto p-0">

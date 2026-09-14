@@ -16,6 +16,7 @@ import { loadSharedPreferences, saveSharedPreferences, type SharedPreferences } 
 import { dividendDescriptionKey, resolveDividendSymbols } from './dividend-symbol'
 import { applyRealizedPlOverrides, populateRealizedProfitLoss, realizedPlOverrideKey } from './realized-pl'
 import { summarizeSync } from './sync-summary'
+import { captureCsvAuthority, mergePositionAuthority, mergeTransactionAuthority, reconcileCsvAuthority } from './csv-authority'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -148,6 +149,8 @@ function sharedPreferences(data: AppData): SharedPreferences {
     incomePlan: data.incomePlan ?? DEFAULT_INCOME_PLAN,
     spendingExclusions: data.spendingExclusions ?? [],
     realizedPlOverrides: data.realizedPlOverrides ?? {},
+    csvPositionAuthority: data.csvPositionAuthority ?? [],
+    csvTransactionAuthority: data.csvTransactionAuthority ?? [],
   }
 }
 
@@ -161,6 +164,13 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   data.incomePlan = { ...DEFAULT_INCOME_PLAN, ...(data.incomePlan ?? {}), ...(preferences.incomePlan ?? {}) }
   data.spendingExclusions = preferences.spendingExclusions ?? []
   data.realizedPlOverrides = preferences.realizedPlOverrides ?? data.realizedPlOverrides ?? {}
+  data.csvPositionAuthority = preferences.csvPositionAuthority ?? data.csvPositionAuthority ?? []
+  data.csvTransactionAuthority = preferences.csvTransactionAuthority ?? data.csvTransactionAuthority ?? []
+  if (data.csvPositionAuthority.length || data.csvTransactionAuthority.length) {
+    const reconciled = reconcileCsvAuthority(data.accounts, data.positions, data.transactions, data.csvPositionAuthority, data.csvTransactionAuthority)
+    data.positions = reconciled.positions
+    data.transactions = reconciled.transactions
+  }
   for (const position of data.positions) {
     position.allocationBucket = data.bucketOverrides[`${position.accountId}|${position.symbol}`]
   }
@@ -264,7 +274,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!sharedReady) return
     const timeout = window.setTimeout(() => { void saveSharedPreferences(sharedPreferences(data)) }, 350)
     return () => window.clearTimeout(timeout)
-  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, sharedReady])
+  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, sharedReady])
 
   const mutate = useCallback((fn: (d: AppData) => AppData, label?: string) => {
     setData((prev) => {
@@ -377,8 +387,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!transaction) continue
         transaction.pl = match.pl
         transaction.plEstimated = false
-        transaction.plSource = 'manual'
+        transaction.plSource = 'csv'
+        transaction.dataSource = 'csv'
         d.realizedPlOverrides[realizedPlOverrideKey(transaction)] = match.pl
+        const captured = captureCsvAuthority(d.accounts, [], [transaction], new Date().toISOString())
+        d.csvTransactionAuthority = mergeTransactionAuthority(d.csvTransactionAuthority ?? [], captured.transactions)
       }
       return d
     }, `Import realized P/L for ${matches.length} sale${matches.length === 1 ? '' : 's'}`), [mutate],
@@ -508,17 +521,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (result, mode, source = 'imported') => {
       const now = new Date().toISOString()
       mutate((d) => {
-        const syncChanges = summarizeSync(d.positions, d.transactions, result.positions, result.transactions, now)
+        let nextPositions = result.positions
+        let nextTransactions = result.transactions
+        if (source === 'imported') {
+          const captured = captureCsvAuthority(result.accounts, result.positions, result.transactions, now)
+          if (mode === 'replace') {
+            if (captured.positions.length) d.csvPositionAuthority = captured.positions
+            if (captured.transactions.length) d.csvTransactionAuthority = captured.transactions
+          } else {
+            d.csvPositionAuthority = mergePositionAuthority(d.csvPositionAuthority ?? [], captured.positions)
+            d.csvTransactionAuthority = mergeTransactionAuthority(d.csvTransactionAuthority ?? [], captured.transactions)
+          }
+          nextPositions = result.positions.map((position) => ({ ...position, dataSource: 'csv' }))
+          nextTransactions = result.transactions.map((transaction) => ({ ...transaction, dataSource: 'csv' }))
+        } else {
+          const reconciled = reconcileCsvAuthority(result.accounts, result.positions, result.transactions, d.csvPositionAuthority ?? [], d.csvTransactionAuthority ?? [])
+          nextPositions = reconciled.positions
+          nextTransactions = reconciled.transactions
+        }
+        const syncChanges = summarizeSync(d.positions, d.transactions, nextPositions, nextTransactions, now)
         d.source = source
         if (mode === 'replace') {
           d.accounts = result.accounts
-          d.positions = result.positions
-          d.transactions = result.transactions
+          d.positions = nextPositions
+          d.transactions = nextTransactions
         } else {
           const existingIds = new Set(d.accounts.map((a) => a.id))
           d.accounts.push(...result.accounts.filter((a) => !existingIds.has(a.id)))
-          d.positions.push(...result.positions)
-          d.transactions.unshift(...result.transactions)
+          d.positions.push(...nextPositions)
+          d.transactions.unshift(...nextTransactions)
           d.transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         }
         d.bucketOverrides = d.bucketOverrides ?? {}

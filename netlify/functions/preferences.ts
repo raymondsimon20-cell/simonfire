@@ -10,6 +10,8 @@ type SharedPreferences = {
   soldSymbols?: string[]
   spendingExclusions?: string[]
   realizedPlOverrides?: Record<string, number>
+  csvPositionAuthority?: unknown[]
+  csvTransactionAuthority?: unknown[]
   incomePlan?: {
     annualW2Target: number
     monthlySpending: number
@@ -71,6 +73,8 @@ function clean(input: any): SharedPreferences {
     incomeCoverageAlertPct: numberIn(rawPlan.incomeCoverageAlertPct, 0, 200, 100),
   } : undefined
   const realizedPlOverrides = Object.fromEntries(Object.entries(input?.realizedPlOverrides ?? {}).filter(([key, value]) => key.length <= 300 && Number.isFinite(value) && Math.abs(Number(value)) <= 100_000_000).slice(0, 5_000)) as Record<string, number>
+  const csvPositionAuthority = Array.isArray(input?.csvPositionAuthority) ? input.csvPositionAuthority.filter((row: any) => row && typeof row.accountMask === 'string' && row.position && typeof row.position.symbol === 'string').slice(0, 5_000) : []
+  const csvTransactionAuthority = Array.isArray(input?.csvTransactionAuthority) ? input.csvTransactionAuthority.filter((row: any) => row && typeof row.accountMask === 'string' && row.transaction && typeof row.transaction.date === 'string' && typeof row.transaction.amount === 'number').slice(0, 20_000) : []
   return {
     bucketOverrides,
     tagRules,
@@ -80,6 +84,8 @@ function clean(input: any): SharedPreferences {
     soldSymbols: strings(input?.soldSymbols, 2_000),
     spendingExclusions: strings(input?.spendingExclusions, 2_000),
     realizedPlOverrides,
+    csvPositionAuthority,
+    csvTransactionAuthority,
     incomePlan,
   }
 }
@@ -91,7 +97,7 @@ export default async (request: Request) => {
   }
   if (request.method === 'PUT') {
     const length = Number(request.headers.get('content-length') ?? 0)
-    if (length > 500_000) return json({ ok: false, error: 'payload_too_large' }, 413)
+    if (length > 5_000_000) return json({ ok: false, error: 'payload_too_large' }, 413)
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') return json({ ok: false, error: 'invalid_body' }, 400)
     const preferences = clean(body)

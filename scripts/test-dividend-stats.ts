@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { dividendStats } from '../src/lib/calc'
 import { resolveDividendSymbols } from '../src/lib/dividend-symbol'
 import { previewDividendEnrichment, previewRealizedGainLoss, type ImportResult } from '../src/lib/import'
+import { captureCsvAuthority, reconcileCsvAuthority } from '../src/lib/csv-authority'
 import type { Position, Transaction } from '../src/lib/types'
 import { estimateDividendDate } from '../src/lib/dividend-calendar'
 
@@ -128,5 +129,21 @@ assert.equal(realizedPreview.rows, 1)
 assert.equal(realizedPreview.matches.length, 1)
 assert.equal(realizedPreview.matches[0].pl, 64.44)
 assert.equal(enrichment.unmatched.length, 0)
+
+const csvPosition = { ...positions[0], id: 'csv-position', accountId: importAccount.id, shares: 12, avgCost: 91, lastPrice: 99 }
+const apiPosition = { ...positions[0], id: 'api-position', accountId: existingAccount.id, shares: 10, avgCost: 95, lastPrice: 105, annualDividend: 4 }
+const csvSale = txn({ id: 'csv-sale', accountId: importAccount.id, date: '2026-09-01', type: 'Sell', symbol: 'QQQ', description: 'SELL QQQ', amount: 1100, units: -10, pl: 100 })
+const apiSale = txn({ id: 'api-sale', accountId: existingAccount.id, date: '2026-09-01', type: 'Sell', symbol: 'QQQ', description: 'API wording', amount: 1100, units: -10 })
+const authority = captureCsvAuthority([importAccount], [csvPosition], [csvSale], '2026-09-14T12:00:00Z')
+const reconciled = reconcileCsvAuthority([existingAccount], [apiPosition], [apiSale], authority.positions, authority.transactions)
+assert.equal(reconciled.positions[0].shares, 12)
+assert.equal(reconciled.positions[0].avgCost, 91)
+assert.equal(reconciled.positions[0].lastPrice, 105)
+assert.equal(reconciled.positions[0].annualDividend, 4)
+assert.equal(reconciled.transactions.length, 1)
+assert.equal(reconciled.transactions[0].id, 'api-sale')
+assert.equal(reconciled.transactions[0].pl, 100)
+assert.equal(reconciled.transactions[0].description, 'SELL QQQ')
+assert.equal(reconciled.transactions[0].dataSource, 'csv')
 
 console.log('dividendStats tests passed')

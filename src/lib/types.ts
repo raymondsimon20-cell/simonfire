@@ -51,6 +51,7 @@ export interface Position {
   indicatedYield?: number
   lastDividend?: number
   dividendPayDate?: string
+  dataSource?: 'csv' | 'api' | 'manual'
 }
 
 export type TxnType =
@@ -81,10 +82,23 @@ export interface Transaction {
   exp?: string
   pl?: number // realized P/L on sells
   plEstimated?: boolean // reconstructed from available trade/cost-basis data
-  plSource?: 'broker' | 'estimated' | 'manual'
+  plSource?: 'broker' | 'csv' | 'estimated' | 'manual'
   tags: string[]
   classificationSource?: 'schwab' | 'automatic' | 'rule' | 'manual'
   positionEffect?: 'Opening' | 'Closing' | 'Unknown'
+  dataSource?: 'csv' | 'api' | 'manual'
+}
+
+export interface CsvPositionAuthority {
+  accountMask: string
+  importedAt: string
+  position: Omit<Position, 'id' | 'accountId'>
+}
+
+export interface CsvTransactionAuthority {
+  accountMask: string
+  importedAt: string
+  transaction: Omit<Transaction, 'id' | 'accountId'>
 }
 
 export interface Connection {
@@ -131,6 +145,8 @@ export interface AppData {
   lastSyncChanges?: SyncChangeSummary
   archivedTransactions?: Transaction[]
   realizedPlOverrides?: Record<string, number>
+  csvPositionAuthority?: CsvPositionAuthority[]
+  csvTransactionAuthority?: CsvTransactionAuthority[]
 }
 
 export interface SyncChangeSummary {

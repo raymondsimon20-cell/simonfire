@@ -152,7 +152,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
           <div className="space-y-2">
             <FileRow label="Positions CSV" hint="Click to choose your positions export" file={posFile} onPick={(f) => read(f, setPosFile)} />
             <FileRow label="Transactions CSV" hint="Click to choose your transactions export" file={txnFile} onPick={(f) => read(f, setTxnFile)} />
-            <FileRow label="Realized Gain/Loss CSV" hint="Reconcile missing P/L without adding transactions" file={realizedFile} onPick={(f) => read(f, setRealizedFile)} />
+            <FileRow label="Realized Gain/Loss CSV" hint="Authoritative P/L reconciliation without adding transactions" file={realizedFile} onPick={(f) => read(f, setRealizedFile)} />
           </div>
 
           <div>
@@ -180,7 +180,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
             </div>
           )}
         </div>
-      ) : realizedPreview ? <div className="space-y-4"><div className="grid grid-cols-3 gap-3 text-center"><Stat n={realizedPreview.matches.length} label="Matched"/><Stat n={realizedPreview.ambiguous} label="Ambiguous"/><Stat n={realizedPreview.unmatched} label="Unmatched"/></div><div className="rounded-lg border border-pos/20 bg-pos/5 p-3 text-xs text-muted">Only missing realized P/L values will be filled. Existing P/L, transactions, positions, balances, and unmatched rows will not change.</div>{realizedPreview.matches.length > 0 && <div className="max-h-56 overflow-auto rounded-lg border border-border-soft">{realizedPreview.matches.map((match) => <div key={match.transactionId} className="grid grid-cols-[1fr_auto] gap-3 border-b border-border-soft px-3 py-2 text-xs last:border-0"><span><strong>{match.symbol}</strong> · {match.date}<span className="block text-faint">Proceeds ${match.proceeds.toFixed(2)}</span></span><span className={match.pl >= 0 ? 'num text-pos' : 'num text-neg'}>{match.pl >= 0 ? '+' : ''}${match.pl.toFixed(2)}</span></div>)}</div>}<p className="text-xs text-faint">{realizedPreview.rows} realized rows inspected. Ambiguous and unmatched rows require manual review and will not be applied.</p></div> : result ? (
+      ) : realizedPreview ? <div className="space-y-4"><div className="grid grid-cols-3 gap-3 text-center"><Stat n={realizedPreview.matches.length} label="Matched"/><Stat n={realizedPreview.ambiguous} label="Ambiguous"/><Stat n={realizedPreview.unmatched} label="Unmatched"/></div><div className="rounded-lg border border-pos/20 bg-pos/5 p-3 text-xs text-muted">Matched CSV P/L becomes authoritative and survives future API syncs. Transactions, positions, balances, and unmatched rows will not change.</div>{realizedPreview.matches.length > 0 && <div className="max-h-56 overflow-auto rounded-lg border border-border-soft">{realizedPreview.matches.map((match) => <div key={match.transactionId} className="grid grid-cols-[1fr_auto] gap-3 border-b border-border-soft px-3 py-2 text-xs last:border-0"><span><strong>{match.symbol}</strong> · {match.date}<span className="block text-faint">Proceeds ${match.proceeds.toFixed(2)}</span></span><span className={match.pl >= 0 ? 'num text-pos' : 'num text-neg'}>{match.pl >= 0 ? '+' : ''}${match.pl.toFixed(2)}</span></div>)}</div>}<p className="text-xs text-faint">{realizedPreview.rows} realized rows inspected. Ambiguous and unmatched rows require manual review and will not be applied.</p></div> : result ? (
         <div className="space-y-4">
           {mode === 'enrich' && enrichment ? <><div className="grid grid-cols-3 gap-3 text-center"><Stat n={enrichment.matches.length} label="Matched"/><Stat n={enrichment.ambiguous.length} label="Ambiguous"/><Stat n={enrichment.unmatched.length} label="Unmatched"/></div><div className="rounded-lg border border-pos/20 bg-pos/5 p-3 text-xs text-muted">Only {enrichment.matches.length} existing dividend payment{enrichment.matches.length === 1 ? '' : 's'} will receive a ticker. No positions, balances, or transactions will be added.</div>{enrichment.matches.length > 0 && <div className="max-h-48 overflow-auto rounded-lg border border-border-soft">{enrichment.matches.slice(0, 100).map((match) => <div key={match.transactionId} className="flex items-center justify-between gap-3 border-b border-border-soft px-3 py-2 text-xs last:border-0"><span><strong className="text-brand">{match.symbol}</strong> · {match.date}</span><span className="num">${match.amount.toFixed(2)}</span></div>)}</div>}</> : <div className="grid grid-cols-3 gap-3 text-center"><Stat n={result.accounts.length} label="Accounts" /><Stat n={result.positions.length} label="Positions" /><Stat n={result.transactions.length} label="Transactions" /></div>}
           {mode !== 'enrich' && result.accounts.length > 0 && (
@@ -207,8 +207,8 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
             {mode === 'enrich'
               ? `${enrichment?.csvDividendCount ?? 0} symbol-bearing CSV dividends were inspected. Ambiguous and unmatched rows will not change.`
               : mode === 'replace'
-              ? 'This will replace the current sample data with the imported data.'
-              : 'This will add the imported data alongside what you have.'}
+              ? 'CSV positions and transactions become authoritative. Future API syncs will supplement live prices, balances, and missing records.'
+              : 'CSV records will be reconciled into the authority set without duplicating matching records.'}
           </div>
         </div>
       ) : null}

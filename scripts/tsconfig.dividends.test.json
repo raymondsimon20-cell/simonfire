@@ -17,6 +17,7 @@
     "../src/lib/dividend-symbol.ts",
     "../src/lib/dividend-calendar.ts",
     "../src/lib/import.ts",
+    "../src/lib/csv-authority.ts",
     "../src/lib/transaction-classification.ts",
     "../src/lib/plan.ts",
     "../src/lib/types.ts"

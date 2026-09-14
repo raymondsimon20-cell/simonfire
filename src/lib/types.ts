@@ -175,6 +175,7 @@ export interface SyncChangeSummary {
   quantityChanges?: string[]
   csvAuthoritativeRecords?: number
   csvConflicts?: number
+  csvConflictDetails?: { record: string; field: string; apiValue: string; csvValue: string; winner: 'CSV' | 'API' }[]
 }
 
 export interface IncomePlan {

@@ -115,6 +115,17 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
     </label>
   )
 
+  const staging = result ? (() => {
+    const key = (row: { date: string; symbol?: string; amount: number; units: number }) => `${row.date}|${row.symbol ?? ''}|${row.amount.toFixed(2)}|${row.units.toFixed(6)}`
+    const seen = new Set<string>(); let duplicates = 0
+    for (const row of result.transactions) { const k = key(row); if (seen.has(k)) duplicates++; else seen.add(k) }
+    const existing = new Set(data.transactions.map(key))
+    const overlaps = result.transactions.filter((row) => existing.has(key(row))).length
+    const existingPositions = new Set(data.positions.map((row) => row.symbol.replace(/\s+/g, '').toUpperCase()))
+    const positionUpdates = result.positions.filter((row) => existingPositions.has(row.symbol.replace(/\s+/g, '').toUpperCase())).length
+    return { duplicates, overlaps, positionUpdates }
+  })() : null
+
   return (
     <Modal
       open={open}
@@ -194,6 +205,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
               ))}
             </div>
           )}
+          {mode !== 'enrich' && staging && <div className="rounded-lg border border-border-soft p-3"><div className="text-xs font-semibold">Staged change review</div><div className="mt-2 grid grid-cols-3 gap-2 text-center"><Stat n={staging.positionUpdates} label="Position updates"/><Stat n={staging.overlaps} label="Existing matches"/><Stat n={staging.duplicates} label="CSV duplicates"/></div><div className="mt-3 max-h-32 overflow-auto divide-y divide-border-soft text-[10px]">{result.transactions.slice(0, 8).map((row) => <div key={row.id} className="flex justify-between gap-3 py-1.5"><span className="truncate">{row.date} · {row.symbol ?? row.type} · {row.description}</span><span className="num shrink-0">{row.amount.toFixed(2)}</span></div>)}</div><p className="mt-2 text-[10px] text-faint">This is a staging preview. Nothing changes until you apply the import. Existing matches reconcile; ambiguous realized-P/L rows remain untouched.</p></div>}
           {result.warnings.length > 0 && (
             <div className="space-y-1 rounded-lg bg-[#35240f] p-3 text-xs text-[#f0a94a]">
               {result.warnings.map((w, i) => (

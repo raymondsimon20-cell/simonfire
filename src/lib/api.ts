@@ -32,6 +32,17 @@ export async function saveSharedPreferences(preferences: SharedPreferences): Pro
   }
 }
 
+export interface BackupMetadata { id: string; createdAt: string; reason: string; positions: number; transactions: number }
+export async function saveBackup(data: AppData, reason = 'Automatic daily backup'): Promise<boolean> {
+  try { return (await fetch(`${FN}/backups`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data, reason }) })).ok } catch { return false }
+}
+export async function listBackups(): Promise<BackupMetadata[]> {
+  try { const response = await fetch(`${FN}/backups`); return response.ok ? (await response.json()).backups ?? [] : [] } catch { return [] }
+}
+export async function loadBackup(id: string): Promise<AppData | null> {
+  try { const response = await fetch(`${FN}/backups?id=${encodeURIComponent(id)}`); return response.ok ? (await response.json()).backup ?? null : null } catch { return null }
+}
+
 export const schwabLoginUrl = `${FN}/schwab-login`
 
 export interface SchwabStatus {

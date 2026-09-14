@@ -145,5 +145,7 @@ assert.equal(reconciled.transactions[0].id, 'api-sale')
 assert.equal(reconciled.transactions[0].pl, 100)
 assert.equal(reconciled.transactions[0].description, 'SELL QQQ')
 assert.equal(reconciled.transactions[0].dataSource, 'csv')
+assert.equal(reconciled.conflicts, 3)
+assert.deepEqual(reconciled.conflictDetails.map((row) => row.field), ['Average cost', 'Description', 'Realized P/L'])
 
 console.log('dividendStats tests passed')

@@ -12,7 +12,7 @@ import type { Account, AppData, Connection, HedgeRoll, IncomePlan, Insights, Pos
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
-import { loadSharedPreferences, saveSharedPreferences, type SharedPreferences } from './api'
+import { loadSharedPreferences, saveBackup, saveSharedPreferences, type SharedPreferences } from './api'
 import { dividendDescriptionKey, resolveDividendSymbols } from './dividend-symbol'
 import { applyRealizedPlOverrides, populateRealizedProfitLoss, realizedPlOverrideKey } from './realized-pl'
 import { summarizeSync } from './sync-summary'
@@ -263,6 +263,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     save(data)
   }, [data])
+
+  useEffect(() => {
+    if (!sharedReady || data.source === 'sample') return
+    const day = data.lastSyncAt.slice(0, 10)
+    const key = 'simonfire.last-server-backup'
+    if (localStorage.getItem(key) === day) return
+    const timeout = window.setTimeout(() => { void saveBackup(data).then((saved) => { if (saved) localStorage.setItem(key, day) }) }, 1_500)
+    return () => window.clearTimeout(timeout)
+  }, [data, sharedReady])
 
   // Category and planning preferences are shared through Netlify Blobs. Do not
   // publish this browser's local copy until the server copy has been hydrated,
@@ -541,6 +550,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         let nextPositions = result.positions
         let nextTransactions = result.transactions
         let csvConflicts = 0
+        let csvConflictDetails: NonNullable<AppData['lastSyncChanges']>['csvConflictDetails'] = []
         if (source === 'imported') {
           const batchId = uid()
           const captured = captureCsvAuthority(result.accounts, result.positions, result.transactions, now, batchId)
@@ -559,9 +569,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           nextPositions = reconciled.positions
           nextTransactions = reconciled.transactions
           csvConflicts = reconciled.conflicts
+          csvConflictDetails = reconciled.conflictDetails
         }
         const syncChanges = summarizeSync(d.positions, d.transactions, nextPositions, nextTransactions, now)
         syncChanges.csvConflicts = csvConflicts
+        syncChanges.csvConflictDetails = csvConflictDetails
         d.source = source
         if (mode === 'replace') {
           d.accounts = result.accounts

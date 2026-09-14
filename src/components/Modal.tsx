@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 
 export function Modal({
@@ -18,11 +18,14 @@ export function Modal({
   footer?: ReactNode
   width?: string
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
+    const previous = document.activeElement as HTMLElement | null
+    window.setTimeout(() => dialogRef.current?.focus(), 0)
     const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
+    return () => { window.removeEventListener('keydown', h); previous?.focus() }
   }, [open, onClose])
 
   if (!open) return null
@@ -30,11 +33,17 @@ export function Modal({
     <div className="fixed inset-0 z-50 grid place-items-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
         className={`relative z-10 w-full ${width} max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-surface p-6 shadow-2xl fadein`}
       >
         <button
           onClick={onClose}
           className="absolute right-4 top-4 text-faint hover:text-ink"
+          aria-label="Close dialog"
         >
           <X size={20} />
         </button>

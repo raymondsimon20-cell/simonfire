@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Plus, Download, Search, ChevronRight, Trash2 } from 'lucide-react'
+import { useDeferredValue, useMemo, useState } from 'react'
+import { Plus, Download, Search, ChevronRight, Trash2, BookmarkPlus } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
 import { TXN_TYPES } from '../lib/seed'
 import { usd, num, shortDate } from '../lib/format'
@@ -26,6 +26,9 @@ export default function Transactions() {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   const [showArchived, setShowArchived] = useState(false)
   const [review, setReview] = usePersistentState('simonfire.transactions.review', 'all')
+  const [savedViews, setSavedViews] = usePersistentState<{ name: string; type: string; symbol: string; from: string; to: string; review: string }[]>('simonfire.transactions.saved-views', [])
+  const [visibleCount, setVisibleCount] = useState(200)
+  const deferredSymbol = useDeferredValue(symbol)
 
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
 
@@ -36,7 +39,7 @@ export default function Transactions() {
     () =>
       transactions.filter((t) => {
         if (type !== 'all' && t.type !== type) return false
-        if (symbol && !(t.symbol ?? '').toLowerCase().includes(symbol.toLowerCase())) return false
+        if (deferredSymbol && !(t.symbol ?? '').toLowerCase().includes(deferredSymbol.toLowerCase())) return false
         if (review === 'missing-pl' && !(isClosingSale(t) && t.pl == null)) return false
         if (review === 'duplicates' && !duplicateIds.has(t.id)) return false
         const globalFrom = dateRangeStart(dateRange)
@@ -44,7 +47,7 @@ export default function Transactions() {
         if ((to || localISODate()) && t.date > (to || localISODate())) return false
         return true
       }),
-    [transactions, type, symbol, review, duplicateIds, from, to, dateRange],
+    [transactions, type, deferredSymbol, review, duplicateIds, from, to, dateRange],
   )
 
   const totalsByType = useMemo(() => {
@@ -124,6 +127,8 @@ export default function Transactions() {
       </div>
 
       <div className="card mb-4 flex flex-wrap items-center gap-3">
+        <select aria-label="Saved transaction views" defaultValue="" onChange={(event) => { const view = savedViews[Number(event.target.value)]; if (!view) return; setType(view.type); setSymbol(view.symbol); setFrom(view.from); setTo(view.to); setReview(view.review) }} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink"><option value="">Saved views</option>{savedViews.map((view, index) => <option key={`${view.name}-${index}`} value={index}>{view.name}</option>)}</select>
+        <Button onClick={() => { const name = prompt('Name this transaction view'); if (name?.trim()) setSavedViews([...savedViews, { name: name.trim(), type, symbol, from, to, review }]) }}><BookmarkPlus size={14}/> Save view</Button>
         <label className="flex items-center gap-2 text-sm text-muted">
           Type:
           <select
@@ -191,7 +196,7 @@ export default function Transactions() {
             </tr>
           </thead>
           <tbody>
-            {filtered.slice(0, 400).map((t) => (
+            {filtered.slice(0, visibleCount).map((t) => (
               <tr key={t.id} onClick={() => setSelectedTransaction(t)} className="group cursor-pointer border-b border-border-soft hover:bg-surface-2/40">
                 <td className="whitespace-nowrap px-4 py-3 text-muted">{shortDate(t.date)}</td>
                 <td className="px-4 py-3"><Badge>{t.type}</Badge></td>
@@ -221,9 +226,9 @@ export default function Transactions() {
             ))}
           </tbody>
         </table>
-        {filtered.length > 400 && (
+        {filtered.length > visibleCount && (
           <div className="p-3 text-center text-xs text-faint">
-            Showing first 400 of {filtered.length}. Narrow filters to see more.
+            Showing {visibleCount} of {filtered.length}. <button onClick={() => setVisibleCount((value) => value + 200)} className="font-semibold text-brand">Load 200 more</button>
           </div>
         )}
       </div>

@@ -54,6 +54,7 @@ export function reconcileCsvAuthority(
   includeCsvOnlyPositions = false,
 ) {
   let conflicts = 0
+  const conflictDetails: { record: string; field: string; apiValue: string; csvValue: string; winner: 'CSV' | 'API' }[] = []
   const accountByMask = new Map(accounts.map((account) => [account.mask, account]))
   const positions: Position[] = apiPositions.map((position) => ({ ...position, dataSource: 'api' }))
   const positionIndex = new Map(positions.map((position, index) => [`${accountMask(accounts, position.accountId)}|${securityKey(position.symbol)}`, index]))
@@ -66,7 +67,7 @@ export function reconcileCsvAuthority(
     // A live API position list owns current inventory. A CSV-only position is
     // retained only while viewing an imported dataset before a live sync.
     if (!api && !includeCsvOnlyPositions) continue
-    if (api && Math.abs(api.avgCost - row.position.avgCost) > 0.005) conflicts++
+    if (api && Math.abs(api.avgCost - row.position.avgCost) > 0.005) { conflicts++; conflictDetails.push({ record: row.position.symbol, field: 'Average cost', apiValue: api.avgCost.toFixed(4), csvValue: row.position.avgCost.toFixed(4), winner: 'CSV' }) }
     const merged: Position = {
       ...api,
       ...row.position,
@@ -99,7 +100,12 @@ export function reconcileCsvAuthority(
     const key = transactionAuthorityKey(row.accountMask, row.transaction)
     const index = transactionIndex.get(key)?.shift()
     const api = index == null ? undefined : transactions[index]
-    if (api && (api.type !== row.transaction.type || api.description !== row.transaction.description || (api.pl ?? null) !== (row.transaction.pl ?? null))) conflicts++
+    if (api) {
+      const record = `${row.transaction.symbol ?? row.transaction.type} · ${row.transaction.date}`
+      if (api.type !== row.transaction.type) { conflicts++; conflictDetails.push({ record, field: 'Type', apiValue: api.type, csvValue: row.transaction.type, winner: 'CSV' }) }
+      if (api.description !== row.transaction.description) { conflicts++; conflictDetails.push({ record, field: 'Description', apiValue: api.description, csvValue: row.transaction.description, winner: 'CSV' }) }
+      if ((api.pl ?? null) !== (row.transaction.pl ?? null) && row.transaction.pl != null) { conflicts++; conflictDetails.push({ record, field: 'Realized P/L', apiValue: api.pl == null ? 'Missing' : api.pl.toFixed(2), csvValue: row.transaction.pl.toFixed(2), winner: 'CSV' }) }
+    }
     const merged: Transaction = {
       ...api,
       ...row.transaction,
@@ -112,5 +118,5 @@ export function reconcileCsvAuthority(
     else transactions[index] = merged
   }
   transactions.sort((a, b) => b.date.localeCompare(a.date))
-  return { positions, transactions, conflicts }
+  return { positions, transactions, conflicts, conflictDetails: conflictDetails.slice(0, 100) }
 }

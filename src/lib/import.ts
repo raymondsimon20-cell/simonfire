@@ -5,6 +5,7 @@
 import type { Account, AccountType, Position, Transaction, TxnType } from './types'
 import { classifySchwabTransaction } from './transaction-classification'
 import { dividendDescriptionKey } from './dividend-symbol'
+import { isClosingSale } from './transaction-review'
 
 export interface ImportFallback {
   broker: string
@@ -34,6 +35,9 @@ export interface DividendEnrichmentPreview {
   unmatched: Transaction[]
   csvDividendCount: number
 }
+
+export interface RealizedPlMatch { transactionId: string; symbol: string; date: string; proceeds: number; pl: number }
+export interface RealizedPlPreview { matches: RealizedPlMatch[]; ambiguous: number; unmatched: number; rows: number }
 
 export function previewDividendEnrichment(imported: ImportResult, existingAccounts: Account[], existingTransactions: Transaction[]): DividendEnrichmentPreview {
   const importedAccounts = new Map(imported.accounts.map((account) => [account.id, account]))
@@ -125,6 +129,8 @@ function toNum(raw: string | undefined): number {
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
 
+const securityKey = (value: string) => value.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+
 // Find a column index by matching any of the given keywords against headers.
 function colFinder(headers: string[]) {
   const H = headers.map(norm)
@@ -141,6 +147,41 @@ function colFinder(headers: string[]) {
     }
     return -1
   }
+}
+
+export function previewRealizedGainLoss(text: string, accounts: Account[], transactions: Transaction[], fallbackMask = ''): RealizedPlPreview {
+  const rows = parseCsv(text)
+  let header = -1
+  for (let index = 0; index < rows.length; index++) {
+    const joined = norm(rows[index].join('|'))
+    if (joined.includes('symbol') && (joined.includes('gainloss') || joined.includes('gain') && joined.includes('loss')) && (joined.includes('datesold') || joined.includes('closeddate') || joined.includes('dateclosed'))) { header = index; break }
+  }
+  if (header < 0) throw new Error('Realized Gain/Loss header not found')
+  const find = colFinder(rows[header])
+  const cSymbol = find('symbol'); const cDate = find('date sold', 'closed date', 'date closed', 'sale date'); const cTxnDate = find('transaction closed date'); const cQty = find('quantity', 'qty'); const cProceeds = find('proceeds'); const cPl = find('gain/loss ($)', 'gain/loss', 'realized gain/loss'); const cTxnPl = find('total transaction gain/loss ($)', 'total transaction gain/loss')
+  if ([cSymbol, cDate, cPl].some((index) => index < 0)) throw new Error('Required realized gain/loss columns not found')
+  const groups = new Map<string, { symbol: string; date: string; quantity: number; proceeds: number; lotPl: number; transactionPl?: number }>()
+  for (const cells of rows.slice(header + 1)) {
+    const symbol = cells[cSymbol]?.trim() ?? ''; const date = isoDate(cTxnDate >= 0 && cells[cTxnDate]?.trim() ? cells[cTxnDate] : cells[cDate] ?? ''); const plRaw = cells[cPl]?.trim()
+    if (!symbol || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !plRaw || /total/i.test(symbol)) continue
+    const groupKey = `${securityKey(symbol)}|${date}`; const group = groups.get(groupKey) ?? { symbol, date, quantity: 0, proceeds: 0, lotPl: 0 }
+    group.quantity += cQty >= 0 ? Math.abs(toNum(cells[cQty])) : 0; group.proceeds += cProceeds >= 0 ? Math.abs(toNum(cells[cProceeds])) : 0; group.lotPl += toNum(plRaw)
+    if (cTxnPl >= 0 && cells[cTxnPl]?.trim()) group.transactionPl = toNum(cells[cTxnPl])
+    groups.set(groupKey, group)
+  }
+  const used = new Set<string>(); const matches: RealizedPlMatch[] = []; let ambiguous = 0; let unmatched = 0
+  for (const group of groups.values()) {
+    const { symbol, date, quantity, proceeds } = group; const pl = group.transactionPl ?? group.lotPl
+    const accountIds = fallbackMask ? accounts.filter((account) => account.mask === fallbackMask).map((account) => account.id) : accounts.length === 1 ? [accounts[0].id] : []
+    let candidates = transactions.filter((transaction) => !used.has(transaction.id) && transaction.pl == null && isClosingSale(transaction) && transaction.date === date && securityKey(transaction.symbol ?? '') === securityKey(symbol))
+    if (accountIds.length) candidates = candidates.filter((transaction) => accountIds.includes(transaction.accountId))
+    if (quantity > 0) candidates = candidates.filter((transaction) => Math.abs(Math.abs(transaction.units) - quantity) < 0.000001)
+    if (proceeds > 0) candidates = candidates.filter((transaction) => Math.abs(Math.abs(transaction.amount) + Math.abs(transaction.fee ?? 0) - proceeds) < 0.02 || Math.abs(Math.abs(transaction.amount) - proceeds) < 0.02)
+    if (candidates.length === 1) { used.add(candidates[0].id); matches.push({ transactionId: candidates[0].id, symbol, date, proceeds, pl }) }
+    else if (candidates.length > 1) ambiguous++
+    else unmatched++
+  }
+  return { matches, ambiguous, unmatched, rows: groups.size }
 }
 
 // Derive an account name + mask from a Schwab section label like

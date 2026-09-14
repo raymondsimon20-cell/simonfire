@@ -3,11 +3,11 @@ import { FileText, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { Modal } from './Modal'
 import { Button } from './ui'
 import { useStore } from '../lib/store'
-import { parseSchwabFiles, previewDividendEnrichment, type DividendEnrichmentPreview, type ImportResult } from '../lib/import'
+import { parseSchwabFiles, previewDividendEnrichment, previewRealizedGainLoss, type DividendEnrichmentPreview, type ImportResult, type RealizedPlPreview } from '../lib/import'
 import { useToast } from './Toast'
 
 export function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { data, applyImport, enrichDividendSymbols } = useStore()
+  const { data, applyImport, enrichDividendSymbols, applyRealizedPlMatches } = useStore()
   const [broker, setBroker] = useState('Schwab')
   const [name, setName] = useState('')
   const [mask, setMask] = useState('')
@@ -15,8 +15,10 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
   const [mode, setMode] = useState<'replace' | 'merge' | 'enrich'>('replace')
   const [posFile, setPosFile] = useState<{ name: string; text: string } | null>(null)
   const [txnFile, setTxnFile] = useState<{ name: string; text: string } | null>(null)
+  const [realizedFile, setRealizedFile] = useState<{ name: string; text: string } | null>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [enrichment, setEnrichment] = useState<DividendEnrichmentPreview | null>(null)
+  const [realizedPreview, setRealizedPreview] = useState<RealizedPlPreview | null>(null)
   const [error, setError] = useState('')
   const { push } = useToast()
 
@@ -29,6 +31,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
   const reset = () => {
     setPosFile(null)
     setTxnFile(null)
+    setRealizedFile(null)
     setResult(null)
     setError('')
     setName('')
@@ -36,10 +39,15 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
     setIsMargin(false)
     setMode('replace')
     setEnrichment(null)
+    setRealizedPreview(null)
   }
 
   const doParse = () => {
     setError('')
+    if (realizedFile) {
+      try { setRealizedPreview(previewRealizedGainLoss(realizedFile.text, data.accounts, data.transactions, mask)); return }
+      catch { setError('Could not recognize this Schwab Realized Gain/Loss CSV. Confirm it includes Symbol, Date Sold/Closed Date, and Gain/Loss columns.'); return }
+    }
     const files = [posFile, txnFile].filter(Boolean) as { name: string; text: string }[]
     if (!files.length) {
       setError('Upload at least one CSV file.')
@@ -55,6 +63,12 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
   }
 
   const doApply = () => {
+    if (realizedPreview) {
+      if (!realizedPreview.matches.length) return
+      applyRealizedPlMatches(realizedPreview.matches)
+      push('Realized P/L reconciled', 'success', `${realizedPreview.matches.length} missing values filled · ambiguous and unmatched rows unchanged`)
+      reset(); onClose(); return
+    }
     if (!result) return
     if (mode === 'enrich') {
       if (!enrichment?.matches.length) return
@@ -112,11 +126,11 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
       subtitle="Load your real portfolio from Schwab CSV exports. Everything stays in your browser."
       width="max-w-lg"
       footer={
-        result ? (
+        result || realizedPreview ? (
           <>
-            <Button onClick={() => setResult(null)}>Back</Button>
+            <Button onClick={() => { setResult(null); setRealizedPreview(null) }}>Back</Button>
             <Button variant="primary" onClick={doApply}>
-              {mode === 'enrich' ? `Enrich ${enrichment?.matches.length ?? 0} payments` : mode === 'replace' ? 'Replace with imported data' : 'Add imported data'}
+              {realizedPreview ? `Apply ${realizedPreview.matches.length} P/L values` : mode === 'enrich' ? `Enrich ${enrichment?.matches.length ?? 0} payments` : mode === 'replace' ? 'Replace with imported data' : 'Add imported data'}
             </Button>
           </>
         ) : (
@@ -127,7 +141,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
         )
       }
     >
-      {!result ? (
+      {!result && !realizedPreview ? (
         <div className="space-y-5">
           <div className="rounded-lg bg-surface-2 p-3 text-xs text-muted">
             In Schwab: <span className="text-ink">Positions</span> → Export, and{' '}
@@ -138,6 +152,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
           <div className="space-y-2">
             <FileRow label="Positions CSV" hint="Click to choose your positions export" file={posFile} onPick={(f) => read(f, setPosFile)} />
             <FileRow label="Transactions CSV" hint="Click to choose your transactions export" file={txnFile} onPick={(f) => read(f, setTxnFile)} />
+            <FileRow label="Realized Gain/Loss CSV" hint="Reconcile missing P/L without adding transactions" file={realizedFile} onPick={(f) => read(f, setRealizedFile)} />
           </div>
 
           <div>
@@ -165,7 +180,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
             </div>
           )}
         </div>
-      ) : (
+      ) : realizedPreview ? <div className="space-y-4"><div className="grid grid-cols-3 gap-3 text-center"><Stat n={realizedPreview.matches.length} label="Matched"/><Stat n={realizedPreview.ambiguous} label="Ambiguous"/><Stat n={realizedPreview.unmatched} label="Unmatched"/></div><div className="rounded-lg border border-pos/20 bg-pos/5 p-3 text-xs text-muted">Only missing realized P/L values will be filled. Existing P/L, transactions, positions, balances, and unmatched rows will not change.</div>{realizedPreview.matches.length > 0 && <div className="max-h-56 overflow-auto rounded-lg border border-border-soft">{realizedPreview.matches.map((match) => <div key={match.transactionId} className="grid grid-cols-[1fr_auto] gap-3 border-b border-border-soft px-3 py-2 text-xs last:border-0"><span><strong>{match.symbol}</strong> · {match.date}<span className="block text-faint">Proceeds ${match.proceeds.toFixed(2)}</span></span><span className={match.pl >= 0 ? 'num text-pos' : 'num text-neg'}>{match.pl >= 0 ? '+' : ''}${match.pl.toFixed(2)}</span></div>)}</div>}<p className="text-xs text-faint">{realizedPreview.rows} realized rows inspected. Ambiguous and unmatched rows require manual review and will not be applied.</p></div> : result ? (
         <div className="space-y-4">
           {mode === 'enrich' && enrichment ? <><div className="grid grid-cols-3 gap-3 text-center"><Stat n={enrichment.matches.length} label="Matched"/><Stat n={enrichment.ambiguous.length} label="Ambiguous"/><Stat n={enrichment.unmatched.length} label="Unmatched"/></div><div className="rounded-lg border border-pos/20 bg-pos/5 p-3 text-xs text-muted">Only {enrichment.matches.length} existing dividend payment{enrichment.matches.length === 1 ? '' : 's'} will receive a ticker. No positions, balances, or transactions will be added.</div>{enrichment.matches.length > 0 && <div className="max-h-48 overflow-auto rounded-lg border border-border-soft">{enrichment.matches.slice(0, 100).map((match) => <div key={match.transactionId} className="flex items-center justify-between gap-3 border-b border-border-soft px-3 py-2 text-xs last:border-0"><span><strong className="text-brand">{match.symbol}</strong> · {match.date}</span><span className="num">${match.amount.toFixed(2)}</span></div>)}</div>}</> : <div className="grid grid-cols-3 gap-3 text-center"><Stat n={result.accounts.length} label="Accounts" /><Stat n={result.positions.length} label="Positions" /><Stat n={result.transactions.length} label="Transactions" /></div>}
           {mode !== 'enrich' && result.accounts.length > 0 && (
@@ -196,7 +211,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
               : 'This will add the imported data alongside what you have.'}
           </div>
         </div>
-      )}
+      ) : null}
     </Modal>
   )
 }

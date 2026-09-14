@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { dividendStats } from '../src/lib/calc'
 import { resolveDividendSymbols } from '../src/lib/dividend-symbol'
-import { previewDividendEnrichment, type ImportResult } from '../src/lib/import'
+import { previewDividendEnrichment, previewRealizedGainLoss, type ImportResult } from '../src/lib/import'
 import type { Position, Transaction } from '../src/lib/types'
 import { estimateDividendDate } from '../src/lib/dividend-calendar'
 
@@ -118,6 +118,15 @@ const missingSymbol = txn({ id: 'api-dividend', accountId: existingAccount.id, d
 const enrichment = previewDividendEnrichment(importResult, [existingAccount], [missingSymbol])
 assert.deepEqual(enrichment.matches.map(({ transactionId, symbol }) => ({ transactionId, symbol })), [{ transactionId: 'api-dividend', symbol: 'TSYY' }])
 assert.equal(enrichment.ambiguous.length, 0)
+
+const realizedCsv = `"Symbol","Closed Date","Quantity","Proceeds","Gain/Loss ($)","Transaction Closed Date","Total Transaction Gain/Loss ($)"
+"SPXU","09/14/2026","44","$1,575.60","$67.28","09/14/2026","$64.44"
+"SPXU","09/14/2026","1","$35.81","-$11.55","09/14/2026","$64.44"`
+const aggregateSale = txn({ id: 'sale', accountId: existingAccount.id, date: '2026-09-14', type: 'Sell', symbol: 'SPXU', description: 'TRADE', amount: 1611.41, units: -45 })
+const realizedPreview = previewRealizedGainLoss(realizedCsv, [existingAccount], [aggregateSale], existingAccount.mask)
+assert.equal(realizedPreview.rows, 1)
+assert.equal(realizedPreview.matches.length, 1)
+assert.equal(realizedPreview.matches[0].pl, 64.44)
 assert.equal(enrichment.unmatched.length, 0)
 
 console.log('dividendStats tests passed')

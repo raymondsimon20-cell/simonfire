@@ -184,6 +184,7 @@ interface StoreCtx {
   updateTransaction: (id: string, patch: Partial<Transaction>) => void
   assignTransactionSymbol: (id: string, symbol: string) => void
   enrichDividendSymbols: (matches: { transactionId: string; symbol: string }[]) => void
+  applyRealizedPlMatches: (matches: { transactionId: string; pl: number }[]) => void
   deleteTransaction: (id: string) => void
   archiveTransactions: (ids: string[]) => void
   restoreTransaction: (id: string) => void
@@ -366,6 +367,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return d
     }),
     [mutate],
+  )
+
+  const applyRealizedPlMatches: StoreCtx['applyRealizedPlMatches'] = useCallback(
+    (matches) => mutate((d) => {
+      d.realizedPlOverrides = d.realizedPlOverrides ?? {}
+      for (const match of matches) {
+        const transaction = d.transactions.find((row) => row.id === match.transactionId)
+        if (!transaction) continue
+        transaction.pl = match.pl
+        transaction.plEstimated = false
+        transaction.plSource = 'manual'
+        d.realizedPlOverrides[realizedPlOverrideKey(transaction)] = match.pl
+      }
+      return d
+    }, `Import realized P/L for ${matches.length} sale${matches.length === 1 ? '' : 's'}`), [mutate],
   )
 
   const deleteTransaction: StoreCtx['deleteTransaction'] = useCallback(
@@ -696,6 +712,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateTransaction,
       assignTransactionSymbol,
       enrichDividendSymbols,
+      applyRealizedPlMatches,
       deleteTransaction,
       archiveTransactions,
       restoreTransaction,
@@ -733,6 +750,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateTransaction,
       assignTransactionSymbol,
       enrichDividendSymbols,
+      applyRealizedPlMatches,
       deleteTransaction,
       archiveTransactions,
       restoreTransaction,

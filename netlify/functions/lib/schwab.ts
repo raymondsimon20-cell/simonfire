@@ -619,6 +619,8 @@ function mapTxn(accountId: string, t: any) {
     .reduce((s, i) => s + Math.abs(num(i.cost ?? i.amount)), 0)
 
   const type = classifySchwabTransaction({ rawType, description: desc, amount, units })
+  const rawPositionEffect = String(security?.positionEffect ?? security?.instrument?.positionEffect ?? '').toUpperCase()
+  const positionEffect = rawPositionEffect === 'OPENING' ? 'Opening' : rawPositionEffect === 'CLOSING' ? 'Closing' : undefined
 
   return {
     id: 'txn_' + Math.random().toString(36).slice(2, 9),
@@ -632,6 +634,7 @@ function mapTxn(accountId: string, t: any) {
     fee: fee || undefined,
     tags: [],
     classificationSource: type === 'Other' ? 'schwab' : 'automatic',
+    positionEffect,
   }
 }
 

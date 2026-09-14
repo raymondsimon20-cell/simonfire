@@ -25,6 +25,15 @@ export function duplicateTransactionIds(transactions: Transaction[]) {
 
 export function isClosingSale(transaction: Transaction) {
   if (transaction.type !== 'Sell') return false
+  if (transaction.positionEffect === 'Opening') return false
+  if (transaction.positionEffect === 'Closing') return true
   const description = transaction.description.toUpperCase().replace(/[_-]+/g, ' ')
-  return !(/\bSELL(?:S)? TO OPEN\b|\bSTO\b|\bSELL SHORT\b|\bSHORT SALE\b/.test(description))
+  if (/\bSELL(?:S)? TO OPEN\b|\bSTO\b|\bSELL SHORT\b|\bSHORT SALE\b/.test(description)) return false
+  if (/\bSELL(?:S)? TO CLOSE\b|\bSTC\b/.test(description)) return true
+  // Legacy Schwab option rows were stored only as "TRADE" and did not retain
+  // positionEffect. Their opening/closing direction cannot be established, so
+  // do not falsely report them as missing realized P/L.
+  const symbol = (transaction.symbol ?? '').replace(/\s+/g, '').toUpperCase()
+  if (/^[A-Z]{1,6}\d{6}[CP]\d{8}$/.test(symbol)) return false
+  return true
 }

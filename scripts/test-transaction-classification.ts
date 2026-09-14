@@ -8,6 +8,8 @@ assert.deepEqual([...duplicateTransactionIds([{ ...duplicateBase, id: 'first' },
 assert.equal(isClosingSale({ ...duplicateBase, id: 'sto', type: 'Sell', description: 'SELL TO OPEN 2 QQQ PUT' }), false)
 assert.equal(isClosingSale({ ...duplicateBase, id: 'stc', type: 'Sell', description: 'SELL TO CLOSE 2 QQQ PUT' }), true)
 assert.equal(isClosingSale({ ...duplicateBase, id: 'equity', type: 'Sell', description: 'SELL TRADE QQQ' }), true)
+assert.equal(isClosingSale({ ...duplicateBase, id: 'legacy-option', type: 'Sell', symbol: 'TQQQ 260717P00078000', description: 'TRADE' }), false)
+assert.equal(isClosingSale({ ...duplicateBase, id: 'broker-closing', type: 'Sell', symbol: 'TQQQ 260717P00078000', description: 'TRADE', positionEffect: 'Closing' }), true)
 
 assert.equal(classify({ rawType: 'JOURNAL', description: 'Foreign Tax Paid ACME LTD', amount: -12.34 }), 'Tax Withholding')
 assert.equal(classify({ rawType: 'JOURNAL', description: 'Federal Tax Withheld', amount: -45 }), 'Tax Withholding')

@@ -83,6 +83,7 @@ export interface Transaction {
   plEstimated?: boolean // reconstructed from available trade/cost-basis data
   tags: string[]
   classificationSource?: 'schwab' | 'automatic' | 'rule' | 'manual'
+  positionEffect?: 'Opening' | 'Closing' | 'Unknown'
 }
 
 export interface Connection {

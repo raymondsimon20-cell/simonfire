@@ -3,6 +3,11 @@ import { dividendStats } from '../src/lib/calc'
 import { resolveDividendSymbols } from '../src/lib/dividend-symbol'
 import { previewDividendEnrichment, type ImportResult } from '../src/lib/import'
 import type { Position, Transaction } from '../src/lib/types'
+import { estimateDividendDate } from '../src/lib/dividend-calendar'
+
+assert.equal(estimateDividendDate(['2026-06-13', '2026-07-15', '2026-08-14'], '2026-09', '2026-09-01', 'Monthly'), '2026-09-14')
+assert.equal(estimateDividendDate(['2026-08-07', '2026-08-14', '2026-08-21'], '2026-09', '2026-09-14', 'Weekly'), '2026-09-18')
+assert.equal(estimateDividendDate([], '2026-09', '2026-09-14', 'Quarterly'), undefined)
 
 const positions: Position[] = [
   {

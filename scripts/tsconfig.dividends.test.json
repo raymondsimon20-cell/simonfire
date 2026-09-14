@@ -15,6 +15,7 @@
     "test-dividend-stats.ts",
     "../src/lib/calc.ts",
     "../src/lib/dividend-symbol.ts",
+    "../src/lib/dividend-calendar.ts",
     "../src/lib/import.ts",
     "../src/lib/transaction-classification.ts",
     "../src/lib/plan.ts",

@@ -275,6 +275,7 @@ export interface DividendStats {
   schwabForwardIncome: number
   historicalEstimateIncome: number
   forwardCoverage: number
+  cappedForwardSymbols: number
   future: { month: string; amount: number }[]
   bySymbol: SymbolDividend[]
 }
@@ -290,7 +291,7 @@ export interface SymbolDividend {
   payments12m: number
   avgPayment: number
   lastPayment: string
-  estimateSource: 'Schwab forward' | 'Historical run rate' | 'No current holding'
+  estimateSource: 'Schwab forward' | 'Conservative forward cap' | 'Historical run rate' | 'No current holding'
   confidence: 'High' | 'Medium' | 'Low'
   confidenceReason: string
 }
@@ -431,7 +432,13 @@ export function dividendStats(
     const ttm = ttmBySym.get(sym) ?? 0
     const projected = projectedBySym.get(sym) ?? 0
     const forward = forwardAnnualBySym.get(sym)
-    const estimate = forward ?? projected
+    // Some high-distribution funds publish an indicated annual amount that can
+    // jump sharply after a single large payment. When we have usable payment
+    // history, limit the forward figure to 125% of the share-adjusted run rate.
+    // New holdings still use Schwab because no portfolio-specific history exists.
+    const forwardCap = projected > 0 ? projected * 1.25 : Number.POSITIVE_INFINITY
+    const forwardWasCapped = forward != null && forward > forwardCap
+    const estimate = forward != null ? Math.min(forward, forwardCap) : projected
     const pays = count12mBySym.get(sym) ?? 0
     const cost = costBySym.get(sym) ?? 0
     const value = valueBySym.get(sym) ?? 0
@@ -449,7 +456,7 @@ export function dividendStats(
       avgPayment: pays ? ttm / pays : 0,
       lastPayment: lastPayBySym.get(sym) ?? '',
       estimateSource: currentSharesBySym.get(sym)
-        ? forward != null ? 'Schwab forward' : 'Historical run rate'
+        ? forward != null ? forwardWasCapped ? 'Conservative forward cap' : 'Schwab forward' : 'Historical run rate'
         : 'No current holding',
       confidence,
       confidenceReason: confidence === 'High' ? 'Schwab forward data plus recurring payment history' : confidence === 'Medium' ? (forward != null ? 'Schwab forward data with limited payment history' : 'Recurring historical payments without forward fundamentals') : 'Limited or irregular payment evidence',
@@ -463,6 +470,7 @@ export function dividendStats(
   let payerValue = 0
   let schwabForwardIncome = 0
   let historicalEstimateIncome = 0
+  let cappedForwardSymbols = 0
   for (const b of bySymbol) {
     const value = valueBySym.get(b.symbol) ?? 0
     const cost = costBySym.get(b.symbol) ?? 0
@@ -471,8 +479,9 @@ export function dividendStats(
       estAnnual += b.projAnnual
       payerCost += cost
       payerValue += value
-      if (b.estimateSource === 'Schwab forward') schwabForwardIncome += b.projAnnual
+      if (b.estimateSource === 'Schwab forward' || b.estimateSource === 'Conservative forward cap') schwabForwardIncome += b.projAnnual
       else historicalEstimateIncome += b.projAnnual
+      if (b.estimateSource === 'Conservative forward cap') cappedForwardSymbols += 1
     }
   }
   const estMonthly = estAnnual / 12
@@ -527,6 +536,7 @@ export function dividendStats(
     schwabForwardIncome,
     historicalEstimateIncome,
     forwardCoverage: estAnnual > 0 ? schwabForwardIncome / estAnnual : 0,
+    cappedForwardSymbols,
     future,
     bySymbol,
   }

@@ -31,10 +31,10 @@ export function KpiCard({
   valueClass?: string
 }) {
   return (
-    <div className="card group p-5 fadein transition-transform duration-200 hover:-translate-y-0.5">
+    <div className="card group p-4 fadein transition-transform duration-200 hover:-translate-y-0.5 sm:p-5">
       <div className="flex items-start justify-between">
         {icon && (
-          <div className={clsx('grid h-10 w-10 place-items-center rounded-xl opacity-90 ring-1 ring-white/[0.04]', tileBg[tile])}>
+          <div className={clsx('grid h-9 w-9 place-items-center rounded-xl opacity-90 ring-1 ring-white/[0.04] sm:h-10 sm:w-10', tileBg[tile])}>
             {icon}
           </div>
         )}
@@ -47,8 +47,8 @@ export function KpiCard({
           </span>
         )}
       </div>
-      <div className="mt-5 text-[11px] font-medium uppercase tracking-[0.09em] text-muted">{label}</div>
-      <div className={clsx('num mt-1.5 text-[25px] font-medium tracking-[-0.04em]', valueClass)}>{value}</div>
+      <div className="mt-4 text-[10px] font-medium uppercase tracking-[0.09em] text-muted sm:mt-5 sm:text-[11px]">{label}</div>
+      <div className={clsx('num mt-1.5 text-[20px] font-medium tracking-[-0.04em] sm:text-[25px]', valueClass)}>{value}</div>
       {sub && <div className="mt-1 text-xs text-faint">{sub}</div>}
     </div>
   )
@@ -73,12 +73,12 @@ export function StatCard({
   className?: string
 }) {
   return (
-    <div className={clsx('card fadein p-5', className)}>
+    <div className={clsx('card fadein p-4 sm:p-5', className)}>
       <div className="flex items-start justify-between gap-3">
-        <div className="text-[11px] font-medium uppercase tracking-[0.09em] text-muted">{label}</div>
+        <div className="text-[10px] font-medium uppercase tracking-[0.09em] text-muted sm:text-[11px]">{label}</div>
         {right}
       </div>
-      <div className={clsx('num mt-2 text-[22px] font-medium tracking-[-0.03em]', valueClass)}>{value}</div>
+      <div className={clsx('num mt-2 text-[19px] font-medium tracking-[-0.03em] sm:text-[22px]', valueClass)}>{value}</div>
       {sub && <div className="mt-1 text-xs text-faint">{sub}</div>}
     </div>
   )

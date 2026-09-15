@@ -292,7 +292,7 @@ export default function Layout() {
         <div className="flex items-center gap-3 px-4 py-3">
           <Logo />
           <div className="ml-auto flex items-center gap-2">
-            <AppTools privacy={privacy} onPrivacy={() => setPrivacy((value) => { localStorage.setItem('simonfire.privacy', value ? 'off' : 'on'); return !value })}/>
+            <AppTools compact privacy={privacy} onPrivacy={() => setPrivacy((value) => { localStorage.setItem('simonfire.privacy', value ? 'off' : 'on'); return !value })}/>
             <button onClick={doSync} className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-surface" title="Sync now">
               <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
             </button>

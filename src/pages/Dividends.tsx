@@ -65,7 +65,7 @@ export default function Dividends() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <KpiCard label="Trailing 12M Income" value={usd(d.trailing12m)} sub={`${d.monthsActive}/12 months active`} icon={<DollarSign size={20} />} tile="green" />
         <KpiCard label="Monthly Average" value={usd(d.monthlyAverage)} icon={<TrendingUp size={20} />} tile="blue" />
         <KpiCard label="Historical Dividend Symbols" value={intfmt(d.dividendSymbols)} sub={`${intfmt(d.totalPayments)} payments in available history`} icon={<Layers size={20} />} tile="purple" />
@@ -73,7 +73,7 @@ export default function Dividends() {
       </div>
 
       <div className="mt-8 mb-3 text-xs font-semibold tracking-widest text-faint">PROJECTIONS</div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <KpiCard label="Estimated Annual Income" value={usd(d.estAnnual)} sub={`${pct(d.forwardCoverage * 100)} Schwab forward coverage`} icon={<Target size={20} />} tile="purple" info="Uses Schwab's indicated annual dividend per share when available, multiplied by current shares. Symbols without fundamentals fall back to trailing per-share distributions." />
         <KpiCard label="Est. Monthly Income" value={usd(d.estMonthly)} icon={<Calendar size={20} />} tile="blue" />
         <KpiCard label="Yield on Cost" value={pct(d.yieldOnCost * 100)} sub={`${d.symbolCount} paying symbols`} icon={<Percent size={20} />} tile="green" info="Current annual run rate / current cost basis of long equity and ETF dividend payers. Options are excluded." />

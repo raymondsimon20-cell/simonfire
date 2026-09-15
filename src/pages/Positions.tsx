@@ -167,7 +167,7 @@ export default function Positions() {
 
       {csvSnapshotDays != null && csvSnapshotDays >= (data.freshnessThresholds?.positions ?? 7) && <div className="mb-4 flex items-start gap-2 rounded-xl border border-[#e1c887]/25 bg-[#e1c887]/[.06] px-4 py-3 text-xs text-muted"><AlertTriangle size={16} className="mt-0.5 shrink-0 text-[#e1c887]"/><div><strong className="text-ink">Position CSV snapshot is {csvSnapshotDays} days old.</strong><div className="mt-0.5 text-faint">Share quantities and prices are current from Schwab. Cost basis still comes from the CSV snapshot; upload a newer Positions CSV after transfers, assignments, or cost-basis adjustments.</div></div></div>}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <KpiCard label="Total Value" value={usd(totals.value)} icon={<DollarSign size={20} />} tile="green" />
         <KpiCard label="Positions" value={intfmt(positions.length)} icon={<Layers size={20} />} tile="blue" />
         <KpiCard

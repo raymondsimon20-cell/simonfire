@@ -117,7 +117,7 @@ export default function HistoricalValue() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
             <KpiCard label="Portfolio value" value={usd(stats.end.value)} sub={`As of ${shortDate(stats.end.date)}`} icon={<Landmark size={20} />} tile="green" />
             <KpiCard label="Equity value" value={usd(stats.end.equity ?? stats.end.value)} sub={marginDebt ? `${usd(marginDebt)} margin debt` : 'No margin debt'} icon={<Activity size={20} />} tile="blue" />
             <KpiCard label="Value change" value={usd(stats.change, { sign: true })} sub={pct(stats.changePct * 100, { sign: true }) + ' including cash flows'} valueClass={posNeg(stats.change)} icon={stats.change >= 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />} tile={stats.change >= 0 ? 'green' : 'red'} />

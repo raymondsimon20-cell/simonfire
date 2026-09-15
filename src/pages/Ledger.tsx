@@ -78,7 +78,7 @@ export default function Ledger() {
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <KpiCard label="Total Inflows" value={usd(kpis.totalInflows, { sign: true })} valueClass="text-pos" sub={`${kpis.inflowCount.toLocaleString()} transactions`} icon={<ArrowUpRight size={20} />} tile="green" />
         <KpiCard label="Total Expenses" value={usd(-kpis.totalExpenses, { sign: true })} valueClass="text-neg" sub={`${kpis.expenseCount.toLocaleString()} transactions`} icon={<ArrowDownRight size={20} />} tile="orange" info="Bills, fees, interest, withdrawals." />
         <KpiCard label="Capital Deployed" value={usd(-kpis.capitalDeployed, { sign: true })} valueClass="text-[#b18aff]" sub={`${kpis.capitalCount.toLocaleString()} transactions`} icon={<RefreshCcw size={20} />} tile="purple" info="Cash used to buy positions." />

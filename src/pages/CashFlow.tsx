@@ -118,14 +118,14 @@ export default function CashFlow() {
         </label>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <KpiCard label="Total Income" value={usd(cf.totalIncome)} icon={<TrendingUp size={20} />} tile="green" info="Dividends, interest, and other income received in range." />
         <KpiCard label="Total Expenses" value={usd(cf.totalExpenses)} icon={<TrendingDown size={20} />} tile="orange" info="Bills, fees, margin interest, and withdrawals." />
         <KpiCard label="Margin Cost" value={usd(cf.marginCost)} sub={`Est. ${pct((cf.marginCost / Math.max(cf.totalExpenses, 1)) * 100)} (limited data)`} icon={<Percent size={20} />} tile="orange" info="Estimated margin interest cost." />
         <KpiCard label="Contributions" value={usd(cf.contributions)} icon={<Landmark size={20} />} tile="blue" info="External deposits into your accounts." />
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
         <KpiCard label="Cash Withdrawals" value={usd(cf.cashWithdrawals)} sub="Included in Total Expenses" icon={<ArrowDownToLine size={20} />} tile="orange" />
         <KpiCard label="Capital Deployed" value={usd(cf.capitalDeployed)} icon={<RefreshCcw size={20} />} tile="purple" info="Cash used to buy positions." />
         <KpiCard

@@ -12,7 +12,7 @@ import { schwabOrderStatus, schwabPlaceOption, schwabPlaceOrder, schwabPreviewOp
 import { marginCapacity, type MarginCapacity } from '../lib/margin'
 import clsx from 'clsx'
 import type { Account, HedgeRoll, Position } from '../lib/types'
-import { buildPutCloseOrder, buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, putRollTiming, rankProtectivePut, recommendPutRoll } from '../lib/hedge'
+import { buildPutCloseOrder, buildPutPreviewOrder, isActiveProtectivePut, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, putRollTiming, rankProtectivePut, recommendPutRoll } from '../lib/hedge'
 import { usePersistentState } from '../lib/persistent-state'
 
 const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<string, number> => {
@@ -595,7 +595,7 @@ function PutRollQueue({ positions, accounts }: { positions: Position[]; accounts
   const queued = openRolls.filter((roll, index, rows) => rows.findIndex((candidate) => rollKey(candidate) === rollKey(roll)) === index)
   const duplicateRolls = openRolls.filter((roll, index, rows) => rows.findIndex((candidate) => rollKey(candidate) === rollKey(roll)) !== index)
   const completedRolls = allRolls.filter((roll) => ['closed', 'rolled'].includes(roll.status))
-  const livePuts = positions.filter((p) => p.isOption && p.optionType === 'Put' && p.shares > 0)
+  const livePuts = positions.filter((p) => isActiveProtectivePut(p))
   useEffect(() => { if (!accounts.some((account) => account.id === orderAccount)) setOrderAccount(accounts[0]?.id ?? '') }, [accounts, orderAccount])
   const add = () => { if (!plan || !plan.contracts || !plan.expiration || !plan.optionSymbol || !orderAccount) return; const { ticket: _ticket, ...roll } = plan; const close = rollSource?.replacementSymbol === plan.optionSymbol && rollSource.accountId === orderAccount ? { closeOptionSymbol: rollSource.optionSymbol, closeContracts: rollSource.contracts, closeLimitCredit: rollSource.limitCredit, closePreviewState: 'not_previewed' as const, closeCostBasis: rollSource.currentCost, closeEstimatedValue: rollSource.currentValue, closeEstimatedPL: rollSource.currentPL } : {}; addHedgeRoll({ ...roll, ...close, accountId: orderAccount, previewState: 'not_previewed', status: 'queued', source: 'planning' }); setRollSource(null) }
   const startRoll = async (position: Position, prepareReplacement = true) => {

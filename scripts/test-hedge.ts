@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { buildPutCloseOrder, buildPutPreviewOrder, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, putRollTiming, rankProtectivePut, recommendPutRoll } from '../src/lib/hedge'
+import { buildPutCloseOrder, buildPutPreviewOrder, isActiveProtectivePut, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, putRollTiming, rankProtectivePut, recommendPutRoll } from '../src/lib/hedge'
 
 const optionOrder = buildPutPreviewOrder('QQQ   260918P00425000', 3, 8.126)
 assert.deepEqual(optionOrder, {
@@ -50,6 +50,12 @@ assert.equal(oddLot.contracts, 2)
 assert.equal(oddLot.coveredShares, 200)
 assert.equal(oddLot.uncoveredShares, 50)
 assert.equal(oddLot.overhedgedShares, 0)
+
+const put = { isOption: true, optionType: 'Put' as const, shares: 2, strike: 650, expiration: '2026-12-18' }
+assert.equal(isActiveProtectivePut(put, '2026-09-14'), true)
+assert.equal(isActiveProtectivePut({ ...put, strike: 0 }, '2026-09-14'), false)
+assert.equal(isActiveProtectivePut({ ...put, expiration: '2026-09-13' }, '2026-09-14'), false)
+assert.equal(isActiveProtectivePut({ ...put, expiration: undefined }, '2026-09-14'), false)
 assert.equal(oddLot.breakEvenPrice, 101.6)
 assert.equal(oddLot.maxLoss, 8400)
 assert.equal(oddLot.maxLossPct, 8400 / 25000)

@@ -6,6 +6,7 @@ import { averagePortfolioSpending } from '../lib/spending'
 import { downloadCsv } from '../lib/csv'
 import { monthLabel, pct, usd } from '../lib/format'
 import { Button, PageHeader } from '../components/ui'
+import { isActiveProtectivePut } from '../lib/hedge'
 
 export default function Reports() {
   const { data } = useStore()
@@ -26,10 +27,11 @@ export default function Reports() {
     const priorExpenses = cashFlow(transactions, `${priorMonth}-01`, `${priorMonth}-31`).totalExpenses
     return { close, flow, dividends, dividendRunRate, spending, realizedPl, priorDividends, priorExpenses }
   }, [accounts, month, positions, scope, transactions])
-  const livePuts = positions.filter((row) => row.isOption && row.optionType === 'Put' && row.shares > 0).length
+  const livePuts = positions.filter((row) => isActiveProtectivePut(row)).length
   // Live brokerage positions are authoritative. Retain manually tracked active
   // hedges as a fallback for imported/offline portfolios without option holdings.
-  const activePuts = livePuts || (data.hedgeRolls ?? []).filter((row) => row.status === 'active').length
+  const today = new Date().toISOString().slice(0, 10)
+  const activePuts = livePuts || (data.hedgeRolls ?? []).filter((row) => row.status === 'active' && row.strike > 0 && row.expiration >= today).length
   const exportReport = () => downloadCsv(`simonfire-${month}.csv`, [['Metric','Value'],['Opening equity',report.close.opening],['Closing equity',report.close.closing],['Net change',report.close.netChange],['Equity percent',report.close.equityPct],['Dividends received',report.dividends],['Dividend monthly run rate',report.dividendRunRate],['Operating expenses',report.flow.totalExpenses],['Average spending',report.spending?.monthlyAverage ?? 0],['Realized P/L',report.realizedPl],['Active protective puts',activePuts]])
   const dividendDelta = report.dividends - report.priorDividends
   const expenseDelta = report.flow.totalExpenses - report.priorExpenses

@@ -10,6 +10,25 @@ export interface ProtectivePutInput {
 
 const osiOptionSymbolPattern = /^[A-Z]{1,6}\d{6}[CP]\d{8}$/
 
+type PutPosition = {
+  isOption?: boolean
+  optionType?: 'Put' | 'Call'
+  shares: number
+  strike?: number
+  expiration?: string
+}
+
+export function isActiveProtectivePut(position: PutPosition, asOf = new Date().toISOString().slice(0, 10)) {
+  const expiration = position.expiration ?? ''
+  return position.isOption === true
+    && position.optionType === 'Put'
+    && position.shares > 0
+    && Number.isFinite(position.strike)
+    && (position.strike ?? 0) > 0
+    && /^\d{4}-\d{2}-\d{2}$/.test(expiration)
+    && expiration >= asOf
+}
+
 function buildPutOrder(optionSymbol: string, contracts: number, premiumPerShare: number, instruction: 'BUY_TO_OPEN' | 'SELL_TO_CLOSE') {
   const symbol = optionSymbol.trim().toUpperCase()
   const optionKey = symbol.replace(/\s+/g, '')

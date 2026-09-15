@@ -32,6 +32,10 @@ function ChartTip({ active, payload, label }: any) {
   )
 }
 
+function ChartSummary({ data, xKey, yKey, label }: { data: any[]; xKey: string; yKey: string; label: string }) {
+  return <p className="sr-only">{label}. {data.map((row) => `${row[xKey]}: ${usd(Number(row[yKey]) || 0)}`).join('; ')}</p>
+}
+
 // Daily / monthly signed bars (green up, red down)
 export function SignedBars({
   data,
@@ -44,7 +48,8 @@ export function SignedBars({
   yKey: string
   height?: number
 }) {
-  return (
+  return (<>
+    <ChartSummary data={data} xKey={xKey} yKey={yKey} label="Signed value chart"/>
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
         <XAxis dataKey={xKey} tick={axisStyle} axisLine={false} tickLine={false} minTickGap={20} />
@@ -57,8 +62,7 @@ export function SignedBars({
           ))}
         </Bar>
       </BarChart>
-    </ResponsiveContainer>
-  )
+    </ResponsiveContainer></>)
 }
 
 // Positive-only monthly bars (projected income)
@@ -75,7 +79,8 @@ export function PositiveBars({
   height?: number
   color?: string
 }) {
-  return (
+  return (<>
+    <ChartSummary data={data} xKey={xKey} yKey={yKey} label="Monthly value chart"/>
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
         <XAxis dataKey={xKey} tick={axisStyle} axisLine={false} tickLine={false} minTickGap={8} />
@@ -83,8 +88,7 @@ export function PositiveBars({
         <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }} content={<ChartTip />} />
         <Bar dataKey={yKey} radius={[4, 4, 0, 0]} fill={color} />
       </BarChart>
-    </ResponsiveContainer>
-  )
+    </ResponsiveContainer></>)
 }
 
 // Waterfall / equity-change bridge.
@@ -112,7 +116,8 @@ export function Waterfall({ steps, height = 300 }: { steps: BridgeStep[]; height
   const colorOf = (k: BridgeStep['kind']) =>
     k === 'base' || k === 'total' ? BASE : k === 'up' ? POS : NEG
 
-  return (
+  return (<>
+    <ChartSummary data={rows} xKey="label" yKey="value" label="Equity bridge chart"/>
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap="18%">
         <XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false} interval={0} />
@@ -138,6 +143,5 @@ export function Waterfall({ steps, height = 300 }: { steps: BridgeStep[]; height
           ))}
         </Bar>
       </BarChart>
-    </ResponsiveContainer>
-  )
+    </ResponsiveContainer></>)
 }

@@ -4,6 +4,7 @@ import './index.css'
 import { StoreProvider } from './lib/store'
 import { ToastProvider } from './components/Toast'
 import App from './App'
+import { ConfirmProvider } from './components/ConfirmDialog'
 
 // An open tab can outlive a Netlify deploy and request a hashed route chunk that
 // no longer exists. Vite emits this event before surfacing the import error; one
@@ -20,6 +21,6 @@ window.addEventListener('vite:preloadError', (event) => {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ToastProvider><StoreProvider><App /></StoreProvider></ToastProvider>
+    <ToastProvider><StoreProvider><ConfirmProvider><App /></ConfirmProvider></StoreProvider></ToastProvider>
   </StrictMode>,
 )

@@ -14,6 +14,7 @@ type SharedPreferences = {
   csvTransactionAuthority?: unknown[]
   importHistory?: unknown[]
   freshnessThresholds?: { positions: number; transactions: number; realizedPl: number }
+  savedTransactionViews?: unknown[]
   incomePlan?: {
     annualW2Target: number
     monthlySpending: number
@@ -84,6 +85,7 @@ function clean(input: any): SharedPreferences {
     transactions: numberIn(rawFreshness.transactions, 1, 365, 14),
     realizedPl: numberIn(rawFreshness.realizedPl, 1, 365, 30),
   }
+  const savedTransactionViews = Array.isArray(input?.savedTransactionViews) ? input.savedTransactionViews.filter((row: any) => row && typeof row.name === 'string').slice(0, 100).map((row: any) => ({ name: row.name.slice(0, 80), type: String(row.type ?? 'all').slice(0, 40), symbol: String(row.symbol ?? '').slice(0, 30), from: String(row.from ?? '').slice(0, 10), to: String(row.to ?? '').slice(0, 10), review: String(row.review ?? 'all').slice(0, 30) })) : []
   return {
     bucketOverrides,
     tagRules,
@@ -97,6 +99,7 @@ function clean(input: any): SharedPreferences {
     csvTransactionAuthority,
     importHistory,
     freshnessThresholds,
+    savedTransactionViews,
     incomePlan,
   }
 }

@@ -23,6 +23,7 @@ import { ImportModal } from '../components/ImportModal'
 import { schwabStatus, schwabSync, schwabDisconnect, schwabLoginUrl } from '../lib/api'
 import clsx from 'clsx'
 import { useToast } from '../components/Toast'
+import { useConfirmDialog } from '../components/ConfirmDialog'
 
 const BROKERS = [
   { name: 'E*TRADE', status: 'Available' },
@@ -46,9 +47,11 @@ export default function Connections() {
   const [live, setLive] = useState(false)
   const [liveMsg, setLiveMsg] = useState('')
   const { push } = useToast()
+  const dialogs = useConfirmDialog()
 
   const accountsOf = (ids: string[]) => data.accounts.filter((a) => ids.includes(a.id))
   const allEvents = data.connections.flatMap((c) => c.events).sort((a, b) => (a.at < b.at ? 1 : -1))
+  const disconnect = async (id: string, broker: string) => { setMenu(null); if (await dialogs.confirm('Disconnect broker', `Disconnect ${broker}? Saved CSV authority and imported history will remain.`, 'Disconnect')) removeConnection(id) }
 
   // Live Schwab sync via the Netlify Functions (server-side OAuth).
   const runLiveSync = async () => {
@@ -196,7 +199,7 @@ export default function Connections() {
                         <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2" onClick={() => { syncConnection(c.id); setMenu(null) }}>
                           <RefreshCw size={13} /> Sync now
                         </button>
-                        <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neg hover:bg-surface-2" onClick={() => { if (confirm(`Disconnect ${c.broker}?`)) removeConnection(c.id); setMenu(null) }}>
+                        <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neg hover:bg-surface-2" onClick={() => { void disconnect(c.id, c.broker) }}>
                           <Trash2 size={13} /> Disconnect
                         </button>
                       </div>

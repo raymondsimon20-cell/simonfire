@@ -13,9 +13,10 @@ import { usePersistentState } from '../lib/persistent-state'
 import { dateRangeStart, localISODate } from '../lib/date-range'
 import { duplicateTransactionIds, isClosingSale } from '../lib/transaction-review'
 import { SourceBadge } from '../components/SourceBadge'
+import { useConfirmDialog } from '../components/ConfirmDialog'
 
 export default function Transactions() {
-  const { data, deleteTransaction, archiveTransactions, restoreTransaction, dateRange } = useStore()
+  const { data, deleteTransaction, archiveTransactions, restoreTransaction, dateRange, setSavedTransactionViews } = useStore()
   const { transactions, accounts } = useScoped()
   const [modal, setModal] = useState(false)
   const [type, setType] = usePersistentState('simonfire.transactions.type', 'all')
@@ -26,9 +27,12 @@ export default function Transactions() {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   const [showArchived, setShowArchived] = useState(false)
   const [review, setReview] = usePersistentState('simonfire.transactions.review', 'all')
-  const [savedViews, setSavedViews] = usePersistentState<{ name: string; type: string; symbol: string; from: string; to: string; review: string }[]>('simonfire.transactions.saved-views', [])
+  const savedViews = data.savedTransactionViews ?? []
+  const setSavedViews = setSavedTransactionViews
   const [visibleCount, setVisibleCount] = useState(200)
   const deferredSymbol = useDeferredValue(symbol)
+  const [activeView, setActiveView] = useState<number | null>(null)
+  const dialogs = useConfirmDialog()
 
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
 
@@ -79,6 +83,7 @@ export default function Transactions() {
       ]),
     ])
   }
+  const archiveOne = async (event: React.MouseEvent, id: string) => { event.stopPropagation(); if (await dialogs.confirm('Archive transaction', 'Archive this transaction? It remains available in Archived transactions below.', 'Archive')) deleteTransaction(id) }
 
   return (
     <div>
@@ -127,8 +132,9 @@ export default function Transactions() {
       </div>
 
       <div className="card mb-4 flex flex-wrap items-center gap-3">
-        <select aria-label="Saved transaction views" defaultValue="" onChange={(event) => { const view = savedViews[Number(event.target.value)]; if (!view) return; setType(view.type); setSymbol(view.symbol); setFrom(view.from); setTo(view.to); setReview(view.review) }} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink"><option value="">Saved views</option>{savedViews.map((view, index) => <option key={`${view.name}-${index}`} value={index}>{view.name}</option>)}</select>
-        <Button onClick={() => { const name = prompt('Name this transaction view'); if (name?.trim()) setSavedViews([...savedViews, { name: name.trim(), type, symbol, from, to, review }]) }}><BookmarkPlus size={14}/> Save view</Button>
+        <select aria-label="Saved transaction views" value={activeView ?? ''} onChange={(event) => { const index = Number(event.target.value); const view = savedViews[index]; if (!view) { setActiveView(null); return } setActiveView(index); setType(view.type); setSymbol(view.symbol); setFrom(view.from); setTo(view.to); setReview(view.review) }} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink"><option value="">Saved views</option>{savedViews.map((view, index) => <option key={`${view.name}-${index}`} value={index}>{view.name}</option>)}</select>
+        <Button onClick={async () => { const name = await dialogs.prompt('Save transaction view', 'Save the current filters for quick access.', 'View name'); if (name) { setSavedViews([...savedViews, { name, type, symbol, from, to, review }]); setActiveView(savedViews.length) } }}><BookmarkPlus size={14}/> Save view</Button>
+        {activeView != null && <div className="flex items-center gap-2 text-[10px]"><button onClick={async () => { const name = await dialogs.prompt('Rename saved view', 'Choose a clearer name for this filter set.', 'View name', savedViews[activeView].name); if (name) setSavedViews(savedViews.map((view, index) => index === activeView ? { ...view, name } : view)) }} className="text-brand">Rename</button><button onClick={() => { if (activeView <= 0) return; const next = [...savedViews]; [next[activeView - 1], next[activeView]] = [next[activeView], next[activeView - 1]]; setSavedViews(next); setActiveView(activeView - 1) }} disabled={activeView === 0} className="text-muted disabled:opacity-30">↑</button><button onClick={() => { if (activeView >= savedViews.length - 1) return; const next = [...savedViews]; [next[activeView + 1], next[activeView]] = [next[activeView], next[activeView + 1]]; setSavedViews(next); setActiveView(activeView + 1) }} disabled={activeView === savedViews.length - 1} className="text-muted disabled:opacity-30">↓</button><button onClick={async () => { if (await dialogs.confirm('Delete saved view', `Delete “${savedViews[activeView].name}”?`, 'Delete')) { setSavedViews(savedViews.filter((_, index) => index !== activeView)); setActiveView(null) } }} className="text-neg">Delete</button></div>}
         <label className="flex items-center gap-2 text-sm text-muted">
           Type:
           <select
@@ -173,7 +179,7 @@ export default function Transactions() {
             className="rounded-lg border border-border bg-surface-2 px-2 py-2 text-sm outline-none [color-scheme:dark]"
           />
         </label>
-        {review === 'duplicates' && duplicateIds.size > 0 && <Button onClick={() => { if (confirm(`Archive ${duplicateIds.size} duplicate record${duplicateIds.size === 1 ? '' : 's'}? One copy of each matching transaction will remain and archived records can be restored.`)) archiveTransactions([...duplicateIds]) }}><Trash2 size={14}/> Archive shown duplicates</Button>}
+        {review === 'duplicates' && duplicateIds.size > 0 && <Button onClick={async () => { if (await dialogs.confirm('Archive duplicate records', `${duplicateIds.size} potential duplicate record${duplicateIds.size === 1 ? '' : 's'} will be archived. One copy remains and archived records can be restored.`, 'Archive duplicates')) archiveTransactions([...duplicateIds]) }}><Trash2 size={14}/> Archive shown duplicates</Button>}
         <span className="ml-auto text-xs text-faint">{filtered.length} transactions</span>
       </div>
 
@@ -215,7 +221,7 @@ export default function Transactions() {
                 </td>
                 <td className="px-2 py-3">
                   <button
-                    onClick={(event) => { event.stopPropagation(); if (confirm('Archive this transaction? You can restore it below.')) deleteTransaction(t.id) }}
+                    onClick={(event) => { void archiveOne(event, t.id) }}
                     className="opacity-0 transition-opacity group-hover:opacity-100"
                     title="Delete"
                   >

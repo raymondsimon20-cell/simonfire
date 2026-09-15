@@ -14,6 +14,7 @@
     "test:spending": "tsc -p scripts/tsconfig.spending.test.json && node /tmp/simonfire-spending-tests/scripts/test-spending.js",
     "test:hedge": "tsc -p scripts/tsconfig.hedge.test.json && node /tmp/simonfire-hedge-tests/scripts/test-hedge.js",
     "test:sync-summary": "tsc -p scripts/tsconfig.sync-summary.test.json && node /tmp/simonfire-sync-summary-tests/scripts/test-sync-summary.js",
+    "test:premium": "tsc -p scripts/tsconfig.premium.test.json && node /tmp/simonfire-premium-tests/scripts/test-premium-workflow.js",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -6,7 +6,7 @@ import type { AppData } from './types'
 
 const FN = '/.netlify/functions'
 
-export type SharedPreferences = Pick<AppData, 'bucketOverrides' | 'tagRules' | 'symbolRules' | 'targetAlloc' | 'keepList' | 'soldSymbols' | 'incomePlan' | 'spendingExclusions' | 'realizedPlOverrides' | 'csvPositionAuthority' | 'csvTransactionAuthority' | 'importHistory' | 'freshnessThresholds'>
+export type SharedPreferences = Pick<AppData, 'bucketOverrides' | 'tagRules' | 'symbolRules' | 'targetAlloc' | 'keepList' | 'soldSymbols' | 'incomePlan' | 'spendingExclusions' | 'realizedPlOverrides' | 'csvPositionAuthority' | 'csvTransactionAuthority' | 'importHistory' | 'freshnessThresholds' | 'savedTransactionViews'>
 
 export async function loadSharedPreferences(): Promise<SharedPreferences | null> {
   try {

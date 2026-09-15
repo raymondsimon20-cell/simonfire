@@ -1,6 +1,6 @@
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
-import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles, History, FileText, ShieldCheck } from 'lucide-react'
+import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles, History, FileText, ShieldCheck, Settings } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { relTime } from '../lib/format'
@@ -8,6 +8,7 @@ import clsx from 'clsx'
 import { useToast } from './Toast'
 import { AppTools } from './AppTools'
 import { PremiumTools } from './PremiumTools'
+import { useConfirmDialog } from './ConfirmDialog'
 
 // Brand mark: a rounded gradient tile with an upward "portfolio growth" line.
 function LogoMark({ size = 34 }: { size?: number }) {
@@ -59,6 +60,7 @@ const NAV = [
   { to: '/allocation', label: 'Allocation', icon: Goal },
   { to: '/reports', label: 'Reports', icon: FileText },
   { to: '/data-quality', label: 'Data Quality', icon: ShieldCheck },
+  { to: '/preferences', label: 'Preferences', icon: Settings },
   { to: '/connections', label: 'Connections', icon: Cable },
 ]
 
@@ -205,8 +207,10 @@ export default function Layout() {
   const [syncing, setSyncing] = useState(false)
   const [autoSyncing, setAutoSyncing] = useState(false)
   const [privacy, setPrivacy] = useState(() => localStorage.getItem('simonfire.privacy') === 'on')
+  const compactDensity = localStorage.getItem('simonfire.density') === 'compact'
   const { push } = useToast()
   const location = useLocation()
+  const dialogs = useConfirmDialog()
   const latestPositionCsv = (data.csvPositionAuthority ?? []).reduce((latest, row) => row.importedAt > latest ? row.importedAt : latest, '')
   const positionCsvAge = latestPositionCsv ? Math.max(0, Math.floor((new Date(data.lastSyncAt).getTime() - new Date(latestPositionCsv).getTime()) / 86_400_000)) : null
   const stalePositionCsv = positionCsvAge != null && positionCsvAge >= (data.freshnessThresholds?.positions ?? 7)
@@ -251,12 +255,10 @@ export default function Layout() {
     }
   }
 
-  const handleReset = () => {
-    if (confirm('Reset all data back to the sample dataset?')) reset()
-  }
+  const handleReset = async () => { if (await dialogs.confirm('Reset SimonFIRE', 'Replace current local data with the sample portfolio? Export a backup first if you may need this data.', 'Reset data')) reset() }
 
   return (
-    <div className={clsx('min-h-full', privacy && 'privacy-mode')}>
+    <div className={clsx('min-h-full', privacy && 'privacy-mode', compactDensity && 'density-compact')}>
       <div className="fixed bottom-4 left-4 z-40 lg:bottom-auto lg:left-[166px] lg:top-5"><PremiumTools /></div>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-white/[0.06] bg-[#090c11]/95 px-4 py-5 backdrop-blur-xl lg:flex">
         <div className="px-2"><Logo /></div>

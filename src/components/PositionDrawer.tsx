@@ -69,6 +69,8 @@ export function PositionDrawer({
     if (!position) return null
     const m = positionMetrics(position)
     const account = data.accounts.find((a) => a.id === position.accountId)
+    const authority = (data.csvPositionAuthority ?? []).find((row) => row.accountMask === account?.mask && row.position.symbol.replace(/\s+/g, '') === position.symbol.replace(/\s+/g, ''))
+    const importEntry = authority?.importBatchId ? (data.importHistory ?? []).find((row) => row.id === authority.importBatchId) : undefined
     const related = data.transactions.filter(
       (t) => t.accountId === position.accountId && t.symbol === position.symbol,
     )
@@ -80,7 +82,7 @@ export function PositionDrawer({
     const realizedShown = includeIncome ? realized : 0
     const totalReturn = m.totalGain + income + realizedShown
     const totalReturnPct = m.costBasis ? totalReturn / m.costBasis : 0
-    return { m, account, txnCount: related.length, dividends: income, realized: realizedShown, totalReturn, totalReturnPct }
+    return { m, account, authority, importEntry, txnCount: related.length, dividends: income, realized: realizedShown, totalReturn, totalReturnPct }
   }, [position, data, mode])
 
   const open = !!position && !!detail
@@ -168,6 +170,7 @@ export function PositionDrawer({
               />
             </div>
             <div className="mt-3 rounded-xl border border-border-soft bg-black/10 p-3 text-[10px] leading-5 text-faint"><strong className="text-muted">Calculation audit:</strong> market value = current API quantity × current API price. Unrealized gain = market value − (current quantity × CSV/API average cost). Total return adds tracked dividends and realized gains.</div>
+            {detail.authority && <div className="mt-2 text-[10px] text-faint">Cost-basis snapshot: <strong className="text-muted">{detail.importEntry?.files.join(', ') ?? 'Schwab Positions CSV'}</strong> · imported {new Date(detail.authority.importedAt).toLocaleDateString()}</div>}
 
             {/* Income & Total Return */}
             <div className="mb-3 mt-7 flex items-center justify-between">

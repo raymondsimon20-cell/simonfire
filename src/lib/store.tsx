@@ -156,6 +156,7 @@ function sharedPreferences(data: AppData): SharedPreferences {
     csvTransactionAuthority: data.csvTransactionAuthority ?? [],
     importHistory: data.importHistory ?? [],
     freshnessThresholds: data.freshnessThresholds ?? DEFAULT_FRESHNESS,
+    savedTransactionViews: data.savedTransactionViews ?? [],
   }
 }
 
@@ -173,6 +174,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   data.csvTransactionAuthority = preferences.csvTransactionAuthority ?? data.csvTransactionAuthority ?? []
   data.importHistory = preferences.importHistory ?? data.importHistory ?? []
   data.freshnessThresholds = { ...DEFAULT_FRESHNESS, ...(preferences.freshnessThresholds ?? data.freshnessThresholds ?? {}) }
+  data.savedTransactionViews = preferences.savedTransactionViews ?? data.savedTransactionViews ?? []
   if (data.csvPositionAuthority.length || data.csvTransactionAuthority.length) {
     const reconciled = reconcileCsvAuthority(data.accounts, data.positions, data.transactions, data.csvPositionAuthority, data.csvTransactionAuthority, data.source !== 'live')
     data.positions = reconciled.positions
@@ -215,7 +217,9 @@ interface StoreCtx {
   removeConnection: (id: string) => void
   applyImport: (result: ImportPayload, mode: 'replace' | 'merge', source?: 'imported' | 'live') => void
   rollbackImport: (id: string) => void
+  clearCsvAuthority: (accountMask: string, kind: 'positions' | 'transactions' | 'realizedPl') => void
   setFreshnessThresholds: (value: AppData['freshnessThresholds']) => void
+  setSavedTransactionViews: (value: NonNullable<AppData['savedTransactionViews']>) => void
   restoreBackup: (backup: AppData) => void
   reset: () => void
   // Target-plan / rebalance
@@ -269,7 +273,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const day = data.lastSyncAt.slice(0, 10)
     const key = 'simonfire.last-server-backup'
     if (localStorage.getItem(key) === day) return
-    const timeout = window.setTimeout(() => { void saveBackup(data).then((saved) => { if (saved) localStorage.setItem(key, day) }) }, 1_500)
+    const timeout = window.setTimeout(() => { void saveBackup(data).then((saved) => { localStorage.setItem('simonfire.last-server-backup-status', `${saved ? 'ok' : 'error'}:${new Date().toISOString()}`); if (saved) localStorage.setItem(key, day) }) }, 1_500)
     return () => window.clearTimeout(timeout)
   }, [data, sharedReady])
 
@@ -294,7 +298,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!sharedReady) return
     const timeout = window.setTimeout(() => { void saveSharedPreferences(sharedPreferences(data)) }, 350)
     return () => window.clearTimeout(timeout)
-  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, data.importHistory, data.freshnessThresholds, sharedReady])
+  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, data.importHistory, data.freshnessThresholds, data.savedTransactionViews, sharedReady])
 
   const mutate = useCallback((fn: (d: AppData) => AppData, label?: string) => {
     setData((prev) => {
@@ -637,10 +641,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return d
   }, 'CSV import rollback'), [mutate])
 
+  const clearCsvAuthority: StoreCtx['clearCsvAuthority'] = useCallback((accountMask, kind) => mutate((d) => {
+    if (kind === 'positions') d.csvPositionAuthority = (d.csvPositionAuthority ?? []).filter((row) => row.accountMask !== accountMask)
+    else if (kind === 'transactions') d.csvTransactionAuthority = (d.csvTransactionAuthority ?? []).filter((row) => row.accountMask !== accountMask)
+    else {
+      d.csvTransactionAuthority = (d.csvTransactionAuthority ?? []).filter((row) => row.accountMask !== accountMask || row.transaction.pl == null)
+      const accountIds = new Set(d.accounts.filter((account) => account.mask === accountMask).map((account) => account.id))
+      d.realizedPlOverrides = Object.fromEntries(Object.entries(d.realizedPlOverrides ?? {}).filter(([key]) => !accountIds.has(key.split('|')[0])))
+    }
+    return d
+  }, `Clear ${kind} CSV authority`), [mutate])
+
   const setFreshnessThresholds: StoreCtx['setFreshnessThresholds'] = useCallback((value) => mutate((d) => {
     d.freshnessThresholds = { ...DEFAULT_FRESHNESS, ...(value ?? {}) }
     return d
   }), [mutate])
+  const setSavedTransactionViews: StoreCtx['setSavedTransactionViews'] = useCallback((value) => mutate((d) => { d.savedTransactionViews = value; return d }), [mutate])
 
   const restoreBackup: StoreCtx['restoreBackup'] = useCallback((backup) => {
     if (!backup || backup.version !== 1 || !Array.isArray(backup.accounts) || !Array.isArray(backup.positions) || !Array.isArray(backup.transactions)) throw new Error('Invalid SimonFIRE backup')
@@ -811,7 +827,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       removeConnection,
       applyImport,
       rollbackImport,
+      clearCsvAuthority,
       setFreshnessThresholds,
+      setSavedTransactionViews,
       restoreBackup,
       reset,
       setKeepList,
@@ -852,7 +870,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       removeConnection,
       applyImport,
       rollbackImport,
+      clearCsvAuthority,
       setFreshnessThresholds,
+      setSavedTransactionViews,
       restoreBackup,
       reset,
       setKeepList,

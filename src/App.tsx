@@ -17,6 +17,7 @@ const Allocation = lazy(() => import('./pages/Allocation'))
 const HistoricalValue = lazy(() => import('./pages/HistoricalValue'))
 const Reports = lazy(() => import('./pages/Reports'))
 const DataQuality = lazy(() => import('./pages/DataQuality'))
+const Preferences = lazy(() => import('./pages/Preferences'))
 const page = (node: ReactNode) => <Suspense fallback={<PageSkeleton />}>{node}</Suspense>
 const makeRouter = import.meta.env.VITE_SINGLEFILE ? createHashRouter : createBrowserRouter
 const router = makeRouter([{ path: '/', element: <Layout />, errorElement: <NotFound />, children: [
@@ -28,6 +29,7 @@ const router = makeRouter([{ path: '/', element: <Layout />, errorElement: <NotF
   { path: 'ledger', element: page(<Ledger />) }, { path: 'connections', element: page(<Connections />) },
   { path: 'reports', element: page(<Reports />) },
   { path: 'data-quality', element: page(<DataQuality />) },
+  { path: 'preferences', element: page(<Preferences />) },
   { path: '*', element: <NotFound /> },
 ] }])
 

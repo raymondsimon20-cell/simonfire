@@ -151,6 +151,7 @@ export interface AppData {
   csvTransactionAuthority?: CsvTransactionAuthority[]
   importHistory?: ImportHistoryEntry[]
   freshnessThresholds?: { positions: number; transactions: number; realizedPl: number }
+  savedTransactionViews?: { name: string; type: string; symbol: string; from: string; to: string; review: string }[]
 }
 
 export interface ImportHistoryEntry {

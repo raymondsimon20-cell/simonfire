@@ -1,0 +1,4 @@
+{
+  "compilerOptions": { "target": "ES2022", "module": "CommonJS", "moduleResolution": "Node", "ignoreDeprecations": "6.0", "types": ["node"], "strict": true, "esModuleInterop": true, "skipLibCheck": true, "rootDir": "..", "outDir": "/tmp/simonfire-premium-tests" },
+  "include": ["test-premium-workflow.ts", "../src/lib/csv-authority.ts", "../src/lib/types.ts"]
+}

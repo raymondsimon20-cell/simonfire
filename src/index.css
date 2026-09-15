@@ -91,6 +91,26 @@ body {
 }
 
 button, a, input, select { -webkit-tap-highlight-color: transparent; }
+
+/* One look for every native select and date field, so filter bars match the
+   custom dropdowns instead of each page styling its own. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  color-scheme: dark;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23929cab' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  padding-right: 2rem !important;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+select:hover { border-color: rgba(199, 169, 107, 0.35); }
+select option { background: #141a24; color: #f1f3f5; }
+input[type='date'], input[type='month'] { color-scheme: dark; }
+input[type='date']::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: pointer; }
+input[type='date']:hover, input[type='number']:hover, input[type='text']:hover, input[type='search']:hover, input:not([type]):hover { border-color: rgba(199, 169, 107, 0.3); }
+input:focus, select:focus { border-color: rgba(199, 169, 107, 0.55); }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
   outline: 2px solid rgba(199, 169, 107, 0.7);
   outline-offset: 2px;

@@ -54,6 +54,36 @@ export function KpiCard({
   )
 }
 
+// Compact KPI without the icon tile — for statement/audit pages where eight
+// metrics sit in a grid. Shares the label/value treatment with KpiCard so the
+// two read as one system.
+export function StatCard({
+  label,
+  value,
+  sub,
+  valueClass,
+  right,
+  className,
+}: {
+  label: string
+  value: ReactNode
+  sub?: ReactNode
+  valueClass?: string
+  right?: ReactNode
+  className?: string
+}) {
+  return (
+    <div className={clsx('card fadein p-5', className)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-[11px] font-medium uppercase tracking-[0.09em] text-muted">{label}</div>
+        {right}
+      </div>
+      <div className={clsx('num mt-2 text-[22px] font-medium tracking-[-0.03em]', valueClass)}>{value}</div>
+      {sub && <div className="mt-1 text-xs text-faint">{sub}</div>}
+    </div>
+  )
+}
+
 export function Card({
   children,
   className,

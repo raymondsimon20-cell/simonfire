@@ -1,10 +1,11 @@
+import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 import { AlertTriangle, ArchiveRestore, CheckCircle2, Clock, Cloud, Database, Download, Upload } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { DEFAULT_FRESHNESS, useStore } from '../lib/store'
 import { duplicateTransactionIds, isClosingSale } from '../lib/transaction-review'
 import { listBackups, loadBackup, saveBackup, type BackupMetadata } from '../lib/api'
-import { PageHeader, Button } from '../components/ui'
+import { PageHeader, Button, StatCard } from '../components/ui'
 import { useConfirmDialog } from '../components/ConfirmDialog'
 import { useToast } from '../components/Toast'
 import { relTime } from '../lib/format'
@@ -49,7 +50,7 @@ export default function DataQuality() {
   </div>
 }
 function Section({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) { return <section className="card mt-5 p-5"><div className="flex items-center gap-2"><Database size={16} className="text-brand"/><h2 className="font-semibold">{title}</h2></div><p className="mt-1 text-xs text-faint">{subtitle}</p><div className="mt-4">{children}</div></section> }
-function Metric({ label,value,good,note }: { label:string; value:string; good:boolean; note:string }) { return <div className="card p-4"><div className="flex items-center justify-between text-xs text-faint"><span>{label}</span>{good ? <CheckCircle2 size={14} className="text-pos"/> : <AlertTriangle size={14} className="text-[#e1c887]"/>}</div><div className="mt-2 text-xl font-semibold">{value}</div><div className="mt-1 text-xs text-faint">{note}</div></div> }
+function Metric({ label,value,good,note }: { label:string; value:string; good:boolean; note:string }) { return <StatCard label={label} value={value} sub={note} valueClass={clsx('!font-sans', good ? 'text-pos' : 'text-[#e1c887]')} right={good ? <CheckCircle2 size={15} className="text-pos"/> : <AlertTriangle size={15} className="text-[#e1c887]"/>}/> }
 function Issue({ label,to }: { label:string; to?:string }) { const body = <><AlertTriangle size={14} className="text-[#e1c887]"/><span>{label}</span></>; return to ? <Link to={to} className="flex items-center gap-2 rounded-xl border border-[#e1c887]/15 p-3 text-xs">{body}</Link> : <div className="flex items-center gap-2 rounded-xl border border-[#e1c887]/15 p-3 text-xs">{body}</div> }
 function Threshold({ label,value,onChange }: { label:string; value:number; onChange:(value:number)=>void }) { return <label className="rounded-xl border border-border-soft p-3 text-xs text-muted">{label}<div className="mt-2 flex items-center gap-2"><input aria-label={`${label} warning days`} type="number" min="1" max="365" value={value} onChange={(event) => onChange(Math.max(1,Number(event.target.value)||1))} className="num w-20 rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-ink"/><span className="text-faint">days</span></div></label> }
 function Trust({ label,source }: { label:string; source:string }) { return <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2"><span className="text-muted">{label}</span><span className="text-right font-medium">{source}</span></div> }

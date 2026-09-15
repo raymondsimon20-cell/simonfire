@@ -10,6 +10,8 @@ import { normalizeTransactionPattern } from '../lib/transaction-classification'
 import { useToast } from '../components/Toast'
 import clsx from 'clsx'
 
+const OPEN_MONTHS = 3 // months expanded by default
+const PAGE = 100 // rows shown per month before "Show more"
 const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action', 'Buy', 'Sell', 'Other']
 
 export default function Ledger() {
@@ -19,7 +21,11 @@ export default function Ledger() {
   const [category, setCategory] = useState('all')
   const [symbol, setSymbol] = useState('')
   const [search, setSearch] = useState('')
+  // Months are keyed by "ym". Only the newest few months start expanded, and
+  // each expanded month pages its rows, so a multi-year ledger (thousands of
+  // rows) no longer renders in one shot.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [rowLimit, setRowLimit] = useState<Record<string, number>>({})
   const [selected, setSelected] = useState<Transaction | null>(null)
 
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
@@ -39,6 +45,8 @@ export default function Ledger() {
 
   const kpis = useMemo(() => ledgerKpis(filtered), [filtered])
   const groups = useMemo(() => groupByMonth(filtered), [filtered])
+  const isOpen = (ym: string, index: number) => collapsed[ym] == null ? index < OPEN_MONTHS : !collapsed[ym]
+  const filtering = Boolean(from || to || category !== 'all' || symbol || search)
 
   return (
     <div>
@@ -92,41 +100,59 @@ export default function Ledger() {
             </tr>
           </thead>
           <tbody>
-            {groups.map((g) => {
-              const isCollapsed = collapsed[g.ym]
+            {groups.map((g, index) => {
+              const open = isOpen(g.ym, index) || (filtering && collapsed[g.ym] == null)
+              const limit = rowLimit[g.ym] ?? PAGE
+              const hidden = Math.max(0, g.rows.length - limit)
               return (
                 <Fragment key={g.ym}>
                   <tr
-                    className="cursor-pointer border-b border-border-soft bg-surface-2/50"
-                    onClick={() => setCollapsed((c) => ({ ...c, [g.ym]: !c[g.ym] }))}
+                    className="cursor-pointer border-b border-border-soft bg-surface-2/50 hover:bg-surface-2/80"
+                    onClick={() => setCollapsed((c) => ({ ...c, [g.ym]: open }))}
                   >
-                    <td className="px-4 py-3 font-semibold" colSpan={4}>
+                    <td className="px-4 py-3 font-semibold" colSpan={3}>
                       <span className="flex items-center gap-2">
-                        <ChevronDown size={15} className={clsx('transition-transform', isCollapsed && '-rotate-90')} />
-                        {monthLabel(g.ym)} <span className="text-faint">({g.count})</span>
+                        <ChevronDown size={15} className={clsx('transition-transform', !open && '-rotate-90')} />
+                        {monthLabel(g.ym)} <span className="text-faint">({g.count.toLocaleString()})</span>
                       </span>
                     </td>
-                    <td className="px-4 py-3" />
-                    <td className="num px-4 py-3 text-right text-xs">
-                      <span className="text-pos">{usd(g.inflows, { sign: true })}</span>{' '}
-                      <span className="text-neg">{usd(-g.expenses, { sign: true })}</span>{' '}
-                      <span className="text-[#b18aff]">{usd(-g.deployed, { sign: true })}</span>
+                    <td className="num whitespace-nowrap px-4 py-3 text-right text-xs" colSpan={3}>
+                      <span className="text-faint">In </span><span className="text-pos">{usd(g.inflows, { sign: true })}</span>
+                      <span className="mx-2 text-border">·</span>
+                      <span className="text-faint">Out </span><span className="text-neg">{usd(-g.expenses, { sign: true })}</span>
+                      <span className="mx-2 text-border">·</span>
+                      <span className="text-faint">Deployed </span><span className="text-[#b18aff]">{usd(-g.deployed, { sign: true })}</span>
                     </td>
-                    <td className="num px-4 py-3 text-right text-xs" colSpan={2}>
-                      <span className="text-muted">Net </span>
+                    <td className="num whitespace-nowrap px-4 py-3 text-right text-xs font-semibold" colSpan={2}>
+                      <span className="font-normal text-muted">Net </span>
                       <span className={g.net >= 0 ? 'text-pos' : 'text-neg'}>{usd(g.net, { sign: true })}</span>
                     </td>
                   </tr>
-                  {!isCollapsed &&
-                    g.rows.slice(0, 300).map((t) => (
+                  {open &&
+                    g.rows.slice(0, limit).map((t) => (
                       <LedgerRow key={t.id} t={t} account={accName(t.accountId)} onOpen={setSelected} />
                     ))}
+                  {open && hidden > 0 && (
+                    <tr className="border-b border-border-soft">
+                      <td colSpan={8} className="px-4 py-2.5 text-center text-xs text-faint">
+                        Showing {limit.toLocaleString()} of {g.rows.length.toLocaleString()} in {monthLabel(g.ym)}.{' '}
+                        <button onClick={() => setRowLimit((r) => ({ ...r, [g.ym]: limit + PAGE }))} className="font-semibold text-brand">Show {Math.min(PAGE, hidden)} more</button>
+                        {hidden > PAGE && <>{' · '}<button onClick={() => setRowLimit((r) => ({ ...r, [g.ym]: g.rows.length }))} className="font-semibold text-brand">Show all</button></>}
+                      </td>
+                    </tr>
+                  )}
                 </Fragment>
               )
             })}
+            {groups.length === 0 && (
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-muted">No transactions match these filters.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
+      {groups.length > OPEN_MONTHS && !filtering && (
+        <p className="mt-2 text-right text-[11px] text-faint">Older months are collapsed — click a month to expand it.</p>
+      )}
 
       <TransactionDrawer txn={selected} onClose={() => setSelected(null)} />
     </div>

@@ -6,7 +6,7 @@ export function BucketBadge({ bucket }: { bucket: Bucket }) {
   const color = BUCKET_COLOR[bucket]
   return (
     <span
-      className="inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em]"
+      className="inline-flex items-center whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em]"
       style={{ borderColor: `${color}35`, backgroundColor: `${color}12`, color }}
     >
       {bucket}

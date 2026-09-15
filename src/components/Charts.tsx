@@ -22,6 +22,29 @@ function money(v: number) {
   return `$${v.toFixed(0)}`
 }
 
+// Round down to a "nice" axis value (e.g. 71,340 -> 70,000).
+function niceFloor(v: number) {
+  if (v <= 0) return 0
+  const mag = 10 ** Math.floor(Math.log10(v))
+  const step = mag >= 10_000 ? mag / 2 : mag
+  return Math.floor(v / step) * step
+}
+
+// Two-line category tick: splits on the first space so labels like
+// "Realized P/L" and "Mkt & Other" stop colliding with their neighbours.
+function WrappedTick({ x, y, payload }: any) {
+  const text = String(payload?.value ?? '')
+  const idx = text.indexOf(' ')
+  const lines = idx > 0 && text.length > 8 ? [text.slice(0, idx), text.slice(idx + 1)] : [text]
+  return (
+    <text x={x} y={y + 4} textAnchor="middle" fill="#697485" fontSize={11}>
+      {lines.map((line, i) => (
+        <tspan key={i} x={x} dy={i === 0 ? 8 : 13}>{line}</tspan>
+      ))}
+    </text>
+  )
+}
+
 function ChartTip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
@@ -116,12 +139,18 @@ export function Waterfall({ steps, height = 300 }: { steps: BridgeStep[]; height
   const colorOf = (k: BridgeStep['kind']) =>
     k === 'base' || k === 'total' ? BASE : k === 'up' ? POS : NEG
 
+  // Start the axis just below the lowest point of the bridge so the intermediate
+  // steps are readable instead of collapsing into hairlines on a from-zero axis.
+  const lowest = Math.min(0, ...rows.map((r) => Math.min(r.start, r.end)))
+  const positiveLow = Math.min(...rows.map((r) => Math.min(r.start, r.end)).filter((v) => v > 0))
+  const floor = lowest < 0 || !Number.isFinite(positiveLow) ? lowest : niceFloor(positiveLow * 0.9)
+
   return (<>
     <ChartSummary data={rows} xKey="label" yKey="value" label="Equity bridge chart"/>
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }} barCategoryGap="18%">
-        <XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false} interval={0} />
-        <YAxis tick={axisStyle} axisLine={false} tickLine={false} tickFormatter={money} width={52} />
+        <XAxis dataKey="label" tick={<WrappedTick />} axisLine={false} tickLine={false} interval={0} height={34} />
+        <YAxis tick={axisStyle} axisLine={false} tickLine={false} tickFormatter={money} width={52} domain={[floor, 'auto']} allowDataOverflow />
         <Tooltip
           cursor={{ fill: 'rgba(255,255,255,0.04)' }}
           content={({ active, payload }: any) => {

@@ -77,7 +77,7 @@ export default function MonthClose() {
           <Row label="Liabilities (Margin)" value={`(${usd(mc.liabilities)})`} valueClass="text-neg" />
           <div className="my-3 h-px bg-border-soft" />
           <Row label="Net Equity" value={usd(mc.netEquity)} bold />
-          <Row label="Equity %" value={pct(mc.equityPct * 100)} valueClass="text-tile-orange text-[#f0a94a]" />
+          <Row label="Equity %" value={pct(mc.equityPct * 100)} valueClass="text-[#f0a94a]" />
         </Card>
 
         <Card>

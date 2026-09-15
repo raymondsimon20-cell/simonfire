@@ -54,6 +54,9 @@ export default function Transactions() {
     [transactions, type, deferredSymbol, review, duplicateIds, from, to, dateRange],
   )
 
+  // Only show option columns when there is at least one option trade in view.
+  const hasOptions = useMemo(() => filtered.some((t) => t.strike != null || t.exp != null), [filtered])
+
   const totalsByType = useMemo(() => {
     const m = new Map<string, { count: number; amount: number }>()
     for (const t of filtered) {
@@ -190,8 +193,8 @@ export default function Transactions() {
               <th className="px-4 py-3 font-medium">Date</th>
               <th className="px-4 py-3 font-medium">Type</th>
               <th className="px-4 py-3 font-medium">Symbol</th>
-              <th className="px-4 py-3 text-right font-medium">Strike</th>
-              <th className="px-4 py-3 text-right font-medium">Exp</th>
+              {hasOptions && <th className="px-4 py-3 text-right font-medium">Strike</th>}
+              {hasOptions && <th className="px-4 py-3 text-right font-medium">Exp</th>}
               <th className="px-4 py-3 font-medium">Account</th>
               <th className="px-4 py-3 font-medium">Description</th>
               <th className="px-4 py-3 text-right font-medium">Amount</th>
@@ -207,8 +210,8 @@ export default function Transactions() {
                 <td className="whitespace-nowrap px-4 py-3 text-muted">{shortDate(t.date)}</td>
                 <td className="px-4 py-3"><Badge>{t.type}</Badge></td>
                 <td className="px-4 py-3 font-semibold"><span className="flex items-center gap-1.5">{t.symbol ?? '—'}<SourceBadge source={t.dataSource === 'csv' ? 'csv' : t.dataSource === 'manual' ? 'manual' : 'api'}/></span></td>
-                <td className="num px-4 py-3 text-right text-faint">{t.strike ?? '-'}</td>
-                <td className="num px-4 py-3 text-right text-faint">{t.exp ?? '-'}</td>
+                {hasOptions && <td className="num px-4 py-3 text-right text-faint">{t.strike != null ? usd(t.strike) : '–'}</td>}
+                {hasOptions && <td className="num px-4 py-3 text-right text-faint">{t.exp ? shortDate(t.exp) : '–'}</td>}
                 <td className="px-4 py-3 text-xs text-muted">{accName(t.accountId)}</td>
                 <td className="max-w-[260px] truncate px-4 py-3 text-muted">{t.description}{duplicateIds.has(t.id) && <span className="ml-2 rounded bg-[#c7a96b]/10 px-1.5 py-0.5 text-[10px] text-[#e1c887]" title="Same account, date, type, symbol, amount, units, and normalized description as an earlier record">Potential duplicate</span>}</td>
                 <td className={clsx('num px-4 py-3 text-right font-medium', t.amount > 0 ? 'text-pos' : t.amount < 0 ? 'text-neg' : 'text-faint')}>

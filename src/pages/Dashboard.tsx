@@ -127,25 +127,21 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm">
+            <table className="w-full min-w-[440px] text-sm">
               <thead>
                 <tr className="border-y border-border-soft text-left text-xs text-muted">
-                  <th className="px-5 py-2.5 font-medium">Holding</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Day Chg $</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Day Chg %</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Total Gain $</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Total Gain %</th>
-                  <th className="px-5 py-2.5 text-right font-medium">Value</th>
+                  <th className="whitespace-nowrap px-5 py-2.5 font-medium">Holding</th>
+                  <th className="whitespace-nowrap px-4 py-2.5 text-right font-medium">Day Change</th>
+                  <th className="whitespace-nowrap px-4 py-2.5 text-right font-medium">Total Gain</th>
+                  <th className="whitespace-nowrap px-5 py-2.5 text-right font-medium">Value</th>
                 </tr>
               </thead>
               <tbody>
                 <tr className="border-b border-border-soft bg-surface-2/40 font-semibold">
                   <td className="px-5 py-3">Portfolio Total</td>
-                  <td className={clsx('num px-4 py-3 text-right', posNeg(totals.day))}>{usd(totals.day, { sign: true })}</td>
-                  <td className={clsx('num px-4 py-3 text-right', posNeg(totals.day))}>{pct(totals.dayPct * 100, { sign: true })}</td>
-                  <td className={clsx('num px-4 py-3 text-right', posNeg(totals.gain))}>{usd(totals.gain, { sign: true })}</td>
-                  <td className={clsx('num px-4 py-3 text-right', posNeg(totals.gain))}>{pct(totals.gainPct * 100, { sign: true })}</td>
-                  <td className="num px-5 py-3 text-right">{usd(totals.value)}</td>
+                  <ChangeCell amount={totals.day} pctValue={totals.dayPct * 100} />
+                  <ChangeCell amount={totals.gain} pctValue={totals.gainPct * 100} />
+                  <td className="num whitespace-nowrap px-5 py-3 text-right">{usd(totals.value)}</td>
                 </tr>
                 {topPositions.map(({ p, m }) => (
                   <tr
@@ -156,16 +152,14 @@ export default function Dashboard() {
                     <td className="px-5 py-3">
                       <span className="flex items-center gap-2 font-semibold"><span>{p.symbol}</span><BucketBadge bucket={bucketOf(p)} /></span>
                     </td>
-                    <td className={clsx('num px-4 py-3 text-right', posNeg(m.dayChange))}>{usd(m.dayChange, { sign: true })}</td>
-                    <td className={clsx('num px-4 py-3 text-right', posNeg(m.dayChange))}>{pct(m.dayChangePct * 100, { sign: true })}</td>
-                    <td className={clsx('num px-4 py-3 text-right', posNeg(m.totalGain))}>{usd(m.totalGain, { sign: true })}</td>
-                    <td className={clsx('num px-4 py-3 text-right', posNeg(m.totalGain))}>{pct(m.totalGainPct * 100, { sign: true })}</td>
-                    <td className="num px-5 py-3 text-right font-semibold">{usd(m.value)}</td>
+                    <ChangeCell amount={m.dayChange} pctValue={m.dayChangePct * 100} />
+                    <ChangeCell amount={m.totalGain} pctValue={m.totalGainPct * 100} />
+                    <td className="num whitespace-nowrap px-5 py-3 text-right font-semibold">{usd(m.value)}</td>
                   </tr>
                 ))}
                 {topPositions.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-5 py-8 text-center text-sm text-muted">
+                    <td colSpan={4} className="px-5 py-8 text-center text-sm text-muted">
                       No positions in this account.
                     </td>
                   </tr>
@@ -184,15 +178,14 @@ export default function Dashboard() {
             </Link>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm">
+            <table className="w-full min-w-[460px] text-sm">
               <thead>
                 <tr className="border-y border-border-soft text-left text-xs text-muted">
                   <th className="px-5 py-2.5 font-medium">Date</th>
                   <th className="px-4 py-2.5 font-medium">Type</th>
                   <th className="px-4 py-2.5 font-medium">Symbol</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Strike</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Exp</th>
-                  <th className="px-5 py-2.5 font-medium">Description</th>
+                  <th className="px-4 py-2.5 font-medium">Description</th>
+                  <th className="px-5 py-2.5 text-right font-medium">Amount</th>
                 </tr>
               </thead>
               <tbody>
@@ -202,12 +195,11 @@ export default function Dashboard() {
                     onClick={() => setSelectedTxn(t)}
                     className="cursor-pointer border-b border-border-soft last:border-0 hover:bg-surface-2/40"
                   >
-                    <td className="px-5 py-3 text-xs text-muted">{shortDate(t.date)}</td>
+                    <td className="whitespace-nowrap px-5 py-3 text-xs text-muted">{shortDate(t.date)}</td>
                     <td className="px-4 py-3"><Badge>{t.type}</Badge></td>
-                    <td className="px-4 py-3 font-semibold">{t.symbol ?? '—'}</td>
-                    <td className="num px-4 py-3 text-right text-muted">{t.strike ? usd(t.strike) : '–'}</td>
-                    <td className="px-4 py-3 text-right text-xs text-muted">{t.exp ? shortDate(t.exp) : '–'}</td>
-                    <td className="max-w-[240px] truncate px-5 py-3 text-xs text-muted">{t.description}</td>
+                    <td className="px-4 py-3 font-semibold">{t.symbol ?? '—'}{t.strike ? <span className="num ml-1.5 text-[11px] font-normal text-faint">{usd(t.strike)}{t.exp ? ` · ${shortDate(t.exp)}` : ''}</span> : null}</td>
+                    <td className="w-full max-w-0 truncate px-4 py-3 text-xs text-muted">{t.description}</td>
+                    <td className={clsx('num whitespace-nowrap px-5 py-3 text-right font-medium', t.amount > 0 ? 'text-pos' : t.amount < 0 ? 'text-neg' : 'text-faint')}>{t.amount === 0 ? usd(0) : usd(t.amount, { sign: true })}</td>
                   </tr>
                 ))}
                 {recentTxns.length === 0 && (
@@ -349,5 +341,16 @@ function Metric({
       </div>
       <div className={clsx('num mt-1 text-lg font-semibold', valueClass)}>{value}</div>
     </div>
+  )
+}
+
+// Dollar change with its percentage stacked underneath — keeps the half-width
+// dashboard tables from needing a horizontal scroll.
+function ChangeCell({ amount, pctValue }: { amount: number; pctValue: number }) {
+  return (
+    <td className={clsx('num whitespace-nowrap px-4 py-3 text-right leading-tight', posNeg(amount))}>
+      {usd(amount, { sign: true })}
+      <span className="block text-[11px] opacity-70">{pct(pctValue, { sign: true })}</span>
+    </td>
   )
 }

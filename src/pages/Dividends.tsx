@@ -57,7 +57,7 @@ export default function Dividends() {
     <div>
       <PageHeader
         title="Dividend Income"
-        subtitle={`As of ${today} · synced ${relTime(lastSyncAt)}`}
+        subtitle={`As of ${shortDate(today)} · synced ${relTime(lastSyncAt)}`}
         right={
           <Button onClick={exportCsv}>
             <Download size={15} /> Export CSV

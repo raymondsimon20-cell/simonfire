@@ -12,8 +12,10 @@ export const usd = (n: number, opts: { sign?: boolean; cents?: boolean } = {}) =
 
 export const pct = (n: number, opts: { sign?: boolean; digits?: number } = {}) => {
   const { sign = false, digits = 2 } = opts
-  const v = n.toFixed(digits)
-  if (sign) return `${n < 0 ? '' : '+'}${v}%`
+  let v = n.toFixed(digits)
+  // Never show "-0.0%": a value that rounds to zero is zero.
+  if (/^-0(\.0+)?$/.test(v)) v = v.slice(1)
+  if (sign) return `${v.startsWith('-') ? '' : '+'}${v}%`
   return `${v}%`
 }
 

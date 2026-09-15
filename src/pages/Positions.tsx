@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Download, Search, DollarSign, Layers, TrendingUp, Trophy, ArrowUpDown, AlertTriangle } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
 import { positionMetrics, investmentReturn } from '../lib/calc'
-import { usd, pct, num, intfmt, shortDate, posNeg } from '../lib/format'
+import { usd, pct, num, intfmt, shortDate, posNeg, relTime } from '../lib/format'
 import { KpiCard, PageHeader, Button } from '../components/ui'
 import { PositionDrawer } from '../components/PositionDrawer'
 import { HoldingCell, displayPrice, displayShares } from '../components/HoldingCell'
@@ -156,7 +156,7 @@ export default function Positions() {
         right={
           <>
             <span className="hidden items-center gap-1.5 text-xs text-faint sm:flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#3fd88a]" /> Prices as of Just now
+              <span className="h-1.5 w-1.5 rounded-full bg-[#3fd88a]" /> Prices as of {relTime(data.lastSyncAt)}
             </span>
             <Button onClick={exportCsv}>
               <Download size={15} /> Export CSV

@@ -260,12 +260,12 @@ export default function Layout() {
   return (
     <div className={clsx('min-h-full', privacy && 'privacy-mode', compactDensity && 'density-compact')}>
       <div className="fixed bottom-4 left-4 z-40 lg:bottom-auto lg:left-[166px] lg:top-5"><PremiumTools /></div>
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-white/[0.06] bg-[#090c11]/95 px-4 py-5 backdrop-blur-xl lg:flex">
-        <div className="px-2"><Logo /></div>
-        <div className="mt-8 flex items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col overflow-hidden border-r border-white/[0.06] bg-[#090c11]/95 px-4 py-5 backdrop-blur-xl lg:flex">
+        <div className="shrink-0 px-2"><Logo /></div>
+        <div className="mt-8 flex shrink-0 items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint">
           <Sparkles size={11} className="text-[#c7a96b]" /> Portfolio
         </div>
-        <nav className="mt-3 flex flex-1 flex-col gap-1">
+        <nav className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain pb-3 pr-1">
           {NAV.map((n) => {
             const Icon = n.icon
             return (
@@ -275,7 +275,7 @@ export default function Layout() {
             )
           })}
         </nav>
-        <div className="space-y-3 border-t border-white/[0.06] pt-4">
+        <div className="shrink-0 space-y-3 border-t border-white/[0.06] pt-4">
           <AppTools privacy={privacy} onPrivacy={() => setPrivacy((value) => { localStorage.setItem('simonfire.privacy', value ? 'off' : 'on'); return !value })}/>
           <AccountScope placement="top" />
           <StatusPill source={data.source} lastSyncAt={data.lastSyncAt} syncing={autoSyncing} />

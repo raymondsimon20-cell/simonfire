@@ -20,14 +20,16 @@ export function Modal({
   width?: string
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
   useEffect(() => {
     if (!open) return
     const previous = document.activeElement as HTMLElement | null
     window.setTimeout(() => dialogRef.current?.focus(), 0)
-    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    const h = (e: KeyboardEvent) => e.key === 'Escape' && onCloseRef.current()
     window.addEventListener('keydown', h)
     return () => { window.removeEventListener('keydown', h); previous?.focus() }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
   return createPortal(

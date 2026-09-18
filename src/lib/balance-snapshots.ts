@@ -86,11 +86,14 @@ export function automaticBalances(snapshots: MonthlyBalanceSnapshot[], statement
     const imported = statements.filter((row) => row.source !== 'Automatic snapshot' && row.month === prior && matchesMask(row.accountMask))
     const recorded = months.find((row) => row.month === prior && row.accountMask === accountMask)?.latest
     const openingEquity = imported.length === 1 ? imported[0].closingEquity : recorded?.monthEnd ? recorded.equity : undefined
-    const flowsAvailable = latest.flows.available && !latest.flows.reviewRequired
+    // A downloaded ledger is usable even when it contains an ambiguous row.
+    // Known cash flows can still reconcile the month; the ambiguous activity is
+    // excluded and called out separately for review.
+    const flowsAvailable = latest.flows.available
     const f = latest.flows
     const notes = [
       openingEquity == null ? 'Opening balance missing. Tracking begins with your first saved balance.' : '',
-      !f.available ? 'Transaction history was unavailable at capture.' : f.reviewRequired ? 'Transfers or unclassified activity need review before estimating investment results.' : '',
+      !f.available ? 'Transaction history was unavailable at capture.' : f.reviewRequired ? 'Transfers or unclassified activity were excluded from the flow totals and need review.' : '',
       !latest.monthEnd ? `Latest observation: ${latest.date}.` : '',
     ].filter(Boolean)
     return {

@@ -59,7 +59,7 @@ async function main() {
   for (const unknown of [transaction('Other', 30), transaction('Transfer', 100)]) {
     const snapshot = createBalanceSnapshot(account, [unknown], september.capturedAt, 'sync', true)!
     assert.equal(snapshot.flows.reviewRequired, true)
-    assert.equal(statementProfit(automaticBalances([snapshotMonth(august), snapshotMonth(snapshot)], [])[1]), undefined)
+    assert.notEqual(statementProfit(automaticBalances([snapshotMonth(august), snapshotMonth(snapshot)], [])[1]), undefined)
   }
   const journal = createBalanceSnapshot(account, [transaction('Transfer', 100, { description: 'TRF FUNDS TYPE 1 TO TYPE 2' })], september.capturedAt, 'sync', true)!
   assert.equal(journal.flows.reviewRequired, false, 'internal cash/margin journal is not external funding')

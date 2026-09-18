@@ -41,6 +41,11 @@ export function parseHistoricalBalanceCsv(text: string, fileName = 'historical-b
 
 export async function parseSchwabStatementPdf(data: ArrayBuffer, fileName: string, accountMask = ''): Promise<HistoricalBalance> {
   const pdf = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  // Vite turns this into the hashed worker asset in production. Keep it lazy so
+  // CSV-only consumers and the Node test runner do not load a browser worker.
+  // @ts-ignore Vite asset URL module
+  const worker = await import('pdfjs-dist/build/pdf.worker.mjs?url') as { default: string }
+  pdf.GlobalWorkerOptions.workerSrc = worker.default
   const document = await pdf.getDocument({ data }).promise
   const text: string[] = []
   for (let i = 1; i <= document.numPages; i++) {

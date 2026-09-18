@@ -11,7 +11,7 @@ import {
 import { Activity, ArrowDownRight, ArrowUpRight, Landmark, TrendingUp } from 'lucide-react'
 import clsx from 'clsx'
 import { useScoped, useStore } from '../lib/store'
-import { computeTwr, flowsByDate, seriesForScope } from '../lib/twr'
+import { computeTwr, flowsByDate, seriesForScope, sliceFrom } from '../lib/twr'
 import type { TwrPoint } from '../lib/types'
 import { KpiCard, PageHeader } from '../components/ui'
 import { pct, posNeg, shortDate, usd } from '../lib/format'
@@ -58,10 +58,7 @@ export default function HistoricalValue() {
 
   const visible = useMemo(() => {
     if (!normalizedSeries.length || range === 'ALL') return normalizedSeries
-    const cutoff = startForRange(normalizedSeries.at(-1)!.date, range)
-    const inRange = normalizedSeries.filter((point) => point.date >= cutoff)
-    const prior = [...normalizedSeries].reverse().find((point) => point.date < cutoff)
-    return prior ? [prior, ...inRange] : inRange
+    return sliceFrom(normalizedSeries, startForRange(normalizedSeries.at(-1)!.date, range))
   }, [normalizedSeries, range])
 
   const scopedFlows = useMemo(() => flowsByDate(transactions), [transactions])
@@ -121,7 +118,7 @@ export default function HistoricalValue() {
             <KpiCard label="Portfolio value" value={usd(stats.end.value)} sub={`As of ${shortDate(stats.end.date)}`} icon={<Landmark size={20} />} tile="green" />
             <KpiCard label="Equity value" value={usd(stats.end.equity ?? stats.end.value)} sub={marginDebt ? `${usd(marginDebt)} margin debt` : 'No margin debt'} icon={<Activity size={20} />} tile="blue" />
             <KpiCard label="Value change" value={usd(stats.change, { sign: true })} sub={pct(stats.changePct * 100, { sign: true }) + ' including cash flows'} valueClass={posNeg(stats.change)} icon={stats.change >= 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />} tile={stats.change >= 0 ? 'green' : 'red'} />
-            <KpiCard label="Time-weighted return" value={performance.ok ? pct(performance.twrPct * 100, { sign: true }) : '—'} sub={performance.ok ? `${pct(performance.annualizedPct * 100, { sign: true })} annualized` : 'Not enough history'} valueClass={performance.ok ? posNeg(performance.twrPct) : 'text-faint'} icon={<TrendingUp size={20} />} tile="purple" info="Investment performance with contributions and withdrawals removed." />
+            <KpiCard label="Time-weighted return" value={performance.ok ? pct(performance.twrPct * 100, { sign: true }) : '—'} sub={performance.ok ? `${usd(performance.gainUsd, { sign: true, cents: false })} gain · ${pct(performance.annualizedPct * 100, { sign: true })} annualized` : 'Not enough history'} valueClass={performance.ok ? posNeg(performance.twrPct) : 'text-faint'} icon={<TrendingUp size={20} />} tile="purple" info="Investment performance with contributions and withdrawals removed. The gain is what the investments earned over this window — ending value less starting value less net contributions — which is why it differs from the flow-inclusive Value change, and is not the percentage times the starting value." />
           </div>
 
           <div className="card mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 text-xs text-muted"><span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-[#d8bd7a]" /> Portfolio value</span><span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-[#5aa2ff]" /> Equity value</span><span className="ml-auto">Net contributions <span className={clsx('num ml-1 font-medium', posNeg(stats.flow))}>{usd(stats.flow, { sign: true })}</span> · Max drawdown <span className="num ml-1 text-neg">{pct(stats.maxDrawdown * 100)}</span></span></div>

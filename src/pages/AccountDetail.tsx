@@ -531,7 +531,7 @@ function BalanceHistoryTab({
             Time-Weighted Return
             <span
               className="cursor-help text-faint"
-              title="Investment performance with your deposit/withdrawal timing removed — the fund-manager metric. The Investment Change above is dollar-weighted (timing included); this is not. Option premium is neutralised (no historical option prices)."
+              title="Investment performance with your deposit/withdrawal timing removed — the fund-manager metric. The Investment Change above is dollar-weighted (timing included); this is not. The dollar figure beside the percentage is what the investments earned over the same window (ending value less starting value less net contributions), not the percentage times your starting balance. Option premium is neutralised (no historical option prices)."
             >
               ⓘ
             </span>
@@ -539,6 +539,7 @@ function BalanceHistoryTab({
           {twr.ok ? (
             <span className="text-sm">
               <span className={clsx('num font-semibold', posNeg(twr.twrPct))}>{pct(twr.twrPct * 100, { sign: true })}</span>
+              <span className={clsx('num ml-2 font-semibold', posNeg(twr.gainUsd))}>{usd(twr.gainUsd, { sign: true, cents: false })}</span>
               <span className={clsx('num ml-2 text-xs', posNeg(twr.annualizedPct))}>
                 {pct(twr.annualizedPct * 100, { sign: true })} ann.
               </span>

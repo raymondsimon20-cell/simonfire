@@ -6,7 +6,7 @@ import { Modal } from './Modal'
 const GLOSSARY = [
   ['Net equity', 'What remains after margin debt is subtracted from gross portfolio assets.'],
   ['Run rate', 'An estimate of the next 12 months of distributions using current shares and available forward or historical data.'],
-  ['TWR', 'Time-weighted return: investment performance with deposits and withdrawals neutralized.'],
+  ['TWR', 'Time-weighted return: investment performance with deposits and withdrawals neutralized. The dollar figure beside it is what the investments earned over the same window, so it is not the percentage times your starting balance.'],
   ['Return of capital', 'A distribution tax classification that generally reduces cost basis; it is not automatically profit.'],
   ['Cost basis', 'The tracked purchase cost used to estimate gains or losses when an investment is sold.'],
   ['Distribution yield', 'Estimated annual distributions divided by current market value. It can change and is not guaranteed.'],

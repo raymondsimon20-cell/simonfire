@@ -15,6 +15,13 @@
 // from Schwab price history; the *flows* are derived here, live, from the current
 // transaction classifications — so re-tagging a deposit as a contribution vs. a
 // bill payment (now or in the past) recomputes TWR without needing a re-sync.
+//
+// The dollar counterpart (gainUsd) is the same return expressed as money: the
+// per-step investment gain, V_t − F − V_{t−1}, summed over the same steps the
+// percentage links. Equivalently, ending value minus starting value minus net
+// external flows — the dollars the investments actually made. Note it is NOT
+// twrPct × starting value: contributions made mid-window earn return too, so the
+// dollar figure credits them while the percentage deliberately does not.
 
 import type { Transaction, TwrPoint, TwrSeries, TxnType } from './types'
 
@@ -23,6 +30,7 @@ export type { TwrPoint, TwrSeries }
 export interface TwrResult {
   twrPct: number // cumulative time-weighted return over the window
   annualizedPct: number // annualized (CAGR-equivalent) figure
+  gainUsd: number // the same return in dollars — see below
   startDate: string
   endDate: string
   days: number
@@ -60,6 +68,7 @@ export function flowsByDate(txns: Transaction[]): Map<string, number> {
 const EMPTY: TwrResult = {
   twrPct: 0,
   annualizedPct: 0,
+  gainUsd: 0,
   startDate: '',
   endDate: '',
   days: 0,
@@ -73,6 +82,7 @@ export function computeTwr(series: TwrPoint[], flows: Map<string, number>): TwrR
   const points = [...series].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
 
   let factor = 1
+  let gainUsd = 0
   let linked = 0 // count of usable sub-periods
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1]
@@ -86,6 +96,9 @@ export function computeTwr(series: TwrPoint[], flows: Map<string, number>): TwrR
     // Guard against absurd single-day jumps from data gaps.
     if (!Number.isFinite(r) || r <= -1) continue
     factor *= 1 + r
+    // Dollar gain for this step, over the same steps the percentage links — a
+    // skipped step is excluded from both figures so they describe the same days.
+    gainUsd += curr.value - f - vPrev
     linked++
   }
   if (!linked) return EMPTY
@@ -103,7 +116,7 @@ export function computeTwr(series: TwrPoint[], flows: Map<string, number>): TwrR
   const years = days / 365
   const annualizedPct = years > 0 && factor > 0 ? Math.pow(factor, 1 / years) - 1 : twrPct
 
-  return { twrPct, annualizedPct, startDate, endDate, days, points, ok: true }
+  return { twrPct, annualizedPct, gainUsd, startDate, endDate, days, points, ok: true }
 }
 
 // Resolve the value series for the active scope ('all' or an account id).
@@ -113,13 +126,27 @@ export function seriesForScope(twr: TwrSeries | undefined, scope: string): TwrPo
   return twr.byAccount[scope] ?? []
 }
 
+// Narrow a value series to a window starting at `cutoff`, keeping the last point
+// *before* it. That prior point is the base of the first sub-period, so the
+// window measures from its boundary instead of throwing the first day away.
+export function sliceFrom<T extends { date: string }>(series: T[], cutoff: string): T[] {
+  if (!cutoff) return series
+  const sorted = [...series].sort((a, b) => a.date.localeCompare(b.date))
+  const inRange = sorted.filter((point) => point.date >= cutoff)
+  const prior = [...sorted].reverse().find((point) => point.date < cutoff)
+  return prior ? [prior, ...inRange] : inRange
+}
+
 // Convenience: compute TWR for a scope directly from stored series + live txns.
+// `fromDate` (ISO) limits the window; flows need no filtering of their own since
+// computeTwr only counts a flow that lands inside one of its sub-periods.
 export function twrForScope(
   twr: TwrSeries | undefined,
   scope: string,
   txns: Transaction[],
+  fromDate = '',
 ): TwrResult {
-  const series = seriesForScope(twr, scope)
+  const series = sliceFrom(seriesForScope(twr, scope), fromDate)
   if (series.length < 2) return EMPTY
   const scoped = scope === 'all' ? txns : txns.filter((t) => t.accountId === scope)
   return computeTwr(series, flowsByDate(scoped))

@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom'
 import { AlertTriangle, ArrowUpRight, CheckCircle2, ChevronDown, CircleDollarSign, Database, Gauge, PiggyBank, Settings2, ShieldAlert, Sparkles, Target } from 'lucide-react'
 import { bucketStats } from '../lib/buckets'
 import { dividendStats, portfolioSummary } from '../lib/calc'
-import { pct, relTime, usd } from '../lib/format'
+import { dateRangeStart } from '../lib/date-range'
+import { pct, posNeg, relTime, usd } from '../lib/format'
+import { twrForScope } from '../lib/twr'
 import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
 import type { Account, IncomePlan, Transaction } from '../lib/types'
 import { averagePortfolioSpending, spendingExclusionKey } from '../lib/spending'
@@ -18,7 +20,7 @@ const localToday = () => {
 type Action = { tone: 'danger' | 'warn' | 'good'; title: string; detail: string; to: string }
 
 export function PlanHealth() {
-  const { data, setIncomePlan } = useStore()
+  const { data, setIncomePlan, dateRange } = useStore()
   const { positions, accounts, transactions, scope, lastSyncAt } = useScoped()
   const [editing, setEditing] = useState(false)
   const [audit, setAudit] = useState<'income' | 'w2' | 'spending' | 'cash' | 'stress' | null>(null)
@@ -66,6 +68,22 @@ export function PlanHealth() {
     return { summary, dividends, observedSpending, afterTaxMonthly, carryingCostsMonthly, spendableMonthly, stressedMonthly, w2Coverage, spendingCoverage, cashRunway, unassigned, uncategorized, missingPl, actions }
   }, [accounts, data.hedgeRolls, data.spendingExclusions, lastSyncAt, plan, positions, scope, transactions])
 
+  // Time-weighted return over the window chosen in the header. The label states
+  // the span actually measured, which is shorter than the selected range when
+  // history does not reach back that far.
+  const performance = useMemo(() => {
+    const cutoff = dateRangeStart(dateRange, localToday())
+    const result = twrForScope(data.twr, scope, transactions, cutoff)
+    const label = !result.ok
+      ? ''
+      : dateRange === 'all' || result.startDate > cutoff
+        ? `since ${new Date(`${result.startDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`
+        : dateRange === '365'
+          ? 'last 12 months'
+          : `last ${dateRange} days`
+    return { ...result, label }
+  }, [data.twr, dateRange, scope, transactions])
+
   const configured = plan.annualW2Target > 0 && plan.monthlySpending > 0
   const headline = !configured
     ? 'Add two targets to turn portfolio income into a measurable replacement plan.'
@@ -79,11 +97,22 @@ export function PlanHealth() {
         <div><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.18em] text-[#d8bd7a]"><Target size={13}/> Today · Plan health</div><h1 className="mt-3 max-w-3xl text-2xl font-semibold tracking-[-.035em] sm:text-3xl">{headline}</h1><p className="mt-2 text-xs text-faint">Portfolio data synced {relTime(lastSyncAt)} · projections are estimates, not guaranteed income.</p></div>
         <button id="plan-settings" onClick={() => setEditing((value) => !value)} className="flex items-center gap-2 rounded-xl border border-[#c7a96b]/25 bg-[#c7a96b]/5 px-3.5 py-2 text-sm text-[#e1c887] hover:bg-[#c7a96b]/10"><Settings2 size={15}/> Plan assumptions <ChevronDown size={14} className={clsx('transition-transform', editing && 'rotate-180')}/></button>
       </div>
-      <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-2xl border border-white/[.07] bg-black/15 sm:grid-cols-4">
+      <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-2xl border border-white/[.07] bg-black/15 sm:grid-cols-4 lg:grid-cols-5">
         <SnapshotMetric label="Net portfolio equity" value={usd(model.summary.net)} source="Schwab reported"/>
         <SnapshotMetric label="Gross portfolio value" value={usd(model.summary.gross)} source="Schwab reported"/>
         <SnapshotMetric label="Today’s change" value={usd(model.summary.dayChange, { sign: true })} source="Calculated" valueClass={model.summary.dayChange >= 0 ? 'text-pos' : 'text-neg'}/>
         <SnapshotMetric label="Margin used" value={usd(model.summary.marginUsed)} source="Schwab reported" valueClass={model.summary.marginUsed > 0 ? 'text-[#f0a94a]' : undefined}/>
+        <SnapshotMetric
+          label="Time-weighted return"
+          value={performance.ok
+            ? <>{pct(performance.twrPct * 100, { sign: true })}<span className={clsx('ml-2 text-xs', posNeg(performance.gainUsd))}>{usd(performance.gainUsd, { sign: true, cents: false })}</span></>
+            : '—'}
+          sub={performance.ok ? undefined : 'Sync to build history'}
+          source={performance.ok ? `Calculated · ${performance.label}` : 'Calculated'}
+          valueClass={performance.ok ? posNeg(performance.twrPct) : 'text-faint'}
+          title="Investment performance with your deposit and withdrawal timing removed. The dollar figure is what the investments earned over the same window — ending value less starting value less net contributions — so it is not the percentage times your starting balance. Option premium is neutralised because there is no historical option pricing."
+          className="col-span-2 border-white/[.06] sm:col-span-4 sm:border-t lg:col-span-1 lg:border-t-0"
+        />
       </div>
       {editing && <PlanInputs plan={plan} observedSpending={model.observedSpending} onChange={setIncomePlan}/>}
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -167,8 +196,8 @@ function HealthMetric({ icon, label, value, source, note, tone, active, onClick 
   return <button onClick={onClick} aria-expanded={active} className={clsx('rounded-2xl border bg-black/15 p-4 text-left transition-colors hover:bg-white/[.035]', active ? 'border-[#c7a96b]/40' : 'border-white/[.06]')}><div className="flex items-center justify-between gap-2"><span className={clsx('grid h-8 w-8 place-items-center rounded-lg', colors[tone])}>{icon}</span><span className="rounded-full border border-white/[.07] px-2 py-0.5 text-[9px] uppercase tracking-wider text-faint">{source}</span></div><div className="mt-4 flex items-center justify-between gap-2 text-xs text-muted"><span>{label}</span><ChevronDown size={12} className={clsx('transition-transform', active && 'rotate-180')}/></div><div className="num mt-1 text-xl font-semibold">{value}</div><div className="mt-1 text-[10px] text-faint">{note}</div></button>
 }
 
-function SnapshotMetric({ label, value, source, valueClass }: { label: string; value: string; source: string; valueClass?: string }) {
-  return <div className="border-b border-r border-white/[.06] p-3.5 last:border-r-0 sm:border-b-0"><div className="text-[10px] text-faint">{label}</div><div className={clsx('num mt-1 text-lg font-semibold', valueClass)}>{value}</div><div className="mt-0.5 text-[9px] uppercase tracking-wider text-faint">{source}</div></div>
+function SnapshotMetric({ label, value, source, valueClass, sub, title, className }: { label: string; value: ReactNode; source: string; valueClass?: string; sub?: ReactNode; title?: string; className?: string }) {
+  return <div title={title} className={clsx('border-b border-r border-white/[.06] p-3.5 last:border-r-0 last:border-b-0 sm:border-b-0', className)}><div className="text-[10px] text-faint">{label}</div><div className={clsx('num mt-1 text-lg font-semibold', valueClass)}>{value}</div>{sub && <div className="num mt-0.5 text-[10px] text-muted">{sub}</div>}<div className="mt-0.5 text-[9px] uppercase tracking-wider text-faint">{source}</div></div>
 }
 
 function TrustRow({ label, value, good }: { label: string; value: string; good: boolean }) {

@@ -17,6 +17,7 @@ import { dividendDescriptionKey, resolveDividendSymbols } from './dividend-symbo
 import { applyRealizedPlOverrides, populateRealizedProfitLoss, realizedPlOverrideKey } from './realized-pl'
 import { summarizeSync } from './sync-summary'
 import { captureCsvAuthority, mergePositionAuthority, mergeTransactionAuthority, reconcileCsvAuthority } from './csv-authority'
+import { mergeHistoricalBalances } from './statement-history'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -629,7 +630,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   const applyHistoricalBalances: StoreCtx['applyHistoricalBalances'] = useCallback((balances) => {
-    mutate((d) => { d.historicalBalances = [...(d.historicalBalances ?? []).filter((old) => !balances.some((next) => next.month === old.month && (!next.accountMask || next.accountMask === old.accountMask))), ...balances]; return d }, 'Import historical balances')
+    mutate((d) => { d.historicalBalances = mergeHistoricalBalances(d.historicalBalances ?? [], balances, d.accounts); return d }, 'Import historical balances')
   }, [mutate])
 
   const reset: StoreCtx['reset'] = useCallback(() => {

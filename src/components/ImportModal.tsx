@@ -5,11 +5,12 @@ import { Button } from './ui'
 import { useStore } from '../lib/store'
 import { parseSchwabFiles, previewDividendEnrichment, previewRealizedGainLoss, type DividendEnrichmentPreview, type ImportResult, type RealizedPlPreview } from '../lib/import'
 import { parseHistoricalFiles } from '../lib/historical-balances'
+import { mergeHistoricalBalances, statementAccount } from '../lib/statement-history'
 import type { HistoricalBalance } from '../lib/types'
 import { useToast } from './Toast'
 
 export function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { data, applyImport, enrichDividendSymbols, applyRealizedPlMatches, applyHistoricalBalances } = useStore()
+  const { data, scope, applyImport, enrichDividendSymbols, applyRealizedPlMatches, applyHistoricalBalances } = useStore()
   const [broker, setBroker] = useState('Schwab')
   const [name, setName] = useState('')
   const [mask, setMask] = useState('')
@@ -52,7 +53,12 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
     setError('')
     if (mode === 'historical') {
       if (!historicalFiles.length) { setError('Upload at least one Schwab statement PDF or historical-balance CSV.'); return }
-      try { setHistoricalResult(await parseHistoricalFiles(historicalFiles, mask)); return }
+      try {
+        const fallback = mask || data.accounts.find((account) => account.id === scope)?.mask || (data.accounts.length === 1 ? data.accounts[0].mask : '')
+        const rows = await parseHistoricalFiles(historicalFiles, fallback)
+        if (data.accounts.length && rows.some((row) => !statementAccount(row, data.accounts))) throw new Error('Enter the last 3–4 digits of the matching account before importing. Each statement must match one account.')
+        setHistoricalResult(mergeHistoricalBalances([], rows, data.accounts)); return
+      }
       catch (e) { setError(e instanceof Error ? e.message : 'Could not read the statement.') ; return }
     }
     if (realizedFile) {

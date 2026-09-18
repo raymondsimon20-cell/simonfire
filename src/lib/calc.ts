@@ -1,6 +1,7 @@
 import type { Account, HistoricalBalance, Position, Transaction } from './types'
 import { normTicker } from './plan'
 import { isClosingSale } from './transaction-review'
+import { statementBridgeValues, statementHistory, type StatementMonth } from './statement-history'
 
 // ---------- Position-level ----------
 export interface PosMetrics {
@@ -546,6 +547,9 @@ export function dividendStats(
 
 // ---------- Month close ----------
 export interface MonthClose {
+  statement?: StatementMonth
+  balanceAvailable: boolean
+  debtAvailable: boolean
   historyAvailable: boolean
   currentBalance: boolean
   ym: string
@@ -571,8 +575,8 @@ export function bridgeTransactions(transactions: Transaction[], ym: string, step
   }).sort((a, b) => b.transaction.date.localeCompare(a.transaction.date))
 }
 
-export function availableMonths(txns: Transaction[]): string[] {
-  const s = new Set(txns.map((t) => t.date.slice(0, 7)))
+export function availableMonths(txns: Transaction[], balances: HistoricalBalance[] = []): string[] {
+  const s = new Set([...txns.map((t) => t.date.slice(0, 7)), ...balances.map((row) => row.month)])
   return [...s].sort().reverse()
 }
 
@@ -600,26 +604,29 @@ export function monthClose(
   // Transactions alone cannot establish past net equity or market movement.
   // Never fabricate an opening balance from today's debt or a pseudo return.
   const f = flowsOf(ym)
-  const historical = historicalBalances.find((balance) => balance.month === ym)
+  const historical = statementHistory(historicalBalances, accounts, scope).find((balance) => balance.month === ym)
   const today = new Date()
   const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
   const isCurrent = ym === currentMonth
-  const opening = historical?.openingEquity ?? (isCurrent ? currentSummary.net : 0)
+  const opening = historical ? historical.openingEquity ?? 0 : isCurrent ? currentSummary.net : 0
   const closingVal = historical?.closingEquity ?? (isCurrent ? currentSummary.net : 0)
   const mkt = historical?.marketChange ?? 0
   const netChange = historical ? closingVal - opening : 0
 
-  const liabilities = scope === 'all' || accounts.find((a) => a.id === scope)?.isMargin
+  const liabilities = historical ? historical.marginLoanBalance ?? 0 : scope === 'all' || accounts.find((a) => a.id === scope)?.isMargin
     ? accounts
         .filter((a) => scope === 'all' || a.id === scope)
         .reduce((s, a) => s + a.marginBalance, 0)
     : 0
-  const netEquity = isCurrent ? currentSummary.net : closingVal
-  const assets = isCurrent ? currentSummary.gross : closingVal + liabilities
+  const netEquity = closingVal
+  const assets = historical ? closingVal + liabilities : isCurrent ? currentSummary.gross : 0
 
   return {
-    historyAvailable: !!historical,
-    currentBalance: isCurrent,
+    statement: historical,
+    balanceAvailable: !!historical || isCurrent,
+    debtAvailable: historical ? historical.marginLoanBalance != null : isCurrent,
+    historyAvailable: historical?.openingEquity != null,
+    currentBalance: isCurrent && !historical,
     ym,
     opening,
     closing: closingVal,
@@ -629,8 +636,11 @@ export function monthClose(
     assets,
     liabilities,
     netEquity,
-    realizedEstimated: f.realizedEstimated,
-    bridge: [
+    realizedEstimated: !historical && f.realizedEstimated,
+    bridge: historical ? statementBridgeValues(historical).map((value, index) => ({
+      label: ['Opening', 'Deposits', 'Withdrawals', 'Income less expenses', 'Market change', 'Closing'][index],
+      value, kind: index === 0 ? 'base' : index === 5 ? 'total' : value >= 0 ? 'up' : 'down',
+    })) : [
       { label: 'Opening', value: opening, kind: 'base' },
       { label: 'Contrib.', value: f.contributions, kind: f.contributions >= 0 ? 'up' : 'down' },
       { label: 'Net Oper.', value: f.netOperating, kind: f.netOperating >= 0 ? 'up' : 'down' },

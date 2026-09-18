@@ -14,6 +14,8 @@ import { useScoped, useStore } from '../lib/store'
 import { computeTwr, flowsByDate, seriesForScope, sliceFrom, coveredSeries } from '../lib/twr'
 import { portfolioSummary } from '../lib/calc'
 import type { TwrPoint } from '../lib/types'
+import { StatementHistory } from '../components/StatementHistory'
+import { statementHistory } from '../lib/statement-history'
 import { IncomePerformance } from '../components/IncomePerformance'
 import { KpiCard, PageHeader } from '../components/ui'
 import { pct, posNeg, shortDate, usd } from '../lib/format'
@@ -29,6 +31,15 @@ function startForRange(lastDate: string, range: Range) {
   if (range === '3Y') start.setFullYear(start.getFullYear() - 3)
   if (range === 'YTD') start.setMonth(0, 1)
   return start.toISOString().slice(0, 10)
+}
+
+function statementStartForRange(lastMonth: string, range: Range) {
+  if (range === 'ALL') return ''
+  if (range === 'YTD') return `${lastMonth.slice(0, 4)}-01`
+  const start = new Date(`${lastMonth}-01T12:00:00`)
+  const count = { '1M': 1, '3M': 3, '1Y': 12, '3Y': 36 }[range]
+  start.setMonth(start.getMonth() - count + 1)
+  return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`
 }
 
 function compactUsd(value: number) {
@@ -53,7 +64,10 @@ function ValueTooltip({ active, payload }: any) {
 export default function HistoricalValue() {
   const { data } = useStore()
   const { scope, transactions, positions, accounts } = useScoped()
+  const [showDaily, setShowDaily] = useState(false)
+  const history = useMemo(() => statementHistory(data.historicalBalances ?? [], accounts, scope), [data.historicalBalances, accounts, scope])
   const [range, setRange] = useState<Range>('1Y')
+  const statementRows = !history.length ? history : history.filter((row) => row.month >= statementStartForRange(history.at(-1)!.month, range))
   const fullSeries = useMemo(() => coveredSeries(seriesForScope(data.twr, scope), transactions), [data.twr, scope, transactions])
   const marginDebt = useMemo(() => data.accounts.filter((account) => scope === 'all' || account.id === scope).reduce((sum, account) => sum + account.marginBalance, 0), [data.accounts, scope])
   const normalizedSeries = fullSeries
@@ -107,7 +121,8 @@ export default function HistoricalValue() {
         ))}
       </div>
 
-      {!stats ? (
+      {history.length > 0 && <div className="mb-4 flex gap-2">{([{ daily: false, label: 'Imported statements' }, { daily: true, label: 'Daily estimates' }]).map(({ daily, label }) => <button key={label} type="button" aria-pressed={showDaily === daily} onClick={() => setShowDaily(daily)} className={clsx('rounded-lg border border-border px-3 py-2 text-sm', showDaily === daily ? 'bg-surface-2 text-ink' : 'text-muted')}>{label}</button>)}</div>}
+      {history.length > 0 && !showDaily ? <StatementHistory rows={statementRows}/> : !stats ? (
         <div className="card grid min-h-[360px] place-items-center p-8 text-center">
           <div>
             <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-surface-2 text-brand"><Activity size={22} /></div>
@@ -115,7 +130,7 @@ export default function HistoricalValue() {
             <p className="mx-auto mt-1 max-w-md text-sm text-muted">Sync a connected account to build daily portfolio history. New snapshots will appear here automatically.</p>
           </div>
 
-          {(data.historicalBalances?.length ?? 0) > 0 && <section className="card mt-4 overflow-hidden p-0"><div className="px-5 py-4 sm:px-6"><h2 className="text-lg font-semibold">Statement-backed equity history</h2><p className="mt-1 text-xs text-muted">Month-end balances imported from Schwab statements. These are the authoritative net-equity checkpoints.</p></div><div className="overflow-auto"><table className="w-full min-w-[620px] text-sm"><thead><tr className="border-y border-border-soft text-xs text-muted"><th className="px-5 py-2.5 text-left font-medium">Month</th><th className="px-4 py-2.5 text-right font-medium">Ending equity</th><th className="px-4 py-2.5 text-right font-medium">Deposits</th><th className="px-4 py-2.5 text-right font-medium">Withdrawals</th><th className="px-4 py-2.5 text-right font-medium">Market change</th><th className="px-5 py-2.5 text-right font-medium">Margin loan</th></tr></thead><tbody>{data.historicalBalances!.slice().sort((a, b) => b.month.localeCompare(a.month)).map((row) => <tr key={`${row.accountMask}-${row.month}`} className="border-b border-border-soft last:border-0"><td className="px-5 py-3 font-medium">{row.month}</td><td className="num px-4 py-3 text-right font-semibold">{usd(row.closingEquity)}</td><td className="num px-4 py-3 text-right text-pos">{usd(row.deposits, { sign: true })}</td><td className="num px-4 py-3 text-right text-neg">{usd(row.withdrawals, { sign: true })}</td><td className={clsx('num px-4 py-3 text-right', posNeg(row.marketChange))}>{usd(row.marketChange, { sign: true })}</td><td className="num px-5 py-3 text-right">{row.marginLoanBalance == null ? '—' : usd(row.marginLoanBalance)}</td></tr>)}</tbody></table></div></section>}
+
         </div>
       ) : (
         <>

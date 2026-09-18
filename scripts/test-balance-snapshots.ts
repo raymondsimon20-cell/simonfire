@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { automaticBalances, brokerageDate, createBalanceSnapshot, mergeSnapshotMonths, snapshotMonth } from '../src/lib/balance-snapshots'
+import { automaticBalances, brokerageDate, createBalanceSnapshot, hydrateSnapshotFlows, mergeSnapshotMonths, snapshotMonth } from '../src/lib/balance-snapshots'
 import { statementHistory, statementProfit } from '../src/lib/statement-history'
 import { monthClose, portfolioSummary } from '../src/lib/calc'
 import { loadBalanceSnapshots, saveBalanceSnapshots, snapshotFailureState, type SnapshotStore } from '../netlify/functions/lib/snapshot-store'
@@ -27,6 +27,13 @@ async function main() {
   assert.equal(september.flows.withdrawals, -50)
   assert.equal(september.flows.dividendsInterest, 20)
   assert.equal(september.flows.expenses, -5)
+  const withoutFlows = snapshotMonth({ ...september, flows: { deposits: 0, withdrawals: 0, dividendsInterest: 0, expenses: 0, available: false, reviewRequired: false } })
+  const hydrated = hydrateSnapshotFlows([withoutFlows], [account], txns)
+  assert.equal(hydrated[0].latest.flows.available, true)
+  assert.equal(hydrated[0].latest.flows.deposits, 100)
+  assert.equal(hydrated[0].latest.flows.withdrawals, -50)
+  assert.equal(hydrated[0].latest.flows.dividendsInterest, 20)
+  assert.equal(hydrateSnapshotFlows([withoutFlows], [account], []).length, 1)
   const generated = automaticBalances(snapshots, [])
   assert.equal(generated[1].openingEquity, 1000)
   assert.equal(generated[1].marketChange, 35, 'realized gains are already in the balance change')

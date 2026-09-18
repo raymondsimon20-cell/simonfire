@@ -18,7 +18,7 @@ import { applyRealizedPlOverrides, populateRealizedProfitLoss, realizedPlOverrid
 import { summarizeSync } from './sync-summary'
 import { captureCsvAuthority, mergePositionAuthority, mergeTransactionAuthority, reconcileCsvAuthority } from './csv-authority'
 import { mergeHistoricalBalances } from './statement-history'
-import { mergeSnapshotMonths } from './balance-snapshots'
+import { hydrateSnapshotFlows, mergeSnapshotMonths } from './balance-snapshots'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -281,7 +281,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const history = await loadBalanceHistory()
       if (!history || cancelled) return
       setData((previous) => ({ ...previous,
-        balanceSnapshots: mergeSnapshotMonths(previous.balanceSnapshots ?? [], history.snapshots),
+        balanceSnapshots: hydrateSnapshotFlows(mergeSnapshotMonths(previous.balanceSnapshots ?? [], history.snapshots), previous.accounts, previous.transactions),
         snapshotStatus: history.status && (!previous.snapshotStatus || history.status.attemptedAt >= previous.snapshotStatus.attemptedAt) ? history.status : previous.snapshotStatus,
       }))
     }
@@ -618,6 +618,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           d.transactions.unshift(...nextTransactions)
           d.transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         }
+        if (source === 'live' && d.balanceSnapshots?.length) d.balanceSnapshots = hydrateSnapshotFlows(d.balanceSnapshots, d.accounts, d.transactions)
         d.bucketOverrides = d.bucketOverrides ?? {}
         for (const p of d.positions) p.allocationBucket = d.bucketOverrides[`${p.accountId}|${p.symbol}`]
         // Keep positions marked sold in the tracker out of the synced set.

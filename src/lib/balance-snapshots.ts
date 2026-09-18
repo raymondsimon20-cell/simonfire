@@ -1,4 +1,4 @@
-import type { BalanceSnapshot, HistoricalBalance, MonthlyBalanceSnapshot, SnapshotFlows, Transaction } from './types'
+import type { Account, BalanceSnapshot, HistoricalBalance, MonthlyBalanceSnapshot, SnapshotFlows, Transaction } from './types'
 
 export function brokerageDate(at: string | Date = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(at))
@@ -55,6 +55,21 @@ export function mergeSnapshotMonths(existing: MonthlyBalanceSnapshot[], incoming
     })
   }
   return [...months.values()].sort((a, b) => a.month.localeCompare(b.month) || a.accountMask.localeCompare(b.accountMask))
+}
+
+// A balance capture and transaction sync can finish at slightly different
+// times. Once the browser has the ledger, use it to complete an older snapshot
+// that was saved without transaction coverage. Never turn a truly empty or
+// unavailable ledger into invented cash flows.
+export function hydrateSnapshotFlows(months: MonthlyBalanceSnapshot[], accounts: Account[], transactions: Transaction[]) {
+  return months.map((month) => {
+    const account = accounts.find((candidate) => candidate.mask === month.accountMask || candidate.mask.endsWith(month.accountMask) || month.accountMask.endsWith(candidate.mask))
+    if (!account) return month
+    const hasLedgerForAccount = transactions.some((transaction) => transaction.accountId === account.id)
+    if (!hasLedgerForAccount) return month
+    const hydrate = (snapshot: BalanceSnapshot): BalanceSnapshot => ({ ...snapshot, flows: snapshotFlows(transactions, account.id, snapshot.date, true) })
+    return { ...month, first: hydrate(month.first), latest: hydrate(month.latest) }
+  })
 }
 
 export function snapshotMonth(snapshot: BalanceSnapshot): MonthlyBalanceSnapshot {

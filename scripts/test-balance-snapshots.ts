@@ -115,7 +115,7 @@ async function main() {
       if (failTransactions) return new Response('{}', { status: 503 })
       return Response.json([])
     }
-    if (url.endsWith('/accountNumbers')) return Response.json([{ accountNumber: '00001234', hashValue: 'test-hash' }])
+    if (url.endsWith('/accountNumbers')) return Response.json([{ accountNumber: '0000-1234', hashValue: 'test-hash' }])
     assert.ok(url.endsWith('/accounts'))
     return Response.json([{ securitiesAccount: { accountNumber: '00001234', type: 'MARGIN', currentBalances: { liquidationValue: invalidBalance ? null : 1000, marginBalance: -400, cashBalance: 0 } } }])
   }

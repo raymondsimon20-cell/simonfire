@@ -161,7 +161,12 @@ export async function fetchBalanceSnapshots(token: string, source: BalanceSnapsh
     masks.add(mask)
     const id = `acc_${mask}`
     const balances = account.currentBalances ?? {}
-    const hash = (hashes as any[]).find((row) => String(row.accountNumber) === accountNumber)?.hashValue
+    const targetDigits = accountNumber.replace(/\D/g, '')
+    const hashMatches = (hashes as any[]).filter((row) => {
+      const candidateDigits = String(row.accountNumber ?? '').replace(/\D/g, '')
+      return candidateDigits && (candidateDigits === targetDigits || candidateDigits.endsWith(targetDigits) || targetDigits.endsWith(candidateDigits))
+    })
+    const hash = hashMatches.length === 1 ? hashMatches[0].hashValue : undefined
     let transactionsAvailable = false
     let transactions: ReturnType<typeof mapTxn>[] = []
     if (hash) {
@@ -204,6 +209,16 @@ export async function accountHash(accountId: string, token: string): Promise<str
 
 // ---- Data fetch + mapping to the app's model ----
 const num = (v: any): number => (typeof v === 'number' ? v : parseFloat(v)) || 0
+const accountDigits = (value: unknown) => String(value ?? '').replace(/\D/g, '')
+
+function matchingHash(accountRows: any[], accountNumber: string) {
+  const target = accountDigits(accountNumber)
+  const matches = accountRows.filter((row) => {
+    const candidate = accountDigits(row.accountNumber)
+    return candidate && (candidate === target || candidate.endsWith(target) || target.endsWith(candidate))
+  })
+  return matches.length === 1 ? String(matches[0].hashValue ?? '') : ''
+}
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 function fmtDate(iso: string) {
@@ -483,7 +498,7 @@ export async function fetchPortfolio(token: string) {
   const accountsRaw: any[] = await api('/accounts?fields=positions', token)
   const hashList: any[] = await api('/accounts/accountNumbers', token).catch(() => [])
   const hashByNumber = new Map<string, string>()
-  for (const h of hashList) hashByNumber.set(String(h.accountNumber), String(h.hashValue))
+  for (const h of hashList) hashByNumber.set(accountDigits(h.accountNumber), String(h.hashValue))
 
   const accounts: any[] = []
   const positions: any[] = []
@@ -571,7 +586,7 @@ export async function fetchPortfolio(token: string) {
     }
 
     // Transactions for this account (by hashValue).
-    const hash = hashByNumber.get(number)
+    const hash = hashByNumber.get(accountDigits(number)) || matchingHash(hashList, number)
     if (hash) {
       const txns: any[] = await api(
         `/accounts/${hash}/transactions?startDate=${encodeURIComponent(iso(start))}&endDate=${encodeURIComponent(iso(end))}`,

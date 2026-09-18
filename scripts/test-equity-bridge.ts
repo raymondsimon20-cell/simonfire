@@ -20,6 +20,6 @@ for (const step of [1, 2, 3]) {
 assert.equal(close.bridge[2].value, 24)
 assert.equal(close.bridge[3].value, 30)
 assert.deepEqual(bridgeTransactions(transactions, close.ym, 3).map((r) => r.transaction.id), ['gain', 'loss', 'missing'])
-assert.deepEqual(bridgeTransactions(transactions, close.ym, 5), [])
+assert.deepEqual(bridgeTransactions(transactions, close.ym, 4), [])
 assert.deepEqual(bridgeTransactions([], close.ym, 2), [])
 console.log('equity bridge tests passed')

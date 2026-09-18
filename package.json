@@ -17,7 +17,8 @@
     "test:premium": "tsc -p scripts/tsconfig.premium.test.json && node /tmp/simonfire-premium-tests/scripts/test-premium-workflow.js",
     "test:twr": "tsc -p scripts/tsconfig.twr.test.json && node /tmp/simonfire-twr-tests/scripts/test-twr.js",
     "preview": "vite preview",
-    "test:income-performance": "tsc -p scripts/tsconfig.income-performance.test.json && node /tmp/simonfire-income-performance-tests/scripts/test-income-performance.js"
+    "test:income-performance": "tsc -p scripts/tsconfig.income-performance.test.json && node /tmp/simonfire-income-performance-tests/scripts/test-income-performance.js",
+    "test:equity-bridge": "tsc -p scripts/tsconfig.equity-bridge.test.json && node /tmp/simonfire-equity-bridge-tests/scripts/test-equity-bridge.js"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1",

@@ -121,7 +121,7 @@ export interface BridgeStep {
   kind: 'base' | 'up' | 'down' | 'total'
 }
 
-export function Waterfall({ steps, height = 300 }: { steps: BridgeStep[]; height?: number }) {
+export function Waterfall({ steps, height = 300, onStepClick }: { steps: BridgeStep[]; height?: number; onStepClick?: (index: number) => void }) {
   // Compute floating bar ranges.
   let running = 0
   const rows = steps.map((s) => {
@@ -166,7 +166,7 @@ export function Waterfall({ steps, height = 300 }: { steps: BridgeStep[]; height
         />
         {/* transparent spacer to float the visible bar */}
         <Bar dataKey="base" stackId="a" fill="transparent" />
-        <Bar dataKey="bar" stackId="a" radius={[3, 3, 0, 0]}>
+        <Bar dataKey="bar" stackId="a" radius={[3, 3, 0, 0]} onClick={(_, index) => onStepClick?.(index)} style={{ cursor: onStepClick ? 'pointer' : undefined }}>
           {rows.map((r, i) => (
             <Cell key={i} fill={colorOf(r.kind)} />
           ))}

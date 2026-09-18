@@ -1,5 +1,6 @@
 import type { Account, Position, Transaction } from './types'
 import { normTicker } from './plan'
+import { isClosingSale } from './transaction-review'
 
 // ---------- Position-level ----------
 export interface PosMetrics {
@@ -178,6 +179,10 @@ export function portfolioSummary(
 
 // ---------- Shared transaction classification ----------
 const INCOME_TYPES = new Set(['Dividend', 'Interest', 'Other'])
+
+export function operatingAmount(t: Transaction): number {
+  return (t.amount > 0 && INCOME_TYPES.has(t.type)) || isExpense(t) ? t.amount : 0
+}
 
 export function isInflow(t: Transaction) {
   return t.amount > 0
@@ -545,6 +550,16 @@ export interface MonthClose {
   netEquity: number
   realizedEstimated: boolean
   bridge: { label: string; value: number; kind: 'base' | 'up' | 'down' | 'total' }[]
+}
+
+// Match each transaction-backed bridge step, including missing sale P/L for review.
+export function bridgeTransactions(transactions: Transaction[], ym: string, step: number | null) {
+  return transactions.filter((t) => t.date.slice(0, 7) === ym).flatMap((transaction) => {
+    if (step === 1 && transaction.type === 'Contribution') return [{ transaction, value: transaction.amount }]
+    if (step === 2 && operatingAmount(transaction) !== 0) return [{ transaction, value: operatingAmount(transaction) }]
+    if (step === 3 && transaction.type === 'Sell' && (transaction.pl != null || isClosingSale(transaction))) return [{ transaction, value: transaction.pl ?? 0 }]
+    return []
+  }).sort((a, b) => b.transaction.date.localeCompare(a.transaction.date))
 }
 
 // Deterministic pseudo market move for a month (few % of equity).

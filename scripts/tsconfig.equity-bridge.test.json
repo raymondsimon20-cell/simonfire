@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
+    "types": [
+      "node"
+    ],
+    "rootDir": "..",
+    "outDir": "/tmp/simonfire-equity-bridge-tests",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true
+  },
+  "include": [
+    "test-equity-bridge.ts",
+    "../src/lib/calc.ts"
+  ]
+}

@@ -4,7 +4,7 @@ import { useScoped } from '../lib/store'
 import { availableMonths, monthClose, portfolioSummary } from '../lib/calc'
 import { usd, pct, monthLabel } from '../lib/format'
 import { KpiCard, PageHeader, Card } from '../components/ui'
-import { Waterfall } from '../components/Charts'
+import { EquityBridge } from '../components/EquityBridge'
 import clsx from 'clsx'
 
 export default function MonthClose() {
@@ -20,7 +20,7 @@ export default function MonthClose() {
   const isCurrent = idx === 0
   const mc = useMemo(
     () => monthClose(accounts, transactions, scope, ym, summary),
-    [positions, accounts, transactions, scope, ym, summary],
+    [accounts, transactions, scope, ym, summary],
   )
 
   return (
@@ -82,7 +82,7 @@ export default function MonthClose() {
 
         <Card>
           <div className="mb-4 text-lg font-semibold">Equity Change Bridge</div>
-          <Waterfall steps={mc.bridge} height={300} />
+          <EquityBridge key={`${scope}-${ym}`} close={mc} transactions={transactions} positions={positions} accounts={accounts} scope={scope} chart />
           {mc.realizedEstimated && <p className="mt-2 text-xs text-faint">Realized P/L is estimated from available trades and average cost. Schwab tax lots may differ.</p>}
         </Card>
       </div>

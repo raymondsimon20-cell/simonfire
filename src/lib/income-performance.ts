@@ -1,5 +1,22 @@
 import type { Transaction, TwrPoint } from './types'
 import { flowsByDate } from './twr'
+import { isClosingSale } from './transaction-review'
+
+// Transaction earnings do not require reconstructed market-value history.
+export function incomeAndRealizedGains(transactions: Transaction[], fromDate: string, toDate: string) {
+  const txns = transactions.filter((t) => t.date >= fromDate && t.date <= toDate)
+  const sum = (type: Transaction['type']) => txns.filter((t) => t.type === type).reduce((n, t) => n + t.amount, 0)
+  const dividends = sum('Dividend')
+  const interest = txns.filter((t) => t.type === 'Interest' && t.amount > 0).reduce((n, t) => n + t.amount, 0)
+  const sales = txns.filter((t) => t.type === 'Sell')
+  const realized = sales.reduce((n, t) => n + (t.pl ?? 0), 0)
+  const marginInterest = -txns.filter((t) => t.type === 'Interest' && t.amount < 0).reduce((n, t) => n + t.amount, 0)
+  const fees = -sum('Fee')
+  const gross = dividends + interest + realized
+  const missingPl = sales.filter((t) => isClosingSale(t) && t.pl == null).length
+  const estimated = sales.some((t) => t.pl != null && t.plEstimated)
+  return { dividends, interest, realized, marginInterest, fees, gross, net: gross - marginInterest - fees, missingPl, estimated }
+}
 
 // Use endpoint dollar changes, not linked TWR steps or lifetime cost basis.
 // This reconciles the covered value series even when a TWR step is unusable.

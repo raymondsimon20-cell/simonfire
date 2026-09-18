@@ -6,7 +6,7 @@ import { dividendStats, portfolioSummary } from '../lib/calc'
 import { dateRangeStart } from '../lib/date-range'
 import { pct, posNeg, relTime, usd } from '../lib/format'
 import { twrForScope, seriesForScope, sliceFrom } from '../lib/twr'
-import { incomePerformance } from '../lib/income-performance'
+import { incomeAndRealizedGains } from '../lib/income-performance'
 import { IncomePerformance } from './IncomePerformance'
 import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
 import type { Account, IncomePlan, Transaction } from '../lib/types'
@@ -87,7 +87,7 @@ export function PlanHealth() {
   }, [data.twr, dateRange, scope, transactions])
 
   const performancePoints = useMemo(() => sliceFrom(seriesForScope(data.twr, scope), dateRangeStart(dateRange, localToday())), [data.twr, scope, dateRange])
-  const actual = useMemo(() => incomePerformance(performancePoints, transactions), [performancePoints, transactions])
+  const earnings = useMemo(() => incomeAndRealizedGains(transactions, dateRangeStart(dateRange, localToday()), localToday()), [transactions, dateRange])
 
   const configured = plan.annualW2Target > 0 && plan.monthlySpending > 0
   const headline = !configured
@@ -99,7 +99,7 @@ export function PlanHealth() {
   return <section className="mb-6 overflow-hidden rounded-[24px] border border-[#c7a96b]/20 bg-[linear-gradient(135deg,#171a20_0%,#10151d_65%,#1d180d_100%)] shadow-[0_24px_80px_rgba(0,0,0,.22)]">
     <div className="p-5 sm:p-7">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.18em] text-[#d8bd7a]"><Target size={13}/> Today · Plan health</div><h1 className="mt-3 max-w-3xl text-2xl font-semibold tracking-[-.035em] sm:text-3xl">{actual ? `Estimated investment ${actual.investmentChange >= 0 ? 'gain' : 'loss'}: ${usd(Math.abs(actual.investmentChange))} · ${usd(actual.withdrawals)} withdrawn.` : headline}</h1><p className="mt-2 text-xs text-faint">Portfolio data synced {relTime(lastSyncAt)} · projections are estimates, not guaranteed income.</p></div>
+        <div><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.18em] text-[#d8bd7a]"><Target size={13}/> Today · Plan health</div><h1 className="mt-3 max-w-3xl text-2xl font-semibold tracking-[-.035em] sm:text-3xl">{`Income + Realized Gains: ${usd(earnings.gross, { sign: true })}`}</h1><p className="mt-2 text-xs text-faint">Portfolio data synced {relTime(lastSyncAt)} · projections are estimates, not guaranteed income.</p></div>
         <button id="plan-settings" onClick={() => setEditing((value) => !value)} className="flex items-center gap-2 rounded-xl border border-[#c7a96b]/25 bg-[#c7a96b]/5 px-3.5 py-2 text-sm text-[#e1c887] hover:bg-[#c7a96b]/10"><Settings2 size={15}/> Plan assumptions <ChevronDown size={14} className={clsx('transition-transform', editing && 'rotate-180')}/></button>
       </div>
       <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-2xl border border-white/[.07] bg-black/15 sm:grid-cols-4 lg:grid-cols-5">
@@ -108,14 +108,27 @@ export function PlanHealth() {
         <SnapshotMetric label="Today’s change" value={usd(model.summary.dayChange, { sign: true })} source="Calculated" valueClass={model.summary.dayChange >= 0 ? 'text-pos' : 'text-neg'}/>
         <SnapshotMetric label="Margin used" value={usd(model.summary.marginUsed)} source="Schwab reported" valueClass={model.summary.marginUsed > 0 ? 'text-[#f0a94a]' : undefined}/>
         <SnapshotMetric
-          label="Investment gain / loss"
-          value={actual ? usd(actual.investmentChange, { sign: true }) : '—'}
-          sub={performance.ok ? `Estimated TWR ${pct(performance.twrPct * 100, { sign: true })}` : 'TWR unavailable'}
-          source="Estimated · selected period"
-          valueClass={actual ? posNeg(actual.investmentChange) : 'text-faint'}
-          title="Ending covered value minus beginning value and net flows. Includes income and costs; excludes option-trade cash. Reconstructed history does not establish full-account performance."
+          label="Income + Realized Gains"
+          value={usd(earnings.gross, { sign: true })}
+          sub={performance.ok ? `Estimated TWR ${pct(performance.twrPct * 100, { sign: true })} · ${performance.label}` : 'TWR unavailable'}
+          source={`${earnings.missingPl ? 'Partial' : earnings.estimated ? 'Estimated' : 'Recorded'} · selected period`}
+          valueClass={posNeg(earnings.gross)}
+          title="Recorded dividends + interest + realized gains − realized losses for the selected period, before margin interest, fees, and taxes. Excludes unrealized gains and losses."
           className="col-span-2 border-white/[.06] sm:col-span-4 sm:border-t lg:col-span-1 lg:border-t-0"
         />
+      </div>
+      <div className="mt-4 rounded-xl bg-white/[.03] p-4 text-sm">
+        <div className="flex flex-wrap gap-x-6 gap-y-2 text-muted">
+          <span>Dividends <span className="num text-ink">{usd(earnings.dividends)}</span></span>
+          <span>Interest received <span className="num text-ink">{usd(earnings.interest)}</span></span>
+          <span>Realized gains / losses <span className={clsx('num', posNeg(earnings.realized))}>{usd(earnings.realized, { sign: true })}</span></span>
+          <span>Margin interest <span className="num text-ink">{usd(-earnings.marginInterest, { sign: true })}</span></span>
+          <span>Fees <span className="num text-ink">{usd(-earnings.fees, { sign: true })}</span></span>
+        </div>
+        <p className="mt-3 font-medium">Net after margin interest &amp; fees <span className={clsx('num', posNeg(earnings.net))}>{usd(earnings.net, { sign: true })}</span> <span className="text-xs font-normal text-muted">· before taxes</span></p>
+        <p className="mt-2 text-xs text-faint">Selected period · recorded transactions only. Excludes unrealized gains and losses. Distributions may include return of capital.</p>
+        {earnings.estimated && <p className="mt-2 text-xs text-muted">Includes estimated realized P/L.</p>}
+        {earnings.missingPl > 0 && <p className="mt-2 text-xs text-[#f0a94a]">Partial result: {earnings.missingPl} closing sale(s) lack realized P/L. <Link to="/transactions" className="underline">Review transactions</Link>.</p>}
       </div>
       <IncomePerformance points={performancePoints} transactions={transactions} sample={data.source === 'sample'} />
       <p className="mt-5 text-sm text-muted">Forward income plan · {headline}</p>

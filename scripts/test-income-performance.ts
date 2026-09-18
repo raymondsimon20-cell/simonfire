@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { incomePerformance } from '../src/lib/income-performance'
+import { incomePerformance, incomeAndRealizedGains } from '../src/lib/income-performance'
 import type { Transaction, TxnType } from '../src/lib/types'
 
 const txn = (type: TxnType, amount: number, date = '2026-06-01', symbol?: string): Transaction => ({ id: `${type}-${amount}`, accountId: 'a', date, type, amount, symbol, description: '', units: 0, tags: [] })
@@ -40,3 +40,22 @@ assert.equal(incomePerformance([points[0]], transactions), null)
 assert.equal(incomePerformance([points[0], points[0]], transactions), null)
 assert.equal(incomePerformance([points[0], { ...points[1], value: NaN }], transactions), null)
 console.log('income performance tests passed')
+
+// Earnings use inclusive selected dates, independent of available value history.
+const earnings = incomeAndRealizedGains([
+  txn('Dividend', 100, '2026-06-01'), txn('Interest', 5, '2026-06-30'),
+  { ...txn('Sell', 1000), pl: 40 }, { ...txn('Sell', 500), pl: -15, plEstimated: true },
+  txn('Interest', -10), txn('Fee', -3), txn('Fee', 1), txn('Tax Withholding', -8),
+  txn('Contribution', 20000), txn('Withdrawal', -5000), txn('Buy', -2000),
+  txn('Dividend', 999, '2026-05-31'), txn('Dividend', 999, '2026-07-01'),
+  txn('Sell', 100), { ...txn('Sell', 200), positionEffect: 'Opening' },
+], '2026-06-01', '2026-06-30')
+close(earnings.realized, 25)
+close(earnings.gross, 130)
+close(earnings.marginInterest, 10)
+close(earnings.fees, 2)
+close(earnings.net, 118)
+assert.equal(earnings.missingPl, 1)
+assert.equal(earnings.estimated, true)
+close(incomeAndRealizedGains([], '', '2026-06-30').gross, 0)
+close(incomeAndRealizedGains([txn('Dividend', 12, '2020-01-01')], '', '2026-06-30').gross, 12)

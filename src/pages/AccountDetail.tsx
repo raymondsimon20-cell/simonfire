@@ -528,7 +528,7 @@ function BalanceHistoryTab({
         <Divider />
         <div className="flex items-center justify-between py-1">
           <span className="flex items-center gap-1.5 text-sm text-muted">
-            Time-Weighted Return
+            Estimated Time-Weighted Return
             <span
               className="cursor-help text-faint"
               title="Investment performance with your deposit/withdrawal timing removed — the fund-manager metric. The Investment Change above is dollar-weighted (timing included); this is not. The dollar figure beside the percentage is what the investments earned over the same window (ending value less starting value less net contributions), not the percentage times your starting balance. Option premium is neutralised (no historical option prices)."

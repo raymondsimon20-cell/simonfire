@@ -16,7 +16,8 @@
     "test:sync-summary": "tsc -p scripts/tsconfig.sync-summary.test.json && node /tmp/simonfire-sync-summary-tests/scripts/test-sync-summary.js",
     "test:premium": "tsc -p scripts/tsconfig.premium.test.json && node /tmp/simonfire-premium-tests/scripts/test-premium-workflow.js",
     "test:twr": "tsc -p scripts/tsconfig.twr.test.json && node /tmp/simonfire-twr-tests/scripts/test-twr.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:income-performance": "tsc -p scripts/tsconfig.income-performance.test.json && node /tmp/simonfire-income-performance-tests/scripts/test-income-performance.js"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1",

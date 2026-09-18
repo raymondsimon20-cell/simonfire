@@ -5,7 +5,9 @@ import { bucketStats } from '../lib/buckets'
 import { dividendStats, portfolioSummary } from '../lib/calc'
 import { dateRangeStart } from '../lib/date-range'
 import { pct, posNeg, relTime, usd } from '../lib/format'
-import { twrForScope } from '../lib/twr'
+import { twrForScope, seriesForScope, sliceFrom } from '../lib/twr'
+import { incomePerformance } from '../lib/income-performance'
+import { IncomePerformance } from './IncomePerformance'
 import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
 import type { Account, IncomePlan, Transaction } from '../lib/types'
 import { averagePortfolioSpending, spendingExclusionKey } from '../lib/spending'
@@ -84,6 +86,9 @@ export function PlanHealth() {
     return { ...result, label }
   }, [data.twr, dateRange, scope, transactions])
 
+  const performancePoints = useMemo(() => sliceFrom(seriesForScope(data.twr, scope), dateRangeStart(dateRange, localToday())), [data.twr, scope, dateRange])
+  const actual = useMemo(() => incomePerformance(performancePoints, transactions), [performancePoints, transactions])
+
   const configured = plan.annualW2Target > 0 && plan.monthlySpending > 0
   const headline = !configured
     ? 'Add two targets to turn portfolio income into a measurable replacement plan.'
@@ -94,7 +99,7 @@ export function PlanHealth() {
   return <section className="mb-6 overflow-hidden rounded-[24px] border border-[#c7a96b]/20 bg-[linear-gradient(135deg,#171a20_0%,#10151d_65%,#1d180d_100%)] shadow-[0_24px_80px_rgba(0,0,0,.22)]">
     <div className="p-5 sm:p-7">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.18em] text-[#d8bd7a]"><Target size={13}/> Today · Plan health</div><h1 className="mt-3 max-w-3xl text-2xl font-semibold tracking-[-.035em] sm:text-3xl">{headline}</h1><p className="mt-2 text-xs text-faint">Portfolio data synced {relTime(lastSyncAt)} · projections are estimates, not guaranteed income.</p></div>
+        <div><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.18em] text-[#d8bd7a]"><Target size={13}/> Today · Plan health</div><h1 className="mt-3 max-w-3xl text-2xl font-semibold tracking-[-.035em] sm:text-3xl">{actual ? `Estimated investment ${actual.investmentChange >= 0 ? 'gain' : 'loss'}: ${usd(Math.abs(actual.investmentChange))} · ${usd(actual.withdrawals)} withdrawn.` : headline}</h1><p className="mt-2 text-xs text-faint">Portfolio data synced {relTime(lastSyncAt)} · projections are estimates, not guaranteed income.</p></div>
         <button id="plan-settings" onClick={() => setEditing((value) => !value)} className="flex items-center gap-2 rounded-xl border border-[#c7a96b]/25 bg-[#c7a96b]/5 px-3.5 py-2 text-sm text-[#e1c887] hover:bg-[#c7a96b]/10"><Settings2 size={15}/> Plan assumptions <ChevronDown size={14} className={clsx('transition-transform', editing && 'rotate-180')}/></button>
       </div>
       <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-2xl border border-white/[.07] bg-black/15 sm:grid-cols-4 lg:grid-cols-5">
@@ -103,17 +108,17 @@ export function PlanHealth() {
         <SnapshotMetric label="Today’s change" value={usd(model.summary.dayChange, { sign: true })} source="Calculated" valueClass={model.summary.dayChange >= 0 ? 'text-pos' : 'text-neg'}/>
         <SnapshotMetric label="Margin used" value={usd(model.summary.marginUsed)} source="Schwab reported" valueClass={model.summary.marginUsed > 0 ? 'text-[#f0a94a]' : undefined}/>
         <SnapshotMetric
-          label="Time-weighted return"
-          value={performance.ok
-            ? <>{pct(performance.twrPct * 100, { sign: true })}<span className={clsx('ml-2 text-xs', posNeg(performance.gainUsd))}>{usd(performance.gainUsd, { sign: true, cents: false })}</span></>
-            : '—'}
-          sub={performance.ok ? undefined : 'Sync to build history'}
-          source={performance.ok ? `Calculated · ${performance.label}` : 'Calculated'}
-          valueClass={performance.ok ? posNeg(performance.twrPct) : 'text-faint'}
-          title="Investment performance with your deposit and withdrawal timing removed. The dollar figure is what the investments earned over the same window — ending value less starting value less net contributions — so it is not the percentage times your starting balance. Option premium is neutralised because there is no historical option pricing."
+          label="Investment gain / loss"
+          value={actual ? usd(actual.investmentChange, { sign: true }) : '—'}
+          sub={performance.ok ? `Estimated TWR ${pct(performance.twrPct * 100, { sign: true })}` : 'TWR unavailable'}
+          source="Estimated · selected period"
+          valueClass={actual ? posNeg(actual.investmentChange) : 'text-faint'}
+          title="Ending covered value minus beginning value and net flows. Includes income and costs; excludes option-trade cash. Reconstructed history does not establish full-account performance."
           className="col-span-2 border-white/[.06] sm:col-span-4 sm:border-t lg:col-span-1 lg:border-t-0"
         />
       </div>
+      <IncomePerformance points={performancePoints} transactions={transactions} sample={data.source === 'sample'} />
+      <p className="mt-5 text-sm text-muted">Forward income plan · {headline}</p>
       {editing && <PlanInputs plan={plan} observedSpending={model.observedSpending} onChange={setIncomePlan}/>}
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <HealthMetric active={audit === 'income'} onClick={() => setAudit(audit === 'income' ? null : 'income')} icon={<CircleDollarSign size={17}/>} label="Spendable income" value={`${usd(model.spendableMonthly)}/mo`} source="Estimated" note="After tax, margin interest, and fees" tone="green"/>

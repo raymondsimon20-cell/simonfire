@@ -2,7 +2,7 @@
 // Netlify (or running `netlify dev`); in a plain Vite/demo build the calls fail
 // gracefully and the UI falls back to CSV import.
 import type { ImportPayload } from './store'
-import type { AppData, MonthlyBalanceSnapshot, SnapshotStatus } from './types'
+import type { AppData, HistoricalBalance, MonthlyBalanceSnapshot, SnapshotStatus } from './types'
 
 const FN = '/.netlify/functions'
 
@@ -15,7 +15,7 @@ export async function loadBalanceHistory(): Promise<{ snapshots: MonthlyBalanceS
   } catch { return null }
 }
 
-export type SharedPreferences = Pick<AppData, 'bucketOverrides' | 'tagRules' | 'symbolRules' | 'targetAlloc' | 'keepList' | 'soldSymbols' | 'incomePlan' | 'spendingExclusions' | 'realizedPlOverrides' | 'csvPositionAuthority' | 'csvTransactionAuthority' | 'importHistory' | 'freshnessThresholds' | 'savedTransactionViews'>
+export type SharedPreferences = Pick<AppData, 'bucketOverrides' | 'tagRules' | 'symbolRules' | 'targetAlloc' | 'keepList' | 'soldSymbols' | 'incomePlan' | 'spendingExclusions' | 'realizedPlOverrides' | 'csvPositionAuthority' | 'csvTransactionAuthority' | 'importHistory' | 'freshnessThresholds' | 'savedTransactionViews'> & { historicalBalances?: HistoricalBalance[] }
 
 export async function loadSharedPreferences(): Promise<SharedPreferences | null> {
   try {

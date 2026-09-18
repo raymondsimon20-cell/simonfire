@@ -15,6 +15,7 @@ type SharedPreferences = {
   importHistory?: unknown[]
   freshnessThresholds?: { positions: number; transactions: number; realizedPl: number }
   savedTransactionViews?: unknown[]
+  historicalBalances?: unknown[]
   incomePlan?: {
     annualW2Target: number
     monthlySpending: number
@@ -86,6 +87,27 @@ function clean(input: any): SharedPreferences {
     realizedPl: numberIn(rawFreshness.realizedPl, 1, 365, 30),
   }
   const savedTransactionViews = Array.isArray(input?.savedTransactionViews) ? input.savedTransactionViews.filter((row: any) => row && typeof row.name === 'string').slice(0, 100).map((row: any) => ({ name: row.name.slice(0, 80), type: String(row.type ?? 'all').slice(0, 40), symbol: String(row.symbol ?? '').slice(0, 30), from: String(row.from ?? '').slice(0, 10), to: String(row.to ?? '').slice(0, 10), review: String(row.review ?? 'all').slice(0, 30) })) : []
+  const historicalBalances = Array.isArray(input?.historicalBalances) ? input.historicalBalances
+    .filter((row: any) => row && typeof row.id === 'string' && typeof row.accountMask === 'string' && typeof row.month === 'string' && typeof row.source === 'string' && Number.isFinite(Number(row.closingEquity)))
+    .slice(0, 500)
+    .map((row: any) => ({
+      id: row.id.slice(0, 160), accountMask: row.accountMask.slice(0, 80), month: row.month.slice(0, 10),
+      ...(Number.isFinite(Number(row.openingEquity)) ? { openingEquity: Number(row.openingEquity) } : {}),
+      deposits: Number.isFinite(Number(row.deposits)) ? Number(row.deposits) : 0,
+      withdrawals: Number.isFinite(Number(row.withdrawals)) ? Number(row.withdrawals) : 0,
+      dividendsInterest: Number.isFinite(Number(row.dividendsInterest)) ? Number(row.dividendsInterest) : 0,
+      marketChange: Number.isFinite(Number(row.marketChange)) ? Number(row.marketChange) : 0,
+      expenses: Number.isFinite(Number(row.expenses)) ? Number(row.expenses) : 0,
+      closingEquity: Number(row.closingEquity),
+      ...(Number.isFinite(Number(row.marginLoanBalance)) ? { marginLoanBalance: Number(row.marginLoanBalance) } : {}),
+      source: ['Schwab statement', 'CSV', 'Automatic snapshot'].includes(row.source) ? row.source : 'CSV',
+      fileName: typeof row.fileName === 'string' ? row.fileName.slice(0, 240) : 'Imported statement',
+      importedAt: typeof row.importedAt === 'string' ? row.importedAt.slice(0, 40) : new Date().toISOString(),
+      ...(typeof row.asOf === 'string' ? { asOf: row.asOf.slice(0, 40) } : {}),
+      ...(typeof row.monthEnd === 'boolean' ? { monthEnd: row.monthEnd } : {}),
+      ...(typeof row.flowsAvailable === 'boolean' ? { flowsAvailable: row.flowsAvailable } : {}),
+      ...(typeof row.coverageNote === 'string' ? { coverageNote: row.coverageNote.slice(0, 300) } : {}),
+    })) : []
   return {
     bucketOverrides,
     tagRules,
@@ -100,6 +122,7 @@ function clean(input: any): SharedPreferences {
     importHistory,
     freshnessThresholds,
     savedTransactionViews,
+    historicalBalances,
     incomePlan,
   }
 }

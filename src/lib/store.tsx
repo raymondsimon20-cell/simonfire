@@ -18,7 +18,7 @@ import { applyRealizedPlOverrides, populateRealizedProfitLoss, realizedPlOverrid
 import { summarizeSync } from './sync-summary'
 import { captureCsvAuthority, mergePositionAuthority, mergeTransactionAuthority, reconcileCsvAuthority } from './csv-authority'
 import { mergeHistoricalBalances } from './statement-history'
-import { hydrateSnapshotFlows, mergeSnapshotMonths } from './balance-snapshots'
+import { createBalanceSnapshot, hydrateSnapshotFlows, mergeSnapshotMonths, snapshotMonth } from './balance-snapshots'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -159,6 +159,7 @@ function sharedPreferences(data: AppData): SharedPreferences {
     importHistory: data.importHistory ?? [],
     freshnessThresholds: data.freshnessThresholds ?? DEFAULT_FRESHNESS,
     savedTransactionViews: data.savedTransactionViews ?? [],
+    historicalBalances: data.historicalBalances ?? [],
   }
 }
 
@@ -177,6 +178,9 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   data.importHistory = preferences.importHistory ?? data.importHistory ?? []
   data.freshnessThresholds = { ...DEFAULT_FRESHNESS, ...(preferences.freshnessThresholds ?? data.freshnessThresholds ?? {}) }
   data.savedTransactionViews = preferences.savedTransactionViews ?? data.savedTransactionViews ?? []
+  if (preferences.historicalBalances?.length) {
+    data.historicalBalances = mergeHistoricalBalances(data.historicalBalances ?? [], preferences.historicalBalances, data.accounts)
+  }
   if (data.csvPositionAuthority.length || data.csvTransactionAuthority.length) {
     const reconciled = reconcileCsvAuthority(data.accounts, data.positions, data.transactions, data.csvPositionAuthority, data.csvTransactionAuthority, data.source !== 'live')
     data.positions = reconciled.positions
@@ -322,7 +326,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!sharedReady) return
     const timeout = window.setTimeout(() => { void saveSharedPreferences(sharedPreferences(data)) }, 350)
     return () => window.clearTimeout(timeout)
-  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, data.importHistory, data.freshnessThresholds, data.savedTransactionViews, sharedReady])
+  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, data.importHistory, data.freshnessThresholds, data.savedTransactionViews, data.historicalBalances, sharedReady])
 
   const mutate = useCallback((fn: (d: AppData) => AppData, label?: string) => {
     setData((prev) => {
@@ -604,7 +608,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         syncChanges.csvConflictDetails = csvConflictDetails
         d.source = source
         if (source === 'live') {
-          d.balanceSnapshots = mergeSnapshotMonths(d.balanceSnapshots ?? [], result.balanceSnapshots ?? [])
+          const clientSnapshots = result.accounts
+            .map((account) => createBalanceSnapshot(account, result.transactions, now, 'sync', true))
+            .filter((snapshot): snapshot is NonNullable<typeof snapshot> => !!snapshot)
+            .map(snapshotMonth)
+          d.balanceSnapshots = mergeSnapshotMonths(d.balanceSnapshots ?? [], [...(result.balanceSnapshots ?? []), ...clientSnapshots])
           if (result.snapshotStatus && (!d.snapshotStatus || result.snapshotStatus.attemptedAt >= d.snapshotStatus.attemptedAt)) d.snapshotStatus = result.snapshotStatus
         }
         if (mode === 'replace') {

@@ -152,6 +152,24 @@ export interface AppData {
   importHistory?: ImportHistoryEntry[]
   freshnessThresholds?: { positions: number; transactions: number; realizedPl: number }
   savedTransactionViews?: { name: string; type: string; symbol: string; from: string; to: string; review: string }[]
+  historicalBalances?: HistoricalBalance[]
+}
+
+export interface HistoricalBalance {
+  id: string
+  accountMask: string
+  month: string
+  openingEquity?: number
+  deposits: number
+  withdrawals: number
+  dividendsInterest: number
+  marketChange: number
+  expenses: number
+  closingEquity: number
+  marginLoanBalance?: number
+  source: 'Schwab statement' | 'CSV'
+  fileName: string
+  importedAt: string
 }
 
 export interface ImportHistoryEntry {

@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
+    "types": ["node"],
+    "rootDir": "..",
+    "outDir": "/tmp/simonfire-historical-balances-tests",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": ["test-historical-balances.ts", "../src/lib/historical-balances.ts", "../src/lib/types.ts"]
+}

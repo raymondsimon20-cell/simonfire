@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Wallet, TrendingUp, Percent, LineChart } from 'lucide-react'
-import { useScoped } from '../lib/store'
+import { useScoped, useStore } from '../lib/store'
 import { availableMonths, monthClose, portfolioSummary } from '../lib/calc'
 import { usd, pct, monthLabel } from '../lib/format'
 import { KpiCard, PageHeader, Card } from '../components/ui'
@@ -8,6 +8,7 @@ import { EquityBridge } from '../components/EquityBridge'
 import clsx from 'clsx'
 
 export default function MonthClose() {
+  const { data } = useStore()
   const { positions, accounts, transactions, scope } = useScoped()
   const months = useMemo(() => availableMonths(transactions), [transactions])
   const [idx, setIdx] = useState(0) // 0 = most recent
@@ -19,8 +20,8 @@ export default function MonthClose() {
   const ym = months[idx] ?? months[0]
   const isCurrent = idx === 0
   const mc = useMemo(
-    () => monthClose(accounts, transactions, scope, ym, summary),
-    [accounts, transactions, scope, ym, summary],
+    () => monthClose(accounts, transactions, scope, ym, summary, data.historicalBalances),
+    [accounts, transactions, scope, ym, summary, data.historicalBalances],
   )
 
   return (

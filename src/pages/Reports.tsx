@@ -16,7 +16,7 @@ export default function Reports() {
   const [month, setMonth] = useState(months[0] ?? new Date().toISOString().slice(0, 7))
   const report = useMemo(() => {
     const summary = portfolioSummary(positions, accounts, scope, transactions)
-    const close = monthClose(accounts, transactions, scope, month, summary)
+    const close = monthClose(accounts, transactions, scope, month, summary, data.historicalBalances)
     const flow = cashFlow(transactions, `${month}-01`, `${month}-31`)
     const dividends = transactions.filter((row) => row.type === 'Dividend' && row.date.slice(0, 7) === month).reduce((sum, row) => sum + row.amount, 0)
     const dividendRunRate = dividendStats(positions, transactions, `${month}-28`).estMonthly
@@ -27,7 +27,7 @@ export default function Reports() {
     const priorDividends = transactions.filter((row) => row.type === 'Dividend' && row.date.slice(0, 7) === priorMonth).reduce((sum, row) => sum + row.amount, 0)
     const priorExpenses = cashFlow(transactions, `${priorMonth}-01`, `${priorMonth}-31`).totalExpenses
     return { close, flow, dividends, dividendRunRate, spending, realizedPl, priorDividends, priorExpenses }
-  }, [accounts, month, positions, scope, transactions])
+  }, [accounts, data.historicalBalances, month, positions, scope, transactions])
   const livePuts = positions.filter((row) => isActiveProtectivePut(row)).length
   // Live brokerage positions are authoritative. Retain manually tracked active
   // hedges as a fallback for imported/offline portfolios without option holdings.

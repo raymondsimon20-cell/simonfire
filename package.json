@@ -18,12 +18,14 @@
     "test:twr": "tsc -p scripts/tsconfig.twr.test.json && node /tmp/simonfire-twr-tests/scripts/test-twr.js",
     "preview": "vite preview",
     "test:income-performance": "tsc -p scripts/tsconfig.income-performance.test.json && node /tmp/simonfire-income-performance-tests/scripts/test-income-performance.js",
-    "test:equity-bridge": "tsc -p scripts/tsconfig.equity-bridge.test.json && node /tmp/simonfire-equity-bridge-tests/scripts/test-equity-bridge.js"
+    "test:equity-bridge": "tsc -p scripts/tsconfig.equity-bridge.test.json && node /tmp/simonfire-equity-bridge-tests/scripts/test-equity-bridge.js",
+    "test:historical-balances": "tsc -p scripts/tsconfig.historical-balances.test.json && node /tmp/simonfire-historical-balances-tests/scripts/test-historical-balances.js"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.34.0",
+    "pdfjs-dist": "^6.3.289",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",

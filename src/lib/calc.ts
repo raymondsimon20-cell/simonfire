@@ -1,4 +1,4 @@
-import type { Account, Position, Transaction } from './types'
+import type { Account, HistoricalBalance, Position, Transaction } from './types'
 import { normTicker } from './plan'
 import { isClosingSale } from './transaction-review'
 
@@ -582,6 +582,7 @@ export function monthClose(
   scope: string,
   ym: string,
   currentSummary: PortfolioSummary,
+  historicalBalances: HistoricalBalance[] = [],
 ): MonthClose {
   const flowsOf = (m: string) => {
     const t = txns.filter((x) => x.date.slice(0, 7) === m)
@@ -599,13 +600,14 @@ export function monthClose(
   // Transactions alone cannot establish past net equity or market movement.
   // Never fabricate an opening balance from today's debt or a pseudo return.
   const f = flowsOf(ym)
+  const historical = historicalBalances.find((balance) => balance.month === ym)
   const today = new Date()
   const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
   const isCurrent = ym === currentMonth
-  const opening = 0
-  const closingVal = isCurrent ? currentSummary.net : 0
-  const mkt = 0
-  const netChange = 0
+  const opening = historical?.openingEquity ?? (isCurrent ? currentSummary.net : 0)
+  const closingVal = historical?.closingEquity ?? (isCurrent ? currentSummary.net : 0)
+  const mkt = historical?.marketChange ?? 0
+  const netChange = historical ? closingVal - opening : 0
 
   const liabilities = scope === 'all' || accounts.find((a) => a.id === scope)?.isMargin
     ? accounts
@@ -616,7 +618,7 @@ export function monthClose(
   const assets = isCurrent ? currentSummary.gross : closingVal + liabilities
 
   return {
-    historyAvailable: false,
+    historyAvailable: !!historical,
     currentBalance: isCurrent,
     ym,
     opening,

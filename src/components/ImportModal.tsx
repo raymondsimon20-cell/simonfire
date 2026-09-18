@@ -4,21 +4,25 @@ import { Modal } from './Modal'
 import { Button } from './ui'
 import { useStore } from '../lib/store'
 import { parseSchwabFiles, previewDividendEnrichment, previewRealizedGainLoss, type DividendEnrichmentPreview, type ImportResult, type RealizedPlPreview } from '../lib/import'
+import { parseHistoricalFiles } from '../lib/historical-balances'
+import type { HistoricalBalance } from '../lib/types'
 import { useToast } from './Toast'
 
 export function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { data, applyImport, enrichDividendSymbols, applyRealizedPlMatches } = useStore()
+  const { data, applyImport, enrichDividendSymbols, applyRealizedPlMatches, applyHistoricalBalances } = useStore()
   const [broker, setBroker] = useState('Schwab')
   const [name, setName] = useState('')
   const [mask, setMask] = useState('')
   const [isMargin, setIsMargin] = useState(false)
-  const [mode, setMode] = useState<'replace' | 'merge' | 'enrich'>('replace')
+  const [mode, setMode] = useState<'replace' | 'merge' | 'enrich' | 'historical'>('replace')
   const [posFile, setPosFile] = useState<{ name: string; text: string } | null>(null)
   const [txnFile, setTxnFile] = useState<{ name: string; text: string } | null>(null)
   const [realizedFile, setRealizedFile] = useState<{ name: string; text: string } | null>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [enrichment, setEnrichment] = useState<DividendEnrichmentPreview | null>(null)
   const [realizedPreview, setRealizedPreview] = useState<RealizedPlPreview | null>(null)
+  const [historicalFiles, setHistoricalFiles] = useState<{ name: string; data: string | ArrayBuffer }[]>([])
+  const [historicalResult, setHistoricalResult] = useState<HistoricalBalance[] | null>(null)
   const [error, setError] = useState('')
   const { push } = useToast()
 
@@ -40,10 +44,17 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
     setMode('replace')
     setEnrichment(null)
     setRealizedPreview(null)
+    setHistoricalFiles([])
+    setHistoricalResult(null)
   }
 
-  const doParse = () => {
+  const doParse = async () => {
     setError('')
+    if (mode === 'historical') {
+      if (!historicalFiles.length) { setError('Upload at least one Schwab statement PDF or historical-balance CSV.'); return }
+      try { setHistoricalResult(await parseHistoricalFiles(historicalFiles, mask)); return }
+      catch (e) { setError(e instanceof Error ? e.message : 'Could not read the statement.') ; return }
+    }
     if (realizedFile) {
       try { setRealizedPreview(previewRealizedGainLoss(realizedFile.text, data.accounts, data.transactions, mask)); return }
       catch { setError('Could not recognize this Schwab Realized Gain/Loss CSV. Confirm it includes Symbol, Date Sold/Closed Date, and Gain/Loss columns.'); return }
@@ -63,6 +74,11 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
   }
 
   const doApply = () => {
+    if (historicalResult) {
+      applyHistoricalBalances(historicalResult)
+      push('Historical balances imported', 'success', `${historicalResult.length} statement month${historicalResult.length === 1 ? '' : 's'} added`)
+      reset(); onClose(); return
+    }
     if (realizedPreview) {
       if (!realizedPreview.matches.length) return
       applyRealizedPlMatches(realizedPreview.matches, realizedFile?.name)
@@ -75,7 +91,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
       enrichDividendSymbols(enrichment.matches)
       push('Dividend symbols enriched', 'success', `${enrichment.matches.length} existing payments updated · no transactions added`)
     } else {
-      applyImport({ accounts: result.accounts, positions: result.positions, transactions: result.transactions, broker, importFiles: [posFile?.name, txnFile?.name].filter((name): name is string => !!name) }, mode)
+      applyImport({ accounts: result.accounts, positions: result.positions, transactions: result.transactions, broker, importFiles: [posFile?.name, txnFile?.name].filter((name): name is string => !!name) }, mode === 'merge' ? 'merge' : 'replace')
       push('Portfolio import complete', 'success', `${result.positions.length} positions · ${result.transactions.length} transactions`)
     }
     reset()
@@ -133,15 +149,15 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
         reset()
         onClose()
       }}
-      title="Import from CSV"
-      subtitle="Load your real portfolio from Schwab CSV exports. Everything stays in your browser."
+      title={mode === 'historical' ? 'Import Historical Balances' : 'Import from CSV'}
+      subtitle={mode === 'historical' ? 'Load month-end equity and margin balances from Schwab statements or a balance CSV.' : 'Load your real portfolio from Schwab CSV exports. Everything stays in your browser.'}
       width="max-w-lg"
       footer={
-        result || realizedPreview ? (
+        result || realizedPreview || historicalResult ? (
           <>
-            <Button onClick={() => { setResult(null); setRealizedPreview(null) }}>Back</Button>
+            <Button onClick={() => { setResult(null); setRealizedPreview(null); setHistoricalResult(null) }}>Back</Button>
             <Button variant="primary" onClick={doApply}>
-              {realizedPreview ? `Apply ${realizedPreview.matches.length} P/L values` : mode === 'enrich' ? `Enrich ${enrichment?.matches.length ?? 0} payments` : mode === 'replace' ? 'Replace with imported data' : 'Add imported data'}
+              {historicalResult ? `Apply ${historicalResult.length} balances` : realizedPreview ? `Apply ${realizedPreview.matches.length} P/L values` : mode === 'enrich' ? `Enrich ${enrichment?.matches.length ?? 0} payments` : mode === 'replace' ? 'Replace with imported data' : 'Add imported data'}
             </Button>
           </>
         ) : (
@@ -152,7 +168,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
         )
       }
     >
-      {!result && !realizedPreview ? (
+      {!result && !realizedPreview && !historicalResult ? (
         <div className="space-y-5">
           <div className="rounded-lg bg-surface-2 p-3 text-xs text-muted">
             In Schwab: <span className="text-ink">Positions</span> → Export, and{' '}
@@ -164,6 +180,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
             <FileRow label="Positions CSV" hint="Click to choose your positions export" file={posFile} onPick={(f) => read(f, setPosFile)} />
             <FileRow label="Transactions CSV" hint="Click to choose your transactions export" file={txnFile} onPick={(f) => read(f, setTxnFile)} />
             <FileRow label="Realized Gain/Loss CSV" hint="Authoritative P/L reconciliation without adding transactions" file={realizedFile} onPick={(f) => read(f, setRealizedFile)} />
+            {mode === 'historical' && <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-brand p-3"><div className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 text-brand"><FileText size={16} /></div><div className="flex-1"><div className="text-sm font-medium">Schwab statements or balance CSV</div><div className="text-xs text-faint">{historicalFiles.length ? `${historicalFiles.length} file(s) selected` : 'Choose PDF statements or the generated CSV'}</div></div><input type="file" multiple accept=".pdf,.csv,application/pdf,text/csv" className="hidden" onChange={(e) => { const files = [...(e.target.files ?? [])]; Promise.all(files.map(async (file) => ({ name: file.name, data: file.name.toLowerCase().endsWith('.pdf') ? await file.arrayBuffer() : await file.text() }))).then(setHistoricalFiles); setResult(null) }} /></label>}
           </div>
 
           <div>
@@ -183,6 +200,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
             ['replace', 'Replace portfolio', 'Replace the current local portfolio with these files.'],
             ['merge', 'Add alongside', 'Append imported accounts and records; may duplicate overlapping data.'],
             ['enrich', 'Enrich existing dividends', 'Match by account, date, amount, and description; copy only missing tickers.'],
+            ['historical', 'Historical balances', 'Import monthly Schwab statement balances, market changes, and margin debt.']
           ] as const).map(([value, label, hint]) => <label key={value} className={mode === value ? 'flex cursor-pointer gap-3 rounded-xl border border-brand/50 bg-brand/5 p-3' : 'flex cursor-pointer gap-3 rounded-xl border border-border p-3'}><input type="radio" name="import-mode" value={value} checked={mode === value} onChange={() => { setMode(value); setResult(null); setEnrichment(null) }}/><span><span className="block text-sm font-medium text-ink">{label}</span><span className="mt-0.5 block text-xs text-faint">{hint}</span></span></label>)}</div></div>
 
           {error && (
@@ -191,7 +209,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
             </div>
           )}
         </div>
-      ) : realizedPreview ? <div className="space-y-4"><div className="grid grid-cols-3 gap-3 text-center"><Stat n={realizedPreview.matches.length} label="Matched"/><Stat n={realizedPreview.ambiguous} label="Ambiguous"/><Stat n={realizedPreview.unmatched} label="Unmatched"/></div><div className="rounded-lg border border-pos/20 bg-pos/5 p-3 text-xs text-muted">Matched CSV P/L becomes authoritative and survives future API syncs. Transactions, positions, balances, and unmatched rows will not change.</div>{realizedPreview.matches.length > 0 && <div className="max-h-56 overflow-auto rounded-lg border border-border-soft">{realizedPreview.matches.map((match) => <div key={match.transactionId} className="grid grid-cols-[1fr_auto] gap-3 border-b border-border-soft px-3 py-2 text-xs last:border-0"><span><strong>{match.symbol}</strong> · {match.date}<span className="block text-faint">Proceeds ${match.proceeds.toFixed(2)}</span></span><span className={match.pl >= 0 ? 'num text-pos' : 'num text-neg'}>{match.pl >= 0 ? '+' : ''}${match.pl.toFixed(2)}</span></div>)}</div>}<p className="text-xs text-faint">{realizedPreview.rows} realized rows inspected. Ambiguous and unmatched rows require manual review and will not be applied.</p></div> : result ? (
+      ) : historicalResult ? <div className="space-y-4"><div className="grid grid-cols-3 gap-3 text-center"><Stat n={historicalResult.length} label="Months"/><Stat n={historicalResult.filter((r) => r.marginLoanBalance != null).length} label="Debt balances"/><Stat n={historicalResult.filter((r) => r.source === 'Schwab statement').length} label="PDF statements"/></div><div className="max-h-64 overflow-auto rounded-lg border border-border-soft">{historicalResult.map((r) => <div key={r.id} className="flex items-center justify-between border-b border-border-soft px-3 py-2 text-xs last:border-0"><span><strong>{r.month}</strong><span className="block text-faint">{r.fileName}</span></span><span className="num">${r.closingEquity.toFixed(2)} equity</span></div>)}</div><p className="text-xs text-faint">Statement fields reconcile as: opening equity + deposits + withdrawals + income + market change + expenses = closing equity.</p></div> : realizedPreview ? <div className="space-y-4"><div className="grid grid-cols-3 gap-3 text-center"><Stat n={realizedPreview.matches.length} label="Matched"/><Stat n={realizedPreview.ambiguous} label="Ambiguous"/><Stat n={realizedPreview.unmatched} label="Unmatched"/></div><div className="rounded-lg border border-pos/20 bg-pos/5 p-3 text-xs text-muted">Matched CSV P/L becomes authoritative and survives future API syncs. Transactions, positions, balances, and unmatched rows will not change.</div>{realizedPreview.matches.length > 0 && <div className="max-h-56 overflow-auto rounded-lg border border-border-soft">{realizedPreview.matches.map((match) => <div key={match.transactionId} className="grid grid-cols-[1fr_auto] gap-3 border-b border-border-soft px-3 py-2 text-xs last:border-0"><span><strong>{match.symbol}</strong> · {match.date}<span className="block text-faint">Proceeds ${match.proceeds.toFixed(2)}</span></span><span className={match.pl >= 0 ? 'num text-pos' : 'num text-neg'}>{match.pl >= 0 ? '+' : ''}${match.pl.toFixed(2)}</span></div>)}</div>}<p className="text-xs text-faint">{realizedPreview.rows} realized rows inspected. Ambiguous and unmatched rows require manual review and will not be applied.</p></div> : result ? (
         <div className="space-y-4">
           {mode === 'enrich' && enrichment ? <><div className="grid grid-cols-3 gap-3 text-center"><Stat n={enrichment.matches.length} label="Matched"/><Stat n={enrichment.ambiguous.length} label="Ambiguous"/><Stat n={enrichment.unmatched.length} label="Unmatched"/></div><div className="rounded-lg border border-pos/20 bg-pos/5 p-3 text-xs text-muted">Only {enrichment.matches.length} existing dividend payment{enrichment.matches.length === 1 ? '' : 's'} will receive a ticker. No positions, balances, or transactions will be added.</div>{enrichment.matches.length > 0 && <div className="max-h-48 overflow-auto rounded-lg border border-border-soft">{enrichment.matches.slice(0, 100).map((match) => <div key={match.transactionId} className="flex items-center justify-between gap-3 border-b border-border-soft px-3 py-2 text-xs last:border-0"><span><strong className="text-brand">{match.symbol}</strong> · {match.date}</span><span className="num">${match.amount.toFixed(2)}</span></div>)}</div>}</> : <div className="grid grid-cols-3 gap-3 text-center"><Stat n={result.accounts.length} label="Accounts" /><Stat n={result.positions.length} label="Positions" /><Stat n={result.transactions.length} label="Transactions" /></div>}
           {mode !== 'enrich' && result.accounts.length > 0 && (

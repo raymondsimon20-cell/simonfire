@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { Account, AppData, Connection, HedgeRoll, IncomePlan, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
+import type { Account, AppData, Connection, HedgeRoll, HistoricalBalance, IncomePlan, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
@@ -219,6 +219,7 @@ interface StoreCtx {
   applyImport: (result: ImportPayload, mode: 'replace' | 'merge', source?: 'imported' | 'live') => void
   rollbackImport: (id: string) => void
   clearCsvAuthority: (accountMask: string, kind: 'positions' | 'transactions' | 'realizedPl') => void
+  applyHistoricalBalances: (balances: HistoricalBalance[]) => void
   setFreshnessThresholds: (value: AppData['freshnessThresholds']) => void
   setSavedTransactionViews: (value: NonNullable<AppData['savedTransactionViews']>) => void
   restoreBackup: (backup: AppData) => void
@@ -627,6 +628,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [mutate],
   )
 
+  const applyHistoricalBalances: StoreCtx['applyHistoricalBalances'] = useCallback((balances) => {
+    mutate((d) => { d.historicalBalances = [...(d.historicalBalances ?? []).filter((old) => !balances.some((next) => next.month === old.month && (!next.accountMask || next.accountMask === old.accountMask))), ...balances]; return d }, 'Import historical balances')
+  }, [mutate])
+
   const reset: StoreCtx['reset'] = useCallback(() => {
     const seed = buildSeed()
     setData(seed)
@@ -829,6 +834,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       applyImport,
       rollbackImport,
       clearCsvAuthority,
+      applyHistoricalBalances,
       setFreshnessThresholds,
       setSavedTransactionViews,
       restoreBackup,
@@ -890,6 +896,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addHedgeRoll,
       updateHedgeRoll,
       removeHedgeRoll,
+      applyHistoricalBalances,
     ],
   )
 

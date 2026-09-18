@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "CommonJS", "moduleResolution": "Node", "ignoreDeprecations": "6.0",
+    "types": ["node"], "lib": ["ES2022", "DOM"], "strict": true, "esModuleInterop": true,
+    "skipLibCheck": true, "rootDir": "..", "outDir": "/tmp/simonfire-balance-snapshot-tests"
+  },
+  "include": ["test-balance-snapshots.ts", "../netlify/functions/capture-month-close.ts", "../netlify/functions/balance-history.ts", "../netlify/functions/schwab-sync.ts"]
+}

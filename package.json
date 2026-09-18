@@ -19,7 +19,8 @@
     "preview": "vite preview",
     "test:income-performance": "tsc -p scripts/tsconfig.income-performance.test.json && node /tmp/simonfire-income-performance-tests/scripts/test-income-performance.js",
     "test:equity-bridge": "tsc -p scripts/tsconfig.equity-bridge.test.json && node /tmp/simonfire-equity-bridge-tests/scripts/test-equity-bridge.js",
-    "test:historical-balances": "tsc -p scripts/tsconfig.historical-balances.test.json && node /tmp/simonfire-historical-balances-tests/scripts/test-historical-balances.js"
+    "test:historical-balances": "tsc -p scripts/tsconfig.historical-balances.test.json && node /tmp/simonfire-historical-balances-tests/scripts/test-historical-balances.js",
+    "test:balance-snapshots": "tsc -p scripts/tsconfig.balance-snapshots.test.json && NODE_PATH=./node_modules node /tmp/simonfire-balance-snapshot-tests/scripts/test-balance-snapshots.js"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1",

@@ -11,7 +11,8 @@ Netlify-ready single-page app.
 - **Transactions** — all activity with Type/Symbol/Date filters, "Totals by Type", **Add Contribution** modal, CSV export, delete.
 - **Cash Flow** — income/expense/margin/contribution KPIs, daily net-operating bar chart, transaction detail table, date-range + category filters.
 - **Dividends** — trailing 12M income, monthly average, projections (annual/monthly, yield on cost, forward yield), 12-month projected-payments chart, income-by-symbol table.
-- **Month Close** — monthly equity reconciliation, balance sheet, and an **Equity Change Bridge** waterfall (Opening → Contrib → Net Oper → Realized P/L → Accounts Added → Mkt & Other → Closing).
+- **Month Close** — saved monthly equity, margin debt, cash flows, and an interactive reconciliation bridge. Statements verify automatic snapshots.
+- **Historical Value** — recorded monthly equity and margin history, with separate daily estimates and source/coverage indicators.
 - **Ledger** — complete transaction ledger grouped by month with running summaries, cash-impact coloring, and an inline **tag editor**.
 - **Connections** — brokerage connections, sync status, account expanders, a **Connect a Brokerage** flow (SnapTrade-style broker list), and a connection event log.
 
@@ -39,7 +40,7 @@ npm run preview  # preview the build
 
 This repo is Netlify-ready. Either:
 
-1. **Drag-and-drop**: run `npm run build` and drop the `dist/` folder onto app.netlify.com.
+1. **Static preview only**: run `npm run build` and drop `dist/` onto app.netlify.com. This does not deploy the Schwab or scheduled functions.
 2. **Git integration**: connect the repo; Netlify reads `netlify.toml`:
    - Build command: `npm run build`
    - Publish directory: `dist`
@@ -90,15 +91,44 @@ automatic; Schwab refresh tokens expire after ~7 days, after which you re-connec
 Local dev with functions: `netlify dev` (Netlify CLI) runs the Vite app and the functions
 together; without it, the Vite dev/preview build shows the UI but live sync falls back to CSV import.
 
-## Upgrade path: cloud persistence & auto-sync (Supabase)
+## Automatic balance history
+
+Every successful Schwab sync captures broker-reported equity, margin debt, cash,
+and month-to-date cash-flow totals. `capture-month-close` also captures them nightly
+at **23:50 UTC**, including weekends. This runs without an open browser after a
+production deploy; [Netlify scheduled functions](https://docs.netlify.com/build/functions/scheduled-functions/)
+do not run automatically in Vite, previews, or branch deploys.
+
+The `simonfire-balance-history` Netlify Blobs store retains the first and latest
+observation per account/month. Conditional writes protect concurrent captures.
+`balance-history` restores that archive on another browser and on refresh. The
+client also caches it locally and preserves it when the network is unavailable.
+
+- Month boundaries use `America/New_York`. A capture after 4 p.m. on the calendar
+  month's final day is a recorded month-end checkpoint, not an official statement.
+- The next month uses that checkpoint (or the prior month's imported statement)
+  as its opening. A missed close is never filled using a later month's balance.
+- Investment results are estimates from recorded equity less net funding. The
+  market/other residual includes trading gains and losses; realized P/L is not
+  added twice. Missing transaction coverage or ambiguous transfers suppress the
+  estimated result rather than turn unknown amounts into zero.
+- PDF/CSV statement balances take precedence for their account/month and verify
+  the next opening. Existing statements can fill older gaps.
+- An expired Schwab connection pauses captures. The pages show reconnect or
+  stale-data status while retaining saved history. Reconnect through Connections.
+
+Run `npm run test:balance-snapshots` for rollover, reconciliation, source priority,
+account scoping, concurrent persistence, and broker-failure regression checks.
+
+## Upgrade path: cloud persistence (Supabase)
 
 The store is intentionally isolated. To move from `localStorage` to real accounts + cloud sync:
 
 1. Create a Supabase project; add tables mirroring `src/lib/types.ts` (accounts, positions, transactions, connections).
 2. Replace the `load`/`save`/mutation functions in `src/lib/store.tsx` with Supabase queries (`@supabase/supabase-js`), keeping the same `StoreCtx` interface — no page changes needed.
 3. Add Supabase Auth for sign-in; put keys in Netlify env vars.
-4. For scheduled auto-sync (instead of manual "Sync Now"), add a **Netlify Scheduled Function** that
-   calls the Schwab sync on a cron and writes results to Supabase, so every device reads the latest.
+4. If moving balance history to Supabase, preserve the existing nightly schedule,
+   source precedence, month-boundary rules, and concurrency protections.
 
 ## Notes
 

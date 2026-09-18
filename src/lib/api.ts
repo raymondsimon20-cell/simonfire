@@ -2,9 +2,18 @@
 // Netlify (or running `netlify dev`); in a plain Vite/demo build the calls fail
 // gracefully and the UI falls back to CSV import.
 import type { ImportPayload } from './store'
-import type { AppData } from './types'
+import type { AppData, MonthlyBalanceSnapshot, SnapshotStatus } from './types'
 
 const FN = '/.netlify/functions'
+
+export async function loadBalanceHistory(): Promise<{ snapshots: MonthlyBalanceSnapshot[]; status?: SnapshotStatus } | null> {
+  try {
+    const response = await fetch(`${FN}/balance-history`)
+    if (!response.ok) return null
+    const body = await response.json()
+    return body.ok && Array.isArray(body.snapshots) ? { snapshots: body.snapshots, status: body.status ?? undefined } : null
+  } catch { return null }
+}
 
 export type SharedPreferences = Pick<AppData, 'bucketOverrides' | 'tagRules' | 'symbolRules' | 'targetAlloc' | 'keepList' | 'soldSymbols' | 'incomePlan' | 'spendingExclusions' | 'realizedPlOverrides' | 'csvPositionAuthority' | 'csvTransactionAuthority' | 'importHistory' | 'freshnessThresholds' | 'savedTransactionViews'>
 
@@ -80,6 +89,8 @@ export async function schwabSync(): Promise<SyncResult> {
         broker: d.broker || 'Schwab',
         twr: d.twr,
         insights: d.insights,
+        balanceSnapshots: d.balanceSnapshots,
+        snapshotStatus: d.snapshotStatus,
       },
     }
   } catch {

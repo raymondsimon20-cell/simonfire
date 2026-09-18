@@ -30,19 +30,12 @@ function niceFloor(v: number) {
   return Math.floor(v / step) * step
 }
 
-// Two-line category tick: splits on the first space so labels like
-// "Realized P/L" and "Mkt & Other" stop colliding with their neighbours.
+// Short labels stay legible on mobile. Full names remain in the tooltip,
+// accessible summary, and clickable breakdown below the chart.
 function WrappedTick({ x, y, payload }: any) {
   const text = String(payload?.value ?? '')
-  const idx = text.indexOf(' ')
-  const lines = idx > 0 && text.length > 8 ? [text.slice(0, idx), text.slice(idx + 1)] : [text]
-  return (
-    <text x={x} y={y + 4} textAnchor="middle" fill="#697485" fontSize={11}>
-      {lines.map((line, i) => (
-        <tspan key={i} x={x} dy={i === 0 ? 8 : 13}>{line}</tspan>
-      ))}
-    </text>
-  )
+  const labels: Record<string, string> = { Opening: 'Open', Deposits: 'In', Withdrawals: 'Out', 'Income less expenses': 'Income', 'Market change': 'Market', 'Market & other (est.)': 'Market', Closing: 'Close', 'Contrib.': 'In', 'Net Oper.': 'Cash', 'Realized P/L': 'P/L', 'Realized P/L (est.)': 'P/L', 'Mkt & Other': 'Market' }
+  return <text x={x} y={y + 14} textAnchor="middle" fill="#8792a2" fontSize={10}>{labels[text] ?? text}</text>
 }
 
 function ChartTip({ active, payload, label }: any) {
@@ -123,27 +116,21 @@ export interface BridgeStep {
 
 export function Waterfall({ steps, height = 300, onStepClick }: { steps: BridgeStep[]; height?: number; onStepClick?: (index: number) => void }) {
   // Compute floating bar ranges.
-  let running = 0
-  const rows = steps.map((s) => {
-    if (s.kind === 'base' || s.kind === 'total') {
-      const row = { ...s, start: 0, end: s.value, base: 0, bar: s.value }
-      running = s.value
-      return row
-    }
-    const start = running
-    const end = running + s.value
-    running = end
-    return { ...s, start, end, base: Math.min(start, end), bar: Math.abs(s.value) }
-  })
+  const rows = steps.reduce<(BridgeStep & { start: number; end: number; base: number; bar: number })[]>((result, step) => {
+    const total = step.kind === 'base' || step.kind === 'total'
+    const start = total ? 0 : result.at(-1)?.end ?? 0
+    const end = total ? step.value : start + step.value
+    result.push({ ...step, start, end, base: total ? 0 : Math.min(start, end), bar: total ? step.value : Math.abs(step.value) })
+    return result
+  }, [])
 
   const colorOf = (k: BridgeStep['kind']) =>
     k === 'base' || k === 'total' ? BASE : k === 'up' ? POS : NEG
 
-  // Start the axis just below the lowest point of the bridge so the intermediate
-  // steps are readable instead of collapsing into hairlines on a from-zero axis.
+  // Keep the opening/closing columns visible. A zoomed positive-only axis clips
+  // those baseline columns because their transparent spacer starts at zero.
   const lowest = Math.min(0, ...rows.map((r) => Math.min(r.start, r.end)))
-  const positiveLow = Math.min(...rows.map((r) => Math.min(r.start, r.end)).filter((v) => v > 0))
-  const floor = lowest < 0 || !Number.isFinite(positiveLow) ? lowest : niceFloor(positiveLow * 0.9)
+  const floor = lowest < 0 ? niceFloor(lowest * 1.05) : 0
 
   return (<>
     <ChartSummary data={rows} xKey="label" yKey="value" label="Equity bridge chart"/>
@@ -165,8 +152,8 @@ export function Waterfall({ steps, height = 300, onStepClick }: { steps: BridgeS
           }}
         />
         {/* transparent spacer to float the visible bar */}
-        <Bar dataKey="base" stackId="a" fill="transparent" />
-        <Bar dataKey="bar" stackId="a" radius={[3, 3, 0, 0]} onClick={(_, index) => onStepClick?.(index)} style={{ cursor: onStepClick ? 'pointer' : undefined }}>
+        <Bar dataKey="base" stackId="a" fill="transparent" isAnimationActive={false}/>
+        <Bar dataKey="bar" stackId="a" radius={[3, 3, 0, 0]} isAnimationActive={false} onClick={(_, index) => onStepClick?.(index)} style={{ cursor: onStepClick ? 'pointer' : undefined }}>
           {rows.map((r, i) => (
             <Cell key={i} fill={colorOf(r.kind)} />
           ))}

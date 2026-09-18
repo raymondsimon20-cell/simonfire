@@ -18,12 +18,15 @@ export function EquityBridge({ close, transactions, positions, accounts, scope, 
   const byTicker = new Map<string, number>()
   for (const p of positions) byTicker.set(p.symbol, (byTicker.get(p.symbol) ?? 0) + p.shares * p.lastPrice)
   const currentClosing = close.currentBalance
-  const knownValue = (index: number) => close.statement ? index !== 0 || close.historyAvailable : [1, 2, 3].includes(index) || (index === 5 && currentClosing) || close.historyAvailable
+  const automatic = close.statement?.statements.some((row) => row.source === 'Automatic snapshot')
+  const knownValue = (index: number) => close.statement
+    ? index === 0 ? close.historyAvailable : index === 5 ? true : index === 4 ? close.reconciliationAvailable : close.statement.flowsAvailable !== false
+    : [1, 2, 3].includes(index) || (index === 5 && currentClosing) || close.historyAvailable
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? id
   const total = rows.reduce((n, r) => n + r.value, 0)
   return <>
-    {chart && close.historyAvailable && <Waterfall steps={close.bridge} height={300} onStepClick={setSelected} />}
-    {!close.historyAvailable && <p className="mt-2 text-xs text-muted">{close.statement ? 'Opening equity was not included in this import, so monthly equity change is unavailable.' : 'Historical equity snapshots are unavailable. Transaction totals are shown; opening equity, market movement, and historical closing equity are not inferred.'}</p>}
+    {chart && close.reconciliationAvailable && <Waterfall steps={close.bridge} height={300} onStepClick={setSelected} />}
+    {!close.reconciliationAvailable && <p className="mt-4 rounded-lg bg-white/[.025] p-3 text-xs leading-relaxed text-muted">{close.statement ? close.statement.coverageNote || 'An opening balance and complete cash flows are needed to reconcile this month.' : 'Historical equity snapshots are unavailable. Transaction totals are shown; opening equity, market movement, and historical closing equity are not inferred.'}</p>}
     <p className="mt-2 text-xs text-muted">Select a bridge value to see its breakdown.</p>
     <div className={chart ? 'mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3' : 'mt-3 divide-y divide-border-soft'}>
       {close.bridge.map((row, index) => <button key={row.label} type="button" aria-expanded={selected === index} aria-controls="equity-bridge-detail" onClick={() => setSelected(selected === index ? null : index)} className={`flex w-full items-center justify-between gap-3 rounded-lg p-2 text-left text-xs hover:bg-white/[.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ${selected === index ? 'bg-white/[.08] text-ink' : 'text-muted'}`}><span>{row.label}</span><span className="num">{knownValue(index) ? usd(row.value, { sign: row.kind !== 'base' && row.kind !== 'total' }) : '—'}</span></button>)}
@@ -31,8 +34,8 @@ export function EquityBridge({ close, transactions, positions, accounts, scope, 
     {step && <section id="equity-bridge-detail" aria-label={`${step.label} breakdown`} className="mt-4 rounded-xl border border-border-soft p-4">
       <div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{step.label}: {knownValue(selected!) ? usd(step.value, { sign: true }) : 'Unavailable'}</h3><p className="mt-1 text-xs text-muted">{monthLabel(close.ym)}</p></div><button type="button" onClick={() => setSelected(null)} className="text-xs text-muted hover:text-ink">Close</button></div>
       {close.statement ? <>
-        <p className="mt-3 text-xs text-muted">Amounts from the imported monthly summaries. Market change already includes trading gains and losses; realized P/L is not added again. Statement summaries do not provide a transaction or ticker breakdown.</p>
-        <dl className="mt-3 space-y-2 text-xs">{close.statement.statements.map((row) => <div key={`${row.accountMask}-${row.month}`}><Detail label={`${row.source} · ${row.accountMask ? `•••${row.accountMask}` : 'Unassigned account'}`} value={statementBridgeValues(row)[selected!]}/><p className="text-faint">{row.fileName}</p>{selected === 3 && <><Detail label="Dividends and interest" value={row.dividendsInterest}/><Detail label="Expenses" value={row.expenses}/></>}</div>)}</dl>
+        <p className="mt-3 text-xs leading-relaxed text-muted">{automatic ? 'Saved brokerage balances and cash flows. Market & other is the residual after funding, income, and expenses; it includes realized and unrealized changes and is an estimate.' : 'Amounts from the imported monthly summaries. Market change already includes trading gains and losses; realized P/L is not added again. Statement summaries do not provide a transaction or ticker breakdown.'}</p>
+        <dl className="mt-3 space-y-2 text-xs">{close.statement.statements.map((row) => <div key={`${row.accountMask}-${row.month}`}><Detail label={`${row.source} · ${row.accountMask ? `•••${row.accountMask}` : 'Unassigned account'}`} value={knownValue(selected!) ? statementBridgeValues(row)[selected!] : undefined}/><p className="text-faint">{row.fileName}{row.asOf ? ` · ${shortDate(row.asOf)}` : ''}</p>{selected === 3 && row.flowsAvailable !== false && <><Detail label="Dividends and interest" value={row.dividendsInterest}/><Detail label="Expenses" value={row.expenses}/></>}</div>)}</dl>
       </> : <>
       {(selected === 1 || selected === 2 || selected === 3) && <>
         <p className="mt-3 text-xs text-muted">{selected === 3 ? 'Realized profit or loss, not sale proceeds. Missing P/L contributes $0 to this bridge.' : selected === 2 ? 'Income less operating expenses, including withdrawals, bill payments, margin interest, fees, and withholding.' : 'Recorded contributions for this month.'}</p>
@@ -47,6 +50,6 @@ export function EquityBridge({ close, transactions, positions, accounts, scope, 
   </>
 }
 
-function Detail({ label, value }: { label: string; value: number }) {
-  return <div className="flex justify-between gap-3 py-1"><dt className="text-muted">{label}</dt><dd className="num">{usd(value, { sign: true })}</dd></div>
+function Detail({ label, value }: { label: string; value?: number }) {
+  return <div className="flex justify-between gap-3 py-1"><dt className="text-muted">{label}</dt><dd className="num">{value == null ? 'Unavailable' : usd(value, { sign: true })}</dd></div>
 }

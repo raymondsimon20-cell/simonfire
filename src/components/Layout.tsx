@@ -259,7 +259,6 @@ export default function Layout() {
 
   return (
     <div className={clsx('min-h-full', privacy && 'privacy-mode', compactDensity && 'density-compact')}>
-      <div className="fixed bottom-4 left-4 z-40 lg:bottom-auto lg:left-[166px] lg:top-5"><PremiumTools /></div>
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col overflow-hidden border-r border-white/[0.06] bg-[#090c11]/95 px-4 py-5 backdrop-blur-xl lg:flex">
         <div className="shrink-0 px-2"><Logo /></div>
         <div className="mt-8 flex shrink-0 items-center gap-2 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint">
@@ -325,8 +324,9 @@ export default function Layout() {
         {(syncing || autoSyncing) && <div className="mb-4 flex items-center gap-2 rounded-xl border border-[#c7a96b]/20 bg-[#c7a96b]/8 px-4 py-2.5 text-xs text-[#dec78f]"><RefreshCw size={13} className="animate-spin" /> Securely refreshing portfolio data…</div>}
         {stalePositionCsv && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#e1c887]/20 bg-[#e1c887]/[.06] px-4 py-2.5 text-xs"><span>Position cost-basis CSV is {positionCsvAge} days old. Live quantities and prices remain current.</span><Link to="/data-quality" className="shrink-0 font-semibold text-[#e1c887]">Review</Link></div>}
         {undoLabel && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#5aa2ff]/20 bg-[#5aa2ff]/8 px-4 py-2.5 text-xs"><span>{undoLabel} completed.</span><button onClick={undoLast} className="font-semibold text-[#7fb5ff]">Undo</button></div>}
-        <div className="mb-5 flex justify-end lg:hidden">
-          <AccountScope />
+        <div className="mb-5 flex items-center justify-between gap-3 lg:contents">
+          <div className="lg:fixed lg:left-[166px] lg:top-5 lg:z-40"><PremiumTools /></div>
+          <div className="min-w-0 lg:hidden"><AccountScope /></div>
         </div>
         <Outlet />
       </main>

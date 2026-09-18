@@ -1,4 +1,4 @@
-import type { Account, HistoricalBalance, Position, Transaction } from './types'
+import type { Account, HistoricalBalance, MonthlyBalanceSnapshot, Position, Transaction } from './types'
 import { normTicker } from './plan'
 import { isClosingSale } from './transaction-review'
 import { statementBridgeValues, statementHistory, type StatementMonth } from './statement-history'
@@ -547,6 +547,7 @@ export function dividendStats(
 
 // ---------- Month close ----------
 export interface MonthClose {
+  reconciliationAvailable: boolean
   statement?: StatementMonth
   balanceAvailable: boolean
   debtAvailable: boolean
@@ -587,6 +588,7 @@ export function monthClose(
   ym: string,
   currentSummary: PortfolioSummary,
   historicalBalances: HistoricalBalance[] = [],
+  snapshots: MonthlyBalanceSnapshot[] = [],
 ): MonthClose {
   const flowsOf = (m: string) => {
     const t = txns.filter((x) => x.date.slice(0, 7) === m)
@@ -604,7 +606,7 @@ export function monthClose(
   // Transactions alone cannot establish past net equity or market movement.
   // Never fabricate an opening balance from today's debt or a pseudo return.
   const f = flowsOf(ym)
-  const historical = statementHistory(historicalBalances, accounts, scope).find((balance) => balance.month === ym)
+  const historical = statementHistory(historicalBalances, accounts, scope, snapshots).find((balance) => balance.month === ym)
   const today = new Date()
   const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
   const isCurrent = ym === currentMonth
@@ -622,6 +624,7 @@ export function monthClose(
   const assets = historical ? closingVal + liabilities : isCurrent ? currentSummary.gross : 0
 
   return {
+    reconciliationAvailable: historical?.openingEquity != null && historical.flowsAvailable !== false,
     statement: historical,
     balanceAvailable: !!historical || isCurrent,
     debtAvailable: historical ? historical.marginLoanBalance != null : isCurrent,
@@ -638,7 +641,7 @@ export function monthClose(
     netEquity,
     realizedEstimated: !historical && f.realizedEstimated,
     bridge: historical ? statementBridgeValues(historical).map((value, index) => ({
-      label: ['Opening', 'Deposits', 'Withdrawals', 'Income less expenses', 'Market change', 'Closing'][index],
+      label: ['Opening', 'Deposits', 'Withdrawals', 'Income less expenses', historical.statements.some((row) => row.source === 'Automatic snapshot') ? 'Market & other (est.)' : 'Market change', 'Closing'][index],
       value, kind: index === 0 ? 'base' : index === 5 ? 'total' : value >= 0 ? 'up' : 'down',
     })) : [
       { label: 'Opening', value: opening, kind: 'base' },

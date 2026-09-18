@@ -12,12 +12,13 @@ import type { Account, AppData, Connection, HedgeRoll, HistoricalBalance, Income
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
-import { loadSharedPreferences, saveBackup, saveSharedPreferences, type SharedPreferences } from './api'
+import { loadBalanceHistory, loadSharedPreferences, saveBackup, saveSharedPreferences, type SharedPreferences } from './api'
 import { dividendDescriptionKey, resolveDividendSymbols } from './dividend-symbol'
 import { applyRealizedPlOverrides, populateRealizedProfitLoss, realizedPlOverrideKey } from './realized-pl'
 import { summarizeSync } from './sync-summary'
 import { captureCsvAuthority, mergePositionAuthority, mergeTransactionAuthority, reconcileCsvAuthority } from './csv-authority'
 import { mergeHistoricalBalances } from './statement-history'
+import { mergeSnapshotMonths } from './balance-snapshots'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -251,6 +252,8 @@ export interface ImportPayload {
   twr?: TwrSeries
   insights?: Insights
   importFiles?: string[]
+  balanceSnapshots?: AppData['balanceSnapshots']
+  snapshotStatus?: AppData['snapshotStatus']
 }
 
 const Ctx = createContext<StoreCtx | null>(null)
@@ -270,6 +273,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     save(data)
   }, [data])
+
+  useEffect(() => {
+    if (data.source === 'sample') return
+    let cancelled = false
+    const refresh = async () => {
+      const history = await loadBalanceHistory()
+      if (!history || cancelled) return
+      setData((previous) => ({ ...previous,
+        balanceSnapshots: mergeSnapshotMonths(previous.balanceSnapshots ?? [], history.snapshots),
+        snapshotStatus: history.status && (!previous.snapshotStatus || history.status.attemptedAt >= previous.snapshotStatus.attemptedAt) ? history.status : previous.snapshotStatus,
+      }))
+    }
+    void refresh()
+    const onFocus = () => { void refresh() }
+    window.addEventListener('focus', onFocus)
+    const timer = window.setInterval(onFocus, 5 * 60_000)
+    return () => { cancelled = true; window.removeEventListener('focus', onFocus); window.clearInterval(timer) }
+  }, [data.source])
 
   useEffect(() => {
     if (!sharedReady || data.source === 'sample') return
@@ -582,6 +603,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         syncChanges.csvConflicts = csvConflicts
         syncChanges.csvConflictDetails = csvConflictDetails
         d.source = source
+        if (source === 'live') {
+          d.balanceSnapshots = mergeSnapshotMonths(d.balanceSnapshots ?? [], result.balanceSnapshots ?? [])
+          if (result.snapshotStatus && (!d.snapshotStatus || result.snapshotStatus.attemptedAt >= d.snapshotStatus.attemptedAt)) d.snapshotStatus = result.snapshotStatus
+        }
         if (mode === 'replace') {
           d.accounts = result.accounts
           d.positions = nextPositions

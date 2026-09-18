@@ -5,6 +5,8 @@ import { getStore } from '@netlify/blobs'
 import { classifySchwabTransaction } from '../../../src/lib/transaction-classification'
 import { resolveDividendSymbols } from '../../../src/lib/dividend-symbol'
 import { populateRealizedProfitLoss } from '../../../src/lib/realized-pl'
+import { brokerageDate, createBalanceSnapshot } from '../../../src/lib/balance-snapshots'
+import type { BalanceSnapshot, Transaction } from '../../../src/lib/types'
 
 const TOKEN_URL = 'https://api.schwabapi.com/v1/oauth/token'
 const AUTH_URL = 'https://api.schwabapi.com/v1/oauth/authorize'
@@ -131,12 +133,54 @@ export async function accessToken(): Promise<string> {
   return t.access_token
 }
 
-async function api(path: string, token: string): Promise<any> {
+async function api(path: string, token: string, signal?: AbortSignal): Promise<any> {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    signal,
   })
   if (!res.ok) throw new Error(`Schwab API ${path} failed (${res.status}): ${await res.text()}`)
   return res.json()
+}
+
+// A bounded balance capture for the nightly schedule: no quotes, positions, or
+// reconstructed price history. Keep monthly flows with the balance so results
+// remain available after Schwab's transaction-history window rolls forward.
+export async function fetchBalanceSnapshots(token: string, source: BalanceSnapshot['source']): Promise<BalanceSnapshot[]> {
+  const signal = AbortSignal.timeout(20_000)
+  const capturedAt = new Date().toISOString()
+  const date = brokerageDate(capturedAt)
+  const [raw, hashes] = await Promise.all([
+    api('/accounts', token, signal), api('/accounts/accountNumbers', token, signal),
+  ])
+  const masks = new Set<string>()
+  const snapshots = await Promise.all((raw as any[]).map(async (entry) => {
+    const account = entry.securitiesAccount ?? entry
+    const accountNumber = String(account.accountNumber ?? '')
+    const mask = accountNumber.replace(/\D/g, '').slice(-4)
+    if (!mask || masks.has(mask)) throw new Error('AMBIGUOUS_SNAPSHOT_ACCOUNT')
+    masks.add(mask)
+    const id = `acc_${mask}`
+    const balances = account.currentBalances ?? {}
+    const hash = (hashes as any[]).find((row) => String(row.accountNumber) === accountNumber)?.hashValue
+    let transactionsAvailable = false
+    let transactions: ReturnType<typeof mapTxn>[] = []
+    if (hash) {
+      const params = new URLSearchParams({ startDate: `${date.slice(0, 7)}-01T00:00:00Z`, endDate: capturedAt })
+      try {
+        const rows = await api(`/accounts/${hash}/transactions?${params}`, token, signal)
+        if (Array.isArray(rows)) { transactions = rows.map((row) => mapTxn(id, row)); transactionsAvailable = true }
+      } catch { /* Preserve balances; explicitly mark transaction coverage missing. */ }
+    }
+    const finite = (value: unknown) => value == null || value === '' ? NaN : Number(value)
+    return createBalanceSnapshot({ id, mask,
+      equity: finite(balances.liquidationValue ?? balances.equity),
+      marginBalance: balances.marginBalance == null && account.type !== 'MARGIN' ? 0 : finite(balances.marginBalance),
+      cash: finite(balances.cashBalance),
+    }, transactions, capturedAt, source, transactionsAvailable)
+  }))
+  // Never silently present incomplete account coverage as a successful capture.
+  if (snapshots.some((row) => !row) || !snapshots.length) throw new Error('INCOMPLETE_SNAPSHOT_BALANCES')
+  return snapshots as BalanceSnapshot[]
 }
 
 // Resolve the app's stable account id (acc_ followed by the last four digits)
@@ -602,7 +646,7 @@ export async function fetchPortfolio(token: string) {
 }
 
 // Map a Schwab transaction to the app's model.
-function mapTxn(accountId: string, t: any) {
+function mapTxn(accountId: string, t: any): Transaction {
   const rawType = String(t.type ?? '').toUpperCase()
   const items: any[] = t.transferItems ?? []
   // Prefer the real security leg; Schwab puts the cash leg (CURRENCY_USD) in the

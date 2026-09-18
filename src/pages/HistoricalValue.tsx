@@ -15,6 +15,7 @@ import { computeTwr, flowsByDate, seriesForScope, sliceFrom, coveredSeries } fro
 import { portfolioSummary } from '../lib/calc'
 import type { TwrPoint } from '../lib/types'
 import { StatementHistory } from '../components/StatementHistory'
+import { SnapshotStatusBar } from '../components/BalanceOverview'
 import { statementHistory } from '../lib/statement-history'
 import { IncomePerformance } from '../components/IncomePerformance'
 import { KpiCard, PageHeader } from '../components/ui'
@@ -65,7 +66,7 @@ export default function HistoricalValue() {
   const { data } = useStore()
   const { scope, transactions, positions, accounts } = useScoped()
   const [showDaily, setShowDaily] = useState(false)
-  const history = useMemo(() => statementHistory(data.historicalBalances ?? [], accounts, scope), [data.historicalBalances, accounts, scope])
+  const history = useMemo(() => statementHistory(data.historicalBalances ?? [], accounts, scope, data.balanceSnapshots), [data.historicalBalances, data.balanceSnapshots, accounts, scope])
   const [range, setRange] = useState<Range>('1Y')
   const statementRows = !history.length ? history : history.filter((row) => row.month >= statementStartForRange(history.at(-1)!.month, range))
   const fullSeries = useMemo(() => coveredSeries(seriesForScope(data.twr, scope), transactions), [data.twr, scope, transactions])
@@ -112,6 +113,7 @@ export default function HistoricalValue() {
   return (
     <div>
       <PageHeader title="Historical Value" subtitle={`Portfolio value and investment performance across ${accountName}.${data.source === 'sample' ? ' Currently showing sample data.' : ''}`} />
+      <SnapshotStatusBar snapshots={data.balanceSnapshots ?? []} status={data.snapshotStatus}/>
 
       <div className="mb-4 flex overflow-x-auto rounded-xl border border-border bg-surface p-1 sm:w-fit">
         {RANGES.map((item) => (
@@ -121,7 +123,7 @@ export default function HistoricalValue() {
         ))}
       </div>
 
-      {history.length > 0 && <div className="mb-4 flex gap-2">{([{ daily: false, label: 'Imported statements' }, { daily: true, label: 'Daily estimates' }]).map(({ daily, label }) => <button key={label} type="button" aria-pressed={showDaily === daily} onClick={() => setShowDaily(daily)} className={clsx('rounded-lg border border-border px-3 py-2 text-sm', showDaily === daily ? 'bg-surface-2 text-ink' : 'text-muted')}>{label}</button>)}</div>}
+      {history.length > 0 && <div className="mb-5 flex gap-5 border-b border-white/[.06]">{([{ daily: false, label: 'Recorded balances' }, { daily: true, label: 'Daily estimates' }]).map(({ daily, label }) => <button key={label} type="button" aria-pressed={showDaily === daily} onClick={() => setShowDaily(daily)} className={clsx('border-b-2 px-1 pb-3 text-xs transition-colors', showDaily === daily ? 'border-[#c7a96b] text-[#e1c887]' : 'border-transparent text-muted hover:text-ink')}>{label}</button>)}</div>}
       {history.length > 0 && !showDaily ? <StatementHistory rows={statementRows}/> : !stats ? (
         <div className="card grid min-h-[360px] place-items-center p-8 text-center">
           <div>

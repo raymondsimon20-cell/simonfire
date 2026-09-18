@@ -153,6 +153,8 @@ export interface AppData {
   freshnessThresholds?: { positions: number; transactions: number; realizedPl: number }
   savedTransactionViews?: { name: string; type: string; symbol: string; from: string; to: string; review: string }[]
   historicalBalances?: HistoricalBalance[]
+  balanceSnapshots?: MonthlyBalanceSnapshot[]
+  snapshotStatus?: SnapshotStatus
 }
 
 export interface HistoricalBalance {
@@ -167,9 +169,46 @@ export interface HistoricalBalance {
   expenses: number
   closingEquity: number
   marginLoanBalance?: number
-  source: 'Schwab statement' | 'CSV'
+  source: 'Schwab statement' | 'CSV' | 'Automatic snapshot'
   fileName: string
   importedAt: string
+  asOf?: string
+  monthEnd?: boolean
+  flowsAvailable?: boolean
+  coverageNote?: string
+}
+
+export interface SnapshotFlows {
+  deposits: number
+  withdrawals: number
+  dividendsInterest: number
+  expenses: number
+  available: boolean
+  reviewRequired: boolean
+}
+
+export interface BalanceSnapshot {
+  accountMask: string
+  capturedAt: string
+  date: string // Brokerage calendar date in America/New_York.
+  equity: number
+  marginDebt: number
+  cash: number
+  monthEnd: boolean // Captured after regular market close on the calendar month's last day.
+  source: 'sync' | 'scheduled'
+  flows: SnapshotFlows
+}
+
+export interface MonthlyBalanceSnapshot {
+  accountMask: string
+  month: string
+  first: BalanceSnapshot
+  latest: BalanceSnapshot
+}
+
+export interface SnapshotStatus {
+  attemptedAt: string
+  state: 'ok' | 'partial' | 'reconnect' | 'error'
 }
 
 export interface ImportHistoryEntry {

@@ -122,8 +122,16 @@ export function computeTwr(series: TwrPoint[], flows: Map<string, number>): TwrR
 // Resolve the value series for the active scope ('all' or an account id).
 export function seriesForScope(twr: TwrSeries | undefined, scope: string): TwrPoint[] {
   if (!twr) return []
-  if (scope === 'all') return twr.all
-  return twr.byAccount[scope] ?? []
+  const series = scope === 'all' ? twr.all : twr.byAccount[scope] ?? []
+  const latest = series.reduce((date, point) => point.date > date ? point.date : date, '')
+  // Legacy syncs copied today's debt into every historical date. Only today's
+  // equity is observed; do not present the older synthetic values as balances.
+  return series.map((point) => ({ ...point, equity: point.date === latest ? point.equity : undefined }))
+}
+
+export function coveredSeries(series: TwrPoint[], transactions: Transaction[]): TwrPoint[] {
+  const first = transactions.reduce((date, t) => !date || t.date < date ? t.date : date, '')
+  return first ? series.filter((point) => point.date >= first) : []
 }
 
 // Narrow a value series to a window starting at `cutoff`, keeping the last point
@@ -146,9 +154,9 @@ export function twrForScope(
   txns: Transaction[],
   fromDate = '',
 ): TwrResult {
+  const scoped = scope === 'all' ? txns : txns.filter((t) => t.accountId === scope)
   const series = sliceFrom(seriesForScope(twr, scope), fromDate)
   if (series.length < 2) return EMPTY
-  const scoped = scope === 'all' ? txns : txns.filter((t) => t.accountId === scope)
   return computeTwr(series, flowsByDate(scoped))
 }
 

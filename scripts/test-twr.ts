@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { computeTwr, flowsByDate, sliceFrom, twrForScope } from '../src/lib/twr'
+import { computeTwr, flowsByDate, sliceFrom, twrForScope, coveredSeries, seriesForScope } from '../src/lib/twr'
 import type { Transaction, TwrPoint, TwrSeries, TxnType } from '../src/lib/types'
 
 const point = (date: string, value: number): TwrPoint => ({ date, value })
@@ -120,3 +120,11 @@ assert.equal(clean.days, 59)
 assert.ok(clean.annualizedPct > clean.twrPct) // under a year, so it scales up
 
 console.log('twr tests passed')
+
+// Old reconstructed data must not invent observations before activity began or
+// turn current debt into historical equity balances.
+const legacy = { all: [{ date: '2026-01-01', value: 100, equity: -900 }, { date: '2026-02-01', value: 200, equity: -800 }], byAccount: {}, generatedAt: '' }
+const cleaned = seriesForScope(legacy, 'all')
+assert.equal(cleaned[0].equity, undefined)
+assert.equal(cleaned[1].equity, -800)
+assert.equal(coveredSeries(cleaned, [{ id: 'first', accountId: 'a', date: '2026-02-01', type: 'Contribution', amount: 100, units: 0, description: '', tags: [] }]).length, 1)

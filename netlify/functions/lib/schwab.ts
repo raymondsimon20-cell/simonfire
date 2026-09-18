@@ -293,10 +293,10 @@ async function buildTwrSeries(
     if ((t.type === 'Buy' || t.type === 'Sell') && t.symbol && !isOptionSymbol(t.symbol))
       equitySyms.add(t.symbol)
 
-  const syms = [...equitySyms].slice(0, 80)
+  const syms = [...equitySyms]
   const closeBySym = new Map<string, Map<string, number>>()
-  await Promise.all(
-    syms.map(async (s) => {
+  for (let batch = 0; batch < syms.length; batch += 8) await Promise.all(
+    syms.slice(batch, batch + 8).map(async (s) => {
       closeBySym.set(s, await fetchDailyCloses(s, token, start.getTime(), end.getTime()))
     }),
   )
@@ -327,8 +327,8 @@ async function buildTwrSeries(
   for (const t of transactions) if (t.date >= startISO && t.date <= todayISO) dateSet.add(t.date)
   const dates = [...dateSet].sort()
 
-  const byAccount: Record<string, { date: string; value: number; equity: number }[]> = {}
-  const combined = new Map<string, { value: number; equity: number }>()
+  const byAccount: Record<string, { date: string; value: number; equity?: number }[]> = {}
+  const combined = new Map<string, { value: number; equity?: number; count: number }>()
 
   for (const acc of accounts) {
     const accTxns = transactions
@@ -353,6 +353,7 @@ async function buildTwrSeries(
 
     const rawSeries: { date: string; value: number }[] = []
     for (const d of dates) {
+      if (!accTxns.length || d < accTxns[0].date) continue
       // Cash and post-date share movements reconstructed from txns after day d.
       let cashAfter = 0
       const unitsAfter = new Map<string, number>()
@@ -364,30 +365,36 @@ async function buildTwrSeries(
       }
       const cashD = cashNow - cashAfter
       let secD = 0
+      let completePrices = true
       const isToday = d === todayISO
       for (const sym of symUniverse) {
         const sh = (sharesNow.get(sym) ?? 0) - (unitsAfter.get(sym) ?? 0)
         if (Math.abs(sh) < 1e-9) continue
         const px = isToday ? (lastPx.get(sym) ?? closeAsOf(sym, d)) : closeAsOf(sym, d)
-        secD += sh * (px ?? 0)
+        if (px == null || !Number.isFinite(px)) { completePrices = false; break }
+        secD += sh * px
       }
+      if (!completePrices) continue
       const value = cashD + secD
       rawSeries.push({ date: d, value })
     }
     const endingValue = rawSeries.at(-1)?.value ?? 0
     const endingEquity = typeof acc.equity === 'number' ? acc.equity : endingValue - (acc.marginBalance || 0)
-    const debtAnchor = endingValue - endingEquity
-    const series = rawSeries.map(({ date, value }) => ({ date, value, equity: value - debtAnchor }))
+    const series = rawSeries.map(({ date, value }) => ({ date, value, equity: date === todayISO ? endingEquity : undefined }))
     for (const point of series) {
-      const total = combined.get(point.date) ?? { value: 0, equity: 0 }
+      const total = combined.get(point.date) ?? { value: 0, equity: point.date === todayISO ? 0 : undefined, count: 0 }
       total.value += point.value
-      total.equity += point.equity
+      total.count++
+      if (point.equity != null) total.equity = (total.equity ?? 0) + point.equity
       combined.set(point.date, total)
     }
     byAccount[acc.id] = series
   }
 
-  const all = dates.map((d) => ({ date: d, ...(combined.get(d) ?? { value: 0, equity: 0 }) }))
+  const all = dates.flatMap((date) => {
+    const point = combined.get(date)
+    return point?.count === accounts.length ? [{ date, value: point.value, equity: point.equity }] : []
+  })
   const twr = {
     byAccount,
     all,
@@ -395,7 +402,7 @@ async function buildTwrSeries(
     note:
       'Time-weighted return covers your equity/ETF holdings, their dividends, and cash. ' +
       'Option premium is neutralised (historical option prices are unavailable), so option P/L is not marked to market here. ' +
-      'Current equity is broker reported; earlier equity uses the current margin-debt anchor because Schwab does not provide historical margin balances.',
+      'Current equity is broker reported. Historical net equity is unavailable without historical debt balances. Dates before available transactions or with missing security prices are omitted.',
   }
 
   // ---- Moving-average insights for current holdings (reuse fetched closes) ----
@@ -449,7 +456,7 @@ export async function fetchPortfolio(token: string) {
     const number = String(sa.accountNumber ?? '')
     const isMargin = String(sa.type ?? '').toUpperCase() === 'MARGIN'
     const bal = sa.currentBalances ?? {}
-    const cash = num(bal.cashBalance ?? bal.availableFunds)
+    const cash = num(bal.cashBalance)
     // Schwab balance payloads have represented margin debt with either sign
     // depending on the account/balance view. The domain model always stores
     // outstanding debt as a positive magnitude so current usage is never
@@ -458,7 +465,8 @@ export async function fetchPortfolio(token: string) {
     const mask = number.replace(/\D/g, '').slice(-4)
     const accId = 'acc_' + (mask || Math.random().toString(36).slice(2, 8))
     // Extra balance fields Schwab reports — power the account-detail KPIs.
-    const equity = num(bal.equity ?? bal.liquidationValue)
+    const equity = bal.liquidationValue == null && bal.equity == null
+      ? undefined : num(bal.liquidationValue ?? bal.equity)
     const buyingPower = num(bal.buyingPower ?? bal.buyingPowerNonMarginableTrade)
     const sma = bal.sma == null ? undefined : Math.max(0, num(bal.sma))
     // Schwab reports "available to withdraw" separately from "available to trade".
@@ -478,7 +486,7 @@ export async function fetchPortfolio(token: string) {
       isMargin,
       cash,
       marginBalance,
-      equity: equity || undefined,
+      equity,
       buyingPower: buyingPower || undefined,
       sma,
       availableFunds: availableFunds || undefined,

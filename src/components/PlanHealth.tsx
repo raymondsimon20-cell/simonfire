@@ -5,7 +5,7 @@ import { bucketStats } from '../lib/buckets'
 import { dividendStats, portfolioSummary } from '../lib/calc'
 import { dateRangeStart } from '../lib/date-range'
 import { pct, posNeg, relTime, usd } from '../lib/format'
-import { twrForScope, seriesForScope, sliceFrom } from '../lib/twr'
+import { computeTwr, flowsByDate, seriesForScope, sliceFrom, coveredSeries } from '../lib/twr'
 import { incomeAndRealizedGains } from '../lib/income-performance'
 import { IncomePerformance } from './IncomePerformance'
 import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
@@ -37,7 +37,7 @@ export function PlanHealth() {
     const afterTaxMonthly = afterTaxAnnual / 12
     const carryingCostsMonthly = observedSpending ? (observedSpending.marginInterest + observedSpending.fees) / observedSpending.months : 0
     const spendableMonthly = afterTaxMonthly - carryingCostsMonthly
-    const stressedMonthly = spendableMonthly * (1 - plan.distributionCutPct / 100)
+    const stressedMonthly = afterTaxMonthly * (1 - plan.distributionCutPct / 100) - carryingCostsMonthly
     const w2Coverage = plan.annualW2Target > 0 ? spendableMonthly * 12 / plan.annualW2Target : null
     const spendingCoverage = plan.monthlySpending > 0 ? spendableMonthly / plan.monthlySpending : null
     const cashRunway = plan.monthlySpending > 0 ? Math.max(0, summary.availableCash) / plan.monthlySpending : null
@@ -61,7 +61,8 @@ export function PlanHealth() {
     if (missingPl) actions.push({ tone: 'warn', title: `Complete P/L for ${missingPl} sale${missingPl === 1 ? '' : 's'}`, detail: 'No usable purchase cost was available for these sales.', to: '/transactions' })
     if (summary.equityPct * 100 < plan.marginEquityAlertPct) actions.push({ tone: 'danger', title: `Margin equity is below ${pct(plan.marginEquityAlertPct)}`, detail: `${pct(summary.equityPct * 100)} of gross assets are owned after margin debt.`, to: '/allocation' })
     if (concentration * 100 > plan.concentrationAlertPct) actions.push({ tone: 'warn', title: `Review ${largest.symbol} concentration`, detail: `${pct(concentration * 100)} of gross portfolio value is in one position.`, to: '/positions' })
-    if (spendingCoverage != null && spendingCoverage * 100 < plan.incomeCoverageAlertPct) actions.push({ tone: 'warn', title: 'Income coverage is below your alert level', detail: `${pct(spendingCoverage * 100)} coverage versus a ${pct(plan.incomeCoverageAlertPct)} alert threshold.`, to: '#plan-settings' })
+    // During accumulation, income coverage is progress toward independence,
+    // not an immediate failure condition while wages fund purchases.
     if (highRiskWeight > .5) actions.push({ tone: 'warn', title: 'Review income concentration', detail: `${pct(highRiskWeight * 100)} is classified as High Yield or Leveraged.`, to: '/allocation' })
     if (pendingRolls) actions.push({ tone: 'warn', title: `Review ${pendingRolls} protective-put item${pendingRolls === 1 ? '' : 's'}`, detail: 'Confirm current order status and the next required roll step.', to: '/allocation' })
     if (!actions.length) actions.push({ tone: 'good', title: 'No immediate data issues', detail: 'Your plan inputs and portfolio records pass the current checks.', to: '/month-close' })
@@ -75,7 +76,7 @@ export function PlanHealth() {
   // history does not reach back that far.
   const performance = useMemo(() => {
     const cutoff = dateRangeStart(dateRange, localToday())
-    const result = twrForScope(data.twr, scope, transactions, cutoff)
+    const result = computeTwr(sliceFrom(coveredSeries(seriesForScope(data.twr, scope), transactions), cutoff), flowsByDate(transactions))
     const label = !result.ok
       ? ''
       : dateRange === 'all' || result.startDate > cutoff
@@ -86,7 +87,7 @@ export function PlanHealth() {
     return { ...result, label }
   }, [data.twr, dateRange, scope, transactions])
 
-  const performancePoints = useMemo(() => sliceFrom(seriesForScope(data.twr, scope), dateRangeStart(dateRange, localToday())), [data.twr, scope, dateRange])
+  const performancePoints = useMemo(() => sliceFrom(coveredSeries(seriesForScope(data.twr, scope), transactions), dateRangeStart(dateRange, localToday())), [data.twr, scope, dateRange, transactions])
   const earnings = useMemo(() => incomeAndRealizedGains(transactions, dateRangeStart(dateRange, localToday()), localToday()), [transactions, dateRange])
 
   const configured = plan.annualW2Target > 0 && plan.monthlySpending > 0
@@ -131,7 +132,8 @@ export function PlanHealth() {
         {earnings.missingPl > 0 && <p className="mt-2 text-xs text-[#f0a94a]">Partial result: {earnings.missingPl} closing sale(s) lack realized P/L. <Link to="/transactions" className="underline">Review transactions</Link>.</p>}
       </div>
       <IncomePerformance points={performancePoints} transactions={transactions} sample={data.source === 'sample'} />
-      <p className="mt-5 text-sm text-muted">Forward income plan · {headline}</p>
+      <p className="mt-5 text-sm text-muted">Income independence progress · {headline}</p>
+      <p className="mt-2 text-xs leading-5 text-muted">Accumulation plan: invest W-2 income while funding bills through margin. Track net equity and debt relative to assets as you build toward income independence over 5–10 years. Spending coverage measures progress toward that goal; it is not a requirement for the accumulation phase. Historical equity growth requires recorded balances.</p>
       {editing && <PlanInputs plan={plan} observedSpending={model.observedSpending} onChange={setIncomePlan}/>}
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <HealthMetric active={audit === 'income'} onClick={() => setAudit(audit === 'income' ? null : 'income')} icon={<CircleDollarSign size={17}/>} label="Spendable income" value={`${usd(model.spendableMonthly)}/mo`} source="Estimated" note="After tax, margin interest, and fees" tone="green"/>
@@ -198,7 +200,7 @@ function MetricAudit({ kind, plan, model, accounts, transactions, exclusions }: 
     w2: { title: 'W-2 replacement calculation', formula: plan.annualW2Target ? `${usd(model.spendableMonthly * 12)} spendable annual income ÷ ${usd(plan.annualW2Target)} W-2 target = ${pct((model.w2Coverage ?? 0) * 100)}` : 'Set an annual W-2 target to calculate this percentage.', note: 'Spendable income subtracts estimated tax, margin interest, and portfolio fees.' },
     spending: { title: 'Spending coverage calculation', formula: plan.monthlySpending ? `${usd(model.spendableMonthly)} spendable income ÷ ${usd(plan.monthlySpending)} monthly spending = ${pct((model.spendingCoverage ?? 0) * 100)}` : 'Set monthly spending manually or use the observed portfolio average.', note: model.observedSpending ? `Observed average: ${usd(model.observedSpending.monthlyAverage)}/month across ${model.observedSpending.months} complete months.` : 'There is not yet a complete month of eligible outflow history.' },
     cash: { title: 'Cash runway calculation', formula: plan.monthlySpending ? `${usd(model.summary.availableCash)} available cash ÷ ${usd(plan.monthlySpending)} monthly spending = ${(model.cashRunway ?? 0).toFixed(1)} months` : 'Set monthly spending to calculate cash runway.', note: 'Available cash is reported at the account level and may include unsettled cash.' },
-    stress: { title: 'Distribution-cut stress test', formula: `${usd(model.spendableMonthly)} spendable monthly income × ${(1 - plan.distributionCutPct / 100).toFixed(2)} remaining after cut = ${usd(model.stressedMonthly)}/month`, note: 'This is a simple income shock. It does not model price declines, distribution timing, or tax changes.' },
+    stress: { title: 'Distribution-cut stress test', formula: `${usd(model.dividends.estAnnual * (1 - plan.estimatedTaxRate / 100) / 12)} after-tax monthly distributions × ${(1 - plan.distributionCutPct / 100).toFixed(2)} remaining after cut − ${usd(model.carryingCostsMonthly)} unchanged margin interest and fees = ${usd(model.stressedMonthly)}/month`, note: 'This is a simple income shock. It does not model price declines, distribution timing, or tax changes.' },
   }[kind]
   const dividendRows = transactions.filter((transaction) => transaction.type === 'Dividend').slice(0, 5)
   const spendingRows = transactions.filter((transaction) => transaction.amount < 0 && ['Withdrawal', 'Bill Payment', 'Interest', 'Fee'].includes(transaction.type) && !exclusions.includes(spendingExclusionKey(transaction))).slice(0, 5)

@@ -155,8 +155,15 @@ export function portfolioSummary(
   // it reflects what the investments earned rather than a raw cost-basis delta.
   const ret = investmentReturn(positions, transactions, value).investmentChange
 
-  const gross = value + availableCash
-  const net = gross - marginUsed
+  // Broker equity is authoritative; holdings can have different price timestamps
+  // or omit balance adjustments. Fall back per account for imported datasets.
+  const net = scopedAccounts.reduce((sum, account) => {
+    const holdings = positions.filter((p) => p.accountId === account.id)
+      .reduce((n, p) => n + p.shares * p.lastPrice, 0)
+    return sum + (account.equity != null && Number.isFinite(account.equity)
+      ? account.equity : holdings + account.cash - account.marginBalance)
+  }, 0)
+  const gross = net + marginUsed
   const symbols = new Set(positions.map((p) => p.symbol))
   const prevValue = value - day
 
@@ -539,6 +546,8 @@ export function dividendStats(
 
 // ---------- Month close ----------
 export interface MonthClose {
+  historyAvailable: boolean
+  currentBalance: boolean
   ym: string
   opening: number
   closing: number
@@ -562,14 +571,6 @@ export function bridgeTransactions(transactions: Transaction[], ym: string, step
   }).sort((a, b) => b.transaction.date.localeCompare(a.transaction.date))
 }
 
-// Deterministic pseudo market move for a month (few % of equity).
-function marketMove(ym: string, equity: number) {
-  let h = 0
-  for (let i = 0; i < ym.length; i++) h = (h * 31 + ym.charCodeAt(i)) >>> 0
-  const f = ((h % 1000) / 1000 - 0.42) * 0.05 // -2.1%..+2.9%
-  return +(equity * f).toFixed(2)
-}
-
 export function availableMonths(txns: Transaction[]): string[] {
   const s = new Set(txns.map((t) => t.date.slice(0, 7)))
   return [...s].sort().reverse()
@@ -582,7 +583,6 @@ export function monthClose(
   ym: string,
   currentSummary: PortfolioSummary,
 ): MonthClose {
-  const monthsSorted = availableMonths(txns).slice().reverse() // ascending
   const flowsOf = (m: string) => {
     const t = txns.filter((x) => x.date.slice(0, 7) === m)
     const contributions = t
@@ -596,29 +596,17 @@ export function monthClose(
     return { contributions, netOperating: cf.netOperating, realized, realizedEstimated }
   }
 
-  // Build equity series backward from the current net equity.
-  const closingByMonth = new Map<string, number>()
-  const openingByMonth = new Map<string, number>()
-  const marketByMonth = new Map<string, number>()
-  let closing = currentSummary.net
-  for (let i = monthsSorted.length - 1; i >= 0; i--) {
-    const m = monthsSorted[i]
-    const f = flowsOf(m)
-    const mkt = marketMove(m, closing)
-    const opening = closing - f.contributions - f.netOperating - f.realized - mkt
-    closingByMonth.set(m, closing)
-    openingByMonth.set(m, opening)
-    marketByMonth.set(m, mkt)
-    closing = opening
-  }
-
+  // Transactions alone cannot establish past net equity or market movement.
+  // Never fabricate an opening balance from today's debt or a pseudo return.
   const f = flowsOf(ym)
-  const opening = openingByMonth.get(ym) ?? currentSummary.net
-  const closingVal = closingByMonth.get(ym) ?? currentSummary.net
-  const mkt = marketByMonth.get(ym) ?? 0
-  const netChange = closingVal - opening
+  const today = new Date()
+  const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  const isCurrent = ym === currentMonth
+  const opening = 0
+  const closingVal = isCurrent ? currentSummary.net : 0
+  const mkt = 0
+  const netChange = 0
 
-  const isCurrent = ym === monthsSorted[monthsSorted.length - 1]
   const liabilities = scope === 'all' || accounts.find((a) => a.id === scope)?.isMargin
     ? accounts
         .filter((a) => scope === 'all' || a.id === scope)
@@ -628,6 +616,8 @@ export function monthClose(
   const assets = isCurrent ? currentSummary.gross : closingVal + liabilities
 
   return {
+    historyAvailable: false,
+    currentBalance: isCurrent,
     ym,
     opening,
     closing: closingVal,

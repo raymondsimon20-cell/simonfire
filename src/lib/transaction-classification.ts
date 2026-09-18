@@ -61,6 +61,11 @@ export function classifySchwabTransaction({
     /\bTRF FUNDS\b|\bTRANSFER OF FUNDS\b|\bJOURNAL/.test(desc) && /\bTYPE ?[12]\b/.test(desc)
   if (internalTransfer) return 'Transfer'
 
+  // Transfers between brokerage and a bank cross the portfolio boundary.
+  // Cash/margin sub-account journals above remain internal.
+  if (/\bTRANSFER FUNDS (?:TO|FROM) SCHWAB BANK\b/.test(desc))
+    return amount < 0 ? 'Withdrawal' : 'Contribution'
+
   if (raw === 'TRADE' || /\b(?:BOUGHT|BUY|PURCHASED|REINVEST SHARES)\b/.test(raw))
     return units < 0 || /\bSELL|SOLD\b/.test(raw) ? 'Sell' : 'Buy'
   if (/\bSELL|SOLD\b/.test(raw)) return 'Sell'

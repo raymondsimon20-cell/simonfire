@@ -23,3 +23,14 @@ assert.deepEqual(bridgeTransactions(transactions, close.ym, 3).map((r) => r.tran
 assert.deepEqual(bridgeTransactions(transactions, close.ym, 4), [])
 assert.deepEqual(bridgeTransactions([], close.ym, 2), [])
 console.log('equity bridge tests passed')
+
+// Broker balances, including zero, override independently priced holdings.
+const account = { id: 'a', broker: 'Schwab', name: 'A', fullName: 'A', mask: '1', type: 'Margin' as const, isMargin: true, cash: 0, marginBalance: 69886.43, equity: 72240.03 }
+const position = { id: 'p', accountId: 'a', symbol: 'TEST', name: 'Test', shares: 1, avgCost: 100000, lastPrice: 143971.46, prevClose: 143000, dividendsReceived: 0 }
+const reported = portfolioSummary([position], [account], 'all', [])
+assert.equal(reported.net, 72240.03)
+assert.equal(reported.gross, 142126.46)
+assert.equal(portfolioSummary([position], [{ ...account, equity: 0 }], 'all', []).net, 0)
+assert.equal(portfolioSummary([position], [{ ...account, equity: undefined }], 'all', []).net, 74085.03)
+assert.equal(close.historyAvailable, false)
+assert.equal(close.marketOther, 0) // no pseudo market result

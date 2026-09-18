@@ -248,8 +248,8 @@ export interface Insights {
 export interface TwrPoint {
   date: string // ISO yyyy-mm-dd
   value: number // portfolio value (securities MV + cash) at close
-  // Net account equity after margin debt. Current-day equity is broker reported;
-  // earlier values are reconstructed because Schwab does not expose debt history.
+  // Net account equity after margin debt. Only present for a reported balance;
+  // historical debt is not inferred from the current margin balance.
   equity?: number
 }
 

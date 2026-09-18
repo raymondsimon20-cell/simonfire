@@ -52,18 +52,18 @@ export default function MonthClose() {
       />
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <KpiCard label="Closing Equity" value={usd(mc.closing)} icon={<Wallet size={20} />} tile="blue" />
+        <KpiCard label="Current Equity" value={mc.currentBalance ? usd(mc.closing) : '—'} icon={<Wallet size={20} />} tile="blue" />
         <KpiCard
           label="Net Change"
-          value={usd(mc.netChange, { sign: true })}
+          value={mc.historyAvailable ? usd(mc.netChange, { sign: true }) : '—'}
           valueClass={mc.netChange >= 0 ? 'text-pos' : 'text-neg'}
           icon={<TrendingUp size={20} />}
           tile="green"
         />
-        <KpiCard label="Equity %" value={pct(mc.equityPct * 100)} icon={<Percent size={20} />} tile="orange" />
+        <KpiCard label="Equity %" value={mc.currentBalance ? pct(mc.equityPct * 100) : '—'} icon={<Percent size={20} />} tile="orange" />
         <KpiCard
           label="Market & Other"
-          value={usd(mc.marketOther, { sign: true })}
+          value={mc.historyAvailable ? usd(mc.marketOther, { sign: true }) : '—'}
           valueClass={mc.marketOther >= 0 ? 'text-pos' : 'text-neg'}
           icon={<LineChart size={20} />}
           tile="teal"
@@ -73,11 +73,11 @@ export default function MonthClose() {
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <div className="mb-4 text-lg font-semibold">Balance Sheet</div>
-          <Row label="Assets" value={usd(mc.assets)} valueClass="text-pos" />
-          <Row label="Liabilities (Margin)" value={`(${usd(mc.liabilities)})`} valueClass="text-neg" />
+          <Row label="Assets" value={mc.currentBalance ? usd(mc.assets) : '—'} valueClass="text-pos" />
+          <Row label="Liabilities (Margin)" value={mc.currentBalance ? `(${usd(mc.liabilities)})` : '—'} valueClass="text-neg" />
           <div className="my-3 h-px bg-border-soft" />
-          <Row label="Net Equity" value={usd(mc.netEquity)} bold />
-          <Row label="Equity %" value={pct(mc.equityPct * 100)} valueClass="text-[#f0a94a]" />
+          <Row label="Net Equity" value={mc.currentBalance ? usd(mc.netEquity) : '—'} bold />
+          <Row label="Equity %" value={mc.currentBalance ? pct(mc.equityPct * 100) : '—'} valueClass="text-[#f0a94a]" />
         </Card>
 
         <Card>

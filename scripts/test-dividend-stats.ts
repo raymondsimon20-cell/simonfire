@@ -149,3 +149,29 @@ assert.equal(reconciled.conflicts, 3)
 assert.deepEqual(reconciled.conflictDetails.map((row) => row.field), ['Average cost', 'Description', 'Realized P/L'])
 
 console.log('dividendStats tests passed')
+
+// Legacy blank masks resolve only when a single account can own the import.
+const blankAuthority = { positions: authority.positions.map(r => ({ ...r, accountMask: '' })), transactions: authority.transactions.map(r => ({ ...r, accountMask: '' })) }
+const blankMatch = reconcileCsvAuthority([existingAccount], [apiPosition], [apiSale], blankAuthority.positions, blankAuthority.transactions)
+assert.equal(blankMatch.transactions.length, 1)
+assert.equal(blankMatch.transactions[0].pl, 100)
+assert.equal(blankMatch.positions[0].avgCost, 91)
+const ambiguousAccounts = reconcileCsvAuthority([existingAccount, { ...existingAccount, id: 'second', mask: '9999' }], [apiPosition], [apiSale], blankAuthority.positions, blankAuthority.transactions)
+assert.equal(ambiguousAccounts.transactions[0].pl, undefined)
+// CSV aggregates two execution fills; importing it must not double the trade.
+const fills = [{ ...apiSale, id: 'fill1', amount: 440, units: -4 }, { ...apiSale, id: 'fill2', amount: 660, units: -6 }]
+const aggregated = reconcileCsvAuthority([existingAccount], [], fills, [], blankAuthority.transactions)
+assert.equal(aggregated.transactions.length, 2)
+assert.equal(aggregated.transactions.reduce((n, t) => n + t.amount, 0), 1100)
+assert.equal(aggregated.transactions.reduce((n, t) => n + (t.pl ?? 0), 0), 100)
+// Missing CSV P/L must not erase a known API estimate or its provenance.
+const noPl = blankAuthority.transactions.map(r => ({ ...r, transaction: { ...r.transaction, pl: undefined } }))
+const retainedPl = reconcileCsvAuthority([existingAccount], [], [{ ...apiSale, pl: 75, plEstimated: true, plSource: 'estimated' }], [], noPl)
+assert.equal(retainedPl.transactions[0].pl, 75)
+assert.equal(retainedPl.transactions[0].plSource, 'estimated')
+// CSV masks use ellipses while API descriptions contain full account numbers.
+const bankApi = txn({ id: 'bank', accountId: existingAccount.id, date: '2026-09-01', type: 'Transfer', amount: -500, description: 'TRANSFER FUNDS TO SCHWAB BANK - 1234142' })
+const bankCsv = { accountMask: '', importedAt: '', transaction: { ...bankApi, description: 'TRANSFER FUNDS TO SCHWAB BANK - ...142' } }
+const bank = reconcileCsvAuthority([existingAccount], [], [bankApi], [], [bankCsv])
+assert.equal(bank.transactions.length, 1)
+assert.equal(bank.transactions[0].type, 'Withdrawal')

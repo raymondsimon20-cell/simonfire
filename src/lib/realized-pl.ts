@@ -14,7 +14,8 @@ export function realizedPlOverrideKey(transaction: Transaction) {
 export function applyRealizedPlOverrides(transactions: Transaction[], overrides: Record<string, number> = {}) {
   for (const transaction of transactions) {
     // CSV accounting records outrank legacy/manual and API-derived overrides.
-    if (transaction.dataSource === 'csv' && transaction.pl != null) continue
+    if (transaction.dataSource === 'csv' && transaction.pl != null &&
+      (transaction.plSource === 'csv' || (!transaction.plSource && !transaction.plEstimated))) continue
     const value = overrides[realizedPlOverrideKey(transaction)]
     if (Number.isFinite(value)) { transaction.pl = value; transaction.plEstimated = false; transaction.plSource = 'manual' }
   }

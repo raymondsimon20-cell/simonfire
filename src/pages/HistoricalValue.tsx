@@ -11,7 +11,8 @@ import {
 import { Activity, ArrowDownRight, ArrowUpRight, Landmark, TrendingUp } from 'lucide-react'
 import clsx from 'clsx'
 import { useScoped, useStore } from '../lib/store'
-import { computeTwr, flowsByDate, seriesForScope, sliceFrom } from '../lib/twr'
+import { computeTwr, flowsByDate, seriesForScope, sliceFrom, coveredSeries } from '../lib/twr'
+import { portfolioSummary } from '../lib/calc'
 import type { TwrPoint } from '../lib/types'
 import { IncomePerformance } from '../components/IncomePerformance'
 import { KpiCard, PageHeader } from '../components/ui'
@@ -43,19 +44,20 @@ function ValueTooltip({ active, payload }: any) {
   return (
     <div className="rounded-xl border border-white/10 bg-[#10151d]/95 px-3.5 py-3 text-xs shadow-2xl backdrop-blur-xl">
       <div className="text-muted">{shortDate(row.date)}</div>
-      <div className="mt-2 flex min-w-40 items-center justify-between gap-5"><span className="text-muted">Portfolio value</span><span className="num font-semibold text-[#d8bd7a]">{usd(row.value)}</span></div>
-      <div className="mt-1 flex items-center justify-between gap-5"><span className="text-muted">Equity value</span><span className="num font-semibold text-[#5aa2ff]">{usd(row.equity ?? row.value)}</span></div>
+      <div className="mt-2 flex min-w-40 items-center justify-between gap-5"><span className="text-muted">Covered value (estimated)</span><span className="num font-semibold text-[#d8bd7a]">{usd(row.value)}</span></div>
+      <div className="mt-1 flex items-center justify-between gap-5"><span className="text-muted">Recorded equity</span><span className="num font-semibold text-[#5aa2ff]">{row.equity == null ? 'Unavailable' : usd(row.equity)}</span></div>
     </div>
   )
 }
 
 export default function HistoricalValue() {
   const { data } = useStore()
-  const { scope, transactions } = useScoped()
+  const { scope, transactions, positions, accounts } = useScoped()
   const [range, setRange] = useState<Range>('1Y')
-  const fullSeries = useMemo(() => seriesForScope(data.twr, scope), [data.twr, scope])
+  const fullSeries = useMemo(() => coveredSeries(seriesForScope(data.twr, scope), transactions), [data.twr, scope, transactions])
   const marginDebt = useMemo(() => data.accounts.filter((account) => scope === 'all' || account.id === scope).reduce((sum, account) => sum + account.marginBalance, 0), [data.accounts, scope])
-  const normalizedSeries = useMemo(() => fullSeries.map((point) => ({ ...point, equity: point.equity ?? point.value - marginDebt })), [fullSeries, marginDebt])
+  const normalizedSeries = fullSeries
+  const summary = useMemo(() => portfolioSummary(positions, accounts, scope, transactions), [positions, accounts, scope, transactions])
 
   const visible = useMemo(() => {
     if (!normalizedSeries.length || range === 'ALL') return normalizedSeries
@@ -116,15 +118,16 @@ export default function HistoricalValue() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-            <KpiCard label="Portfolio value" value={usd(stats.end.value)} sub={`As of ${shortDate(stats.end.date)}`} icon={<Landmark size={20} />} tile="green" />
-            <KpiCard label="Equity value" value={usd(stats.end.equity ?? stats.end.value)} sub={marginDebt ? `${usd(marginDebt)} margin debt` : 'No margin debt'} icon={<Activity size={20} />} tile="blue" />
+            <KpiCard label="Covered value · estimated" value={usd(stats.end.value)} sub={`As of ${shortDate(stats.end.date)}`} icon={<Landmark size={20} />} tile="green" />
+            <KpiCard label="Current net equity" value={usd(summary.net)} sub={marginDebt ? `${usd(marginDebt)} margin debt` : 'No margin debt'} icon={<Activity size={20} />} tile="blue" />
             <KpiCard label="Value change" value={usd(stats.change, { sign: true })} sub={pct(stats.changePct * 100, { sign: true }) + ' including cash flows'} valueClass={posNeg(stats.change)} icon={stats.change >= 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />} tile={stats.change >= 0 ? 'green' : 'red'} />
-            <KpiCard label="Estimated time-weighted return" value={performance.ok ? pct(performance.twrPct * 100, { sign: true }) : '—'} sub={performance.ok ? `${usd(performance.gainUsd, { sign: true, cents: false })} gain · ${pct(performance.annualizedPct * 100, { sign: true })} annualized` : 'Not enough history'} valueClass={performance.ok ? posNeg(performance.twrPct) : 'text-faint'} icon={<TrendingUp size={20} />} tile="purple" info="Investment performance with contributions and withdrawals removed. The gain is what the investments earned over this window — ending value less starting value less net contributions — which is why it differs from the flow-inclusive Value change, and is not the percentage times the starting value." />
+            <KpiCard label="Estimated time-weighted return" value={performance.ok ? pct(performance.twrPct * 100, { sign: true }) : '—'} sub={performance.ok ? `${usd(performance.gainUsd, { sign: true, cents: false })} covered gain · ${pct(performance.annualizedPct * 100, { sign: true })} annualized` : 'Not enough history'} valueClass={performance.ok ? posNeg(performance.twrPct) : 'text-faint'} icon={<TrendingUp size={20} />} tile="purple" info="Estimated performance of covered stock/ETF and cash history with external flows removed. Excludes historical option valuations and does not establish full-account net-equity performance. The dollar result is ending covered value less starting covered value and adjusted net flows, not the percentage times starting value." />
           </div>
 
+          <p className="mt-4 text-xs text-muted">Historical values cover stock/ETF holdings and reconstructed cash. Historical margin debt and option valuations are unavailable, so full-account net-equity growth cannot be measured from this chart. Current net equity uses the latest account balance.</p>
           <IncomePerformance points={visible} transactions={transactions} sample={data.source === 'sample'} />
 
-          <div className="card mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 text-xs text-muted"><span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-[#d8bd7a]" /> Portfolio value</span><span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-[#5aa2ff]" /> Equity value</span><span className="ml-auto">Net contributions <span className={clsx('num ml-1 font-medium', posNeg(stats.flow))}>{usd(stats.flow, { sign: true })}</span> · Max drawdown <span className="num ml-1 text-neg">{pct(stats.maxDrawdown * 100)}</span></span></div>
+          <div className="card mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 text-xs text-muted"><span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-[#d8bd7a]" /> Covered value (estimated)</span><span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-[#5aa2ff]" /> Recorded equity</span><span className="ml-auto">Net flows including excluded option cash <span className={clsx('num ml-1 font-medium', posNeg(stats.flow))}>{usd(stats.flow, { sign: true })}</span> · Value drawdown (includes flows) <span className="num ml-1 text-neg">{pct(stats.maxDrawdown * 100)}</span></span></div>
 
           <section className="card mt-4 overflow-hidden p-0">
             <div className="flex flex-wrap items-end justify-between gap-3 px-5 py-5 sm:px-6">
@@ -151,7 +154,7 @@ export default function HistoricalValue() {
             <div className="max-h-[420px] overflow-auto">
               <table className="w-full min-w-[520px] text-sm">
                 <thead><tr className="border-y border-border-soft text-xs text-muted"><th className="px-5 py-2.5 text-left font-medium sm:px-6">Month</th><th className="px-4 py-2.5 text-right font-medium">Portfolio value</th><th className="px-4 py-2.5 text-right font-medium">Equity value</th><th className="px-4 py-2.5 text-right font-medium">Change</th><th className="px-5 py-2.5 text-right font-medium sm:px-6">Change %</th></tr></thead>
-                <tbody>{months.map((row, index) => <tr key={row.date} className="border-b border-border-soft last:border-0"><td className="px-5 py-3 font-medium sm:px-6">{new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</td><td className="num px-4 py-3 text-right font-semibold">{usd(row.value)}</td><td className="num px-4 py-3 text-right font-semibold text-[#7fb5ff]">{usd(row.equity ?? row.value)}</td><td className={clsx('num px-4 py-3 text-right', index === months.length - 1 ? 'text-faint' : posNeg(row.change))}>{index === months.length - 1 ? '—' : usd(row.change, { sign: true })}</td><td className={clsx('num px-5 py-3 text-right sm:px-6', index === months.length - 1 ? 'text-faint' : posNeg(row.changePct))}>{index === months.length - 1 ? '—' : pct(row.changePct * 100, { sign: true })}</td></tr>)}</tbody>
+                <tbody>{months.map((row, index) => <tr key={row.date} className="border-b border-border-soft last:border-0"><td className="px-5 py-3 font-medium sm:px-6">{new Date(`${row.date}T00:00:00`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</td><td className="num px-4 py-3 text-right font-semibold">{usd(row.value)}</td><td className="num px-4 py-3 text-right font-semibold text-[#7fb5ff]">{row.equity == null ? '—' : usd(row.equity)}</td><td className={clsx('num px-4 py-3 text-right', index === months.length - 1 ? 'text-faint' : posNeg(row.change))}>{index === months.length - 1 ? '—' : usd(row.change, { sign: true })}</td><td className={clsx('num px-5 py-3 text-right sm:px-6', index === months.length - 1 ? 'text-faint' : posNeg(row.changePct))}>{index === months.length - 1 ? '—' : pct(row.changePct * 100, { sign: true })}</td></tr>)}</tbody>
               </table>
             </div>
           </section>

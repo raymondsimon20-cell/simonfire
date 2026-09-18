@@ -44,3 +44,13 @@ const tx = (row: Partial<Transaction> & Pick<Transaction, 'id' | 'date' | 'type'
 }
 
 console.log('realized P/L tests passed')
+
+// A CSV transaction match can retain API-estimated P/L. It must still accept
+// saved user overrides; only CSV-supplied P/L has accounting authority.
+{
+  const estimated = tx({ id: 'merged', date: '2026-09-01', type: 'Sell', symbol: 'TEST', amount: 120, units: -1, dataSource: 'csv', pl: 10, plSource: 'estimated', plEstimated: true })
+  const reported = { ...estimated, id: 'reported', date: '2026-09-02', plSource: 'csv' as const, plEstimated: false }
+  applyRealizedPlOverrides([estimated, reported], { [realizedPlOverrideKey(estimated)]: 20, [realizedPlOverrideKey(reported)]: 30 })
+  assert.equal(estimated.pl, 20)
+  assert.equal(reported.pl, 10)
+}

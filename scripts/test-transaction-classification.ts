@@ -31,3 +31,9 @@ assert.equal(transactionPatternMatches('FOREIGN TAX PAID', 'TAX PAID'), true)
 assert.equal(transactionPatternMatches('UNRELATED TRANSACTION 1234', 'TRANSFER TO'), false)
 
 console.log('transaction classification tests passed')
+
+// Brokerage/bank transfers are external; margin/cash journals are internal.
+assert.equal(classify({ rawType: 'JOURNAL', description: 'TRANSFER FUNDS FROM SCHWAB BANK - 1234', amount: 43244 }), 'Contribution')
+assert.equal(classify({ rawType: 'JOURNAL', description: 'TRANSFER FUNDS TO SCHWAB BANK - ...142', amount: -500 }), 'Withdrawal')
+assert.equal(classify({ rawType: 'JOURNAL', description: 'TRF FUNDS FRM TYPE 2', amount: 500 }), 'Transfer')
+assert.equal(classify({ rawType: 'JOURNAL', description: 'TRF FUNDS TO TYPE 1', amount: -500 }), 'Transfer')

@@ -71,11 +71,11 @@ function upsertRule(d: AppData, rule: Omit<TagRule, 'id'>) {
   })
 }
 
-// Upgrade only transactions that are still uncategorized and match a strong,
-// description-based Schwab rule. User edits and existing categories always win.
+// Upgrade uncategorized records and automatic legacy bank transfers using
+// distinctive descriptions. Preserve explicitly assigned transfer categories.
 function classifyKnownOthers(d: AppData) {
   for (const t of d.transactions) {
-    if (t.type !== 'Other') continue
+    if (t.type !== 'Other' && !(t.type === 'Transfer' && !['manual', 'rule'].includes(t.classificationSource ?? ''))) continue
     const classified = classifySchwabTransaction({
       description: t.description,
       amount: t.amount,
@@ -180,6 +180,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
     data.positions = reconciled.positions
     data.transactions = reconciled.transactions
   }
+  classifyKnownOthers(data)
   for (const position of data.positions) {
     position.allocationBucket = data.bucketOverrides[`${position.accountId}|${position.symbol}`]
   }

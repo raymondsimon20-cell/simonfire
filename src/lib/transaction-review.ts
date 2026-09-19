@@ -20,6 +20,7 @@ export function duplicateTransactionIds(transactions: Transaction[]) {
   const seen = new Set<string>()
   const duplicates = new Set<string>()
   for (const transaction of transactions) {
+    if (transaction.duplicateReviewed) continue
     const key = duplicateTransactionKey(transaction)
     if (!key) continue
     if (seen.has(key)) duplicates.add(transaction.id)

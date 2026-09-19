@@ -52,6 +52,7 @@ export interface Position {
   lastDividend?: number
   dividendPayDate?: string
   dataSource?: 'csv' | 'api' | 'manual'
+  duplicateReviewed?: boolean
 }
 
 export type TxnType =

@@ -213,6 +213,7 @@ interface StoreCtx {
   applyRealizedPlMatches: (matches: { transactionId: string; pl: number }[], fileName?: string) => void
   deleteTransaction: (id: string) => void
   archiveTransactions: (ids: string[]) => void
+  dismissDuplicateFlags: (ids: string[]) => void
   restoreTransaction: (id: string) => void
   undoLabel: string
   undoLast: () => void
@@ -480,6 +481,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return d
     }, `Archive ${ids.length} duplicate transaction${ids.length === 1 ? '' : 's'}`), [mutate],
   )
+
+  const dismissDuplicateFlags: StoreCtx['dismissDuplicateFlags'] = useCallback((ids) => mutate((d) => {
+    const selected = new Set(ids)
+    for (const transaction of d.transactions) if (selected.has(transaction.id)) transaction.duplicateReviewed = true
+    return d
+  }, 'Clear duplicate flags'), [mutate])
 
   const addTag: StoreCtx['addTag'] = useCallback(
     (id, tag) => {
@@ -852,6 +859,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       applyRealizedPlMatches,
       deleteTransaction,
       archiveTransactions,
+      dismissDuplicateFlags,
       restoreTransaction,
       undoLabel,
       undoLast,
@@ -896,6 +904,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       applyRealizedPlMatches,
       deleteTransaction,
       archiveTransactions,
+      dismissDuplicateFlags,
       restoreTransaction,
       undoLabel,
       undoLast,

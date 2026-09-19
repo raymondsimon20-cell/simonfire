@@ -16,7 +16,7 @@ import { SourceBadge } from '../components/SourceBadge'
 import { useConfirmDialog } from '../components/ConfirmDialog'
 
 export default function Transactions() {
-  const { data, deleteTransaction, archiveTransactions, restoreTransaction, dateRange, setSavedTransactionViews } = useStore()
+  const { data, deleteTransaction, archiveTransactions, dismissDuplicateFlags, restoreTransaction, dateRange, setSavedTransactionViews } = useStore()
   const { transactions, accounts } = useScoped()
   const [modal, setModal] = useState(false)
   const [type, setType] = usePersistentState('simonfire.transactions.type', 'all')
@@ -182,7 +182,7 @@ export default function Transactions() {
             className="rounded-lg border border-border bg-surface-2 px-2 py-2 text-sm outline-none [color-scheme:dark]"
           />
         </label>
-        {review === 'duplicates' && duplicateIds.size > 0 && <Button onClick={async () => { if (await dialogs.confirm('Archive duplicate records', `${duplicateIds.size} potential duplicate record${duplicateIds.size === 1 ? '' : 's'} will be archived. One copy remains and archived records can be restored.`, 'Archive duplicates')) archiveTransactions([...duplicateIds]) }}><Trash2 size={14}/> Archive shown duplicates</Button>}
+        {review === 'duplicates' && duplicateIds.size > 0 && <><Button onClick={() => dismissDuplicateFlags([...duplicateIds])}>Clear duplicate flags</Button><Button onClick={async () => { if (await dialogs.confirm('Archive duplicate records', `${duplicateIds.size} potential duplicate record${duplicateIds.size === 1 ? '' : 's'} will be archived. One copy remains and archived records can be restored.`, 'Archive duplicates')) archiveTransactions([...duplicateIds]) }}><Trash2 size={14}/> Archive shown duplicates</Button></>}
         <span className="ml-auto text-xs text-faint">{filtered.length} transactions</span>
       </div>
 

@@ -52,7 +52,6 @@ export interface Position {
   lastDividend?: number
   dividendPayDate?: string
   dataSource?: 'csv' | 'api' | 'manual'
-  duplicateReviewed?: boolean
 }
 
 export type TxnType =
@@ -86,6 +85,7 @@ export interface Transaction {
   plSource?: 'broker' | 'csv' | 'estimated' | 'manual'
   tags: string[]
   classificationSource?: 'schwab' | 'automatic' | 'rule' | 'manual'
+  duplicateReviewed?: boolean
   positionEffect?: 'Opening' | 'Closing' | 'Unknown'
   dataSource?: 'csv' | 'api' | 'manual'
 }

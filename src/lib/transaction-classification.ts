@@ -77,7 +77,7 @@ export function classifySchwabTransaction({
     return looksInterest ? 'Interest' : 'Dividend'
   }
 
-  if (/\bDIVIDEND|QUALIFIED DIV|NON[- ]?QUALIFIED DIV|CAPITAL GAIN DISTRIBUTION|CASH DISTRIBUTION|REINVEST DIVIDEND\b/.test(text))
+  if (/\bDIVIDEND|QUALIFIED DIV|NON[- ]?QUALIFIED DIV|SUBSTITUTE PAYMENT(?: IN LIEU OF)? DIVIDENDS?|PAYMENT IN LIEU OF DIVIDENDS?|CAPITAL GAIN DISTRIBUTION|CASH DISTRIBUTION|REINVEST DIVIDEND\b/.test(text))
     return 'Dividend'
   if (/\bINTEREST\b/.test(text)) return 'Interest'
 

@@ -375,18 +375,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             }
           }
           // Category edits are intended classifications, not ephemeral row edits.
-          // Persist a direction-scoped rule so fresh Schwab rows inherit the choice.
+          // Keep the edit scoped to this transaction. A description-wide rule can
+          // incorrectly reclassify distinct same-ticker payments and trades.
           if (patch.type) {
             const t = d.transactions[i]
             t.classificationSource = 'manual'
             const contains = normalizeTransactionPattern(t.description) || t.description.trim()
-            upsertRule(d, {
-              contains,
-              tag: '',
-              setType: patch.type,
-              amountDirection: amountDirection(t.amount),
-              enabled: true,
-            })
+            d.tagRules = (d.tagRules ?? []).filter((rule) => !(rule.setType && rule.contains.trim().toLowerCase() === contains.toLowerCase() && rule.amountDirection === amountDirection(t.amount)))
             applyRulesTo(d)
           }
         }

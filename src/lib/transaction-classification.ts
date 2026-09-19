@@ -75,6 +75,11 @@ export function classifySchwabTransaction({
   // or negative security quantity is stronger evidence than the cash wording.
   if (/\bSELL|SOLD\b/.test(desc) || (units < 0 && /\bTRADE\b/.test(text))) return 'Sell'
 
+  // In Schwab exports a dividend row with a security quantity represents a
+  // position movement (usually a sale or withholding leg). Cash dividends
+  // have zero quantity. Explicit DRIP/reinvestment rows remain dividends.
+  if (units !== 0 && /\bDIVIDEND|DISTRIBUTION\b/.test(text) && !/\b(?:DRIP|REINVEST|REINVESTMENT)\b/.test(text)) return 'Sell'
+
   if (raw.includes('DIVIDEND') || raw.includes('INTEREST')) {
     const looksInterest =
       /CREDIT INTEREST|BANK INTEREST|SCHWAB.*\bINT\b/.test(desc) ||

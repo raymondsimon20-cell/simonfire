@@ -1,6 +1,10 @@
 import type { Transaction } from './types'
 
 export function duplicateTransactionKey(transaction: Transaction) {
+  // Schwab can post multiple same-day cash dividends without a payer symbol.
+  // Those rows cannot be safely matched, so they must remain separate until a
+  // symbol is assigned rather than being treated as duplicate imports.
+  if (transaction.type === 'Dividend' && !(transaction.symbol ?? '').trim()) return ''
   return [
     transaction.accountId,
     transaction.date,
@@ -17,6 +21,7 @@ export function duplicateTransactionIds(transactions: Transaction[]) {
   const duplicates = new Set<string>()
   for (const transaction of transactions) {
     const key = duplicateTransactionKey(transaction)
+    if (!key) continue
     if (seen.has(key)) duplicates.add(transaction.id)
     else seen.add(key)
   }

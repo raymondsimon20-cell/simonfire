@@ -70,6 +70,11 @@ export function classifySchwabTransaction({
     return units < 0 || /\bSELL|SOLD\b/.test(raw) ? 'Sell' : 'Buy'
   if (/\bSELL|SOLD\b/.test(raw)) return 'Sell'
 
+  // Schwab sometimes labels a security leg with a generic action while the
+  // description contains both sale and dividend language. A sale description
+  // or negative security quantity is stronger evidence than the cash wording.
+  if (/\bSELL|SOLD\b/.test(desc) || (units < 0 && /\bTRADE\b/.test(text))) return 'Sell'
+
   if (raw.includes('DIVIDEND') || raw.includes('INTEREST')) {
     const looksInterest =
       /CREDIT INTEREST|BANK INTEREST|SCHWAB.*\bINT\b/.test(desc) ||

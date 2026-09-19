@@ -70,6 +70,7 @@ export type TxnType =
 
 export interface Transaction {
   id: string
+  brokerTransactionId?: string
   accountId: string
   date: string // ISO yyyy-mm-dd
   type: TxnType
@@ -88,6 +89,13 @@ export interface Transaction {
   duplicateReviewed?: boolean
   positionEffect?: 'Opening' | 'Closing' | 'Unknown'
   dataSource?: 'csv' | 'api' | 'manual'
+}
+
+export interface TransactionOverride {
+  updatedAt: string
+  type?: TxnType
+  duplicateReviewed?: boolean
+  tags?: string[]
 }
 
 export interface CsvPositionAuthority {
@@ -154,6 +162,7 @@ export interface AppData {
   freshnessThresholds?: { positions: number; transactions: number; realizedPl: number }
   savedTransactionViews?: { name: string; type: string; symbol: string; from: string; to: string; review: string }[]
   historicalBalances?: HistoricalBalance[]
+  transactionOverrides?: Record<string, TransactionOverride>
   balanceSnapshots?: MonthlyBalanceSnapshot[]
   snapshotStatus?: SnapshotStatus
 }

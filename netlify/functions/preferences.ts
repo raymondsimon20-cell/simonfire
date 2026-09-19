@@ -1,7 +1,10 @@
 import { getStore } from '@netlify/blobs'
 import { json } from './lib/schwab'
+import { cleanTransactionOverrides, mergeTransactionOverrides } from '../../src/lib/transaction-overrides'
+import type { TransactionOverride } from '../../src/lib/types'
 
 type SharedPreferences = {
+  transactionOverrides?: Record<string, TransactionOverride>
   bucketOverrides?: Record<string, string>
   tagRules?: unknown[]
   symbolRules?: unknown[]
@@ -28,7 +31,7 @@ type SharedPreferences = {
   }
 }
 
-const store = () => getStore('simonfire')
+const store = () => getStore({ name: 'simonfire', consistency: 'strong' })
 const KEY = 'preferences-v1'
 const allowed = new Set(['Growth', 'CEFs', 'High Yield', 'Leveraged'])
 
@@ -37,7 +40,7 @@ function clean(input: any): SharedPreferences {
     Object.entries(input?.bucketOverrides ?? {})
       .filter(([key, value]) => key.length <= 160 && allowed.has(String(value)))
       .slice(0, 2_000),
-  )
+  ) as Record<string, string>
   const tagRules = Array.isArray(input?.tagRules) ? input.tagRules
     .filter((rule: any) => rule && typeof rule === 'object' && typeof rule.id === 'string' && typeof rule.contains === 'string' && typeof rule.tag === 'string' && typeof rule.enabled === 'boolean')
     .slice(0, 500)
@@ -109,6 +112,7 @@ function clean(input: any): SharedPreferences {
       ...(typeof row.coverageNote === 'string' ? { coverageNote: row.coverageNote.slice(0, 300) } : {}),
     })) : []
   return {
+    transactionOverrides: cleanTransactionOverrides(input?.transactionOverrides),
     bucketOverrides,
     tagRules,
     symbolRules,
@@ -137,9 +141,20 @@ export default async (request: Request) => {
     if (length > 5_000_000) return json({ ok: false, error: 'payload_too_large' }, 413)
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') return json({ ok: false, error: 'invalid_body' }, 400)
-    const preferences = clean(body)
-    await store().setJSON(KEY, preferences)
-    return json({ ok: true, preferences })
+    const incoming = clean(body)
+    const storage = store()
+    // Older tabs and devices may submit stale preferences. Preserve per-row
+    // decisions and use conditional writes so simultaneous saves cannot lose edits.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const existing = await storage.getWithMetadata(KEY, { type: 'json' })
+      const preferences = { ...incoming, transactionOverrides: mergeTransactionOverrides(
+        cleanTransactionOverrides(existing?.data.transactionOverrides), incoming.transactionOverrides,
+      ) }
+      if (existing && !existing.etag) return json({ ok: false, error: 'missing_etag' }, 503)
+      const result = await storage.setJSON(KEY, preferences, existing ? { onlyIfMatch: existing.etag } : { onlyIfNew: true })
+      if (result.modified) return json({ ok: true, preferences })
+    }
+    return json({ ok: false, error: 'write_conflict' }, 409)
   }
   return json({ ok: false, error: 'method_not_allowed' }, 405)
 }

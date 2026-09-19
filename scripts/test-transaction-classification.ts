@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { classifySchwabTransaction as classify, normalizeTransactionPattern, transactionPatternMatches } from '../src/lib/transaction-classification'
 import { duplicateTransactionIds, isClosingSale } from '../src/lib/transaction-review'
 import type { Transaction } from '../src/lib/types'
+import { applyTransactionOverrides, cleanTransactionOverrides, mergeTransactionOverrides, migrateTransactionOverrides, recordTransactionOverride } from '../src/lib/transaction-overrides'
 
 const duplicateBase = { accountId: 'a', date: '2026-09-01', type: 'Dividend', symbol: 'QQQ', amount: 12.34, units: 0, description: 'Cash  dividend QQQ', tags: [] } as Omit<Transaction, 'id'>
 assert.deepEqual([...duplicateTransactionIds([{ ...duplicateBase, id: 'first' }, { ...duplicateBase, id: 'second', description: ' cash DIVIDEND qqq ' }, { ...duplicateBase, id: 'different', amount: 12.35 }])], ['second'])
@@ -41,3 +42,42 @@ assert.equal(classify({ rawType: 'JOURNAL', description: 'TRANSFER FUNDS FROM SC
 assert.equal(classify({ rawType: 'JOURNAL', description: 'TRANSFER FUNDS TO SCHWAB BANK - ...142', amount: -500 }), 'Withdrawal')
 assert.equal(classify({ rawType: 'JOURNAL', description: 'TRF FUNDS FRM TYPE 2', amount: 500 }), 'Transfer')
 assert.equal(classify({ rawType: 'JOURNAL', description: 'TRF FUNDS TO TYPE 1', amount: -500 }), 'Transfer')
+
+// Edits survive replacement IDs and JSON round trips, without changing other
+// transactions for the same ticker or category.
+const editRows: Transaction[] = [
+  { ...duplicateBase, id: 'sale', type: 'Dividend', units: -120, amount: 1209.56 },
+  { ...duplicateBase, id: 'cash-dividend' },
+]
+const savedEdits = recordTransactionOverride(editRows, [], {}, 'sale', { type: 'Sell' }, '2026-09-19T10:00:00Z')
+const reloadedEdits = cleanTransactionOverrides(JSON.parse(JSON.stringify(savedEdits)))
+const syncedRows = editRows.map((row) => ({ ...row, id: `new-${row.id}` }))
+applyTransactionOverrides(syncedRows, [], reloadedEdits)
+assert.equal(syncedRows[0].type, 'Sell')
+assert.equal(syncedRows[0].classificationSource, 'manual')
+assert.equal(syncedRows[1].type, 'Dividend')
+const secondEdit = recordTransactionOverride(syncedRows, [], reloadedEdits, 'new-sale', { type: 'Other' }, '2026-09-19T11:00:00Z')
+applyTransactionOverrides(syncedRows, [], mergeTransactionOverrides(secondEdit, reloadedEdits))
+assert.equal(syncedRows[0].type, 'Other', 'older cloud data cannot revert a local correction')
+assert.deepEqual(mergeTransactionOverrides(secondEdit, {}), secondEdit, 'an old client payload cannot erase overrides')
+
+const repeated: Transaction[] = ['a', 'b', 'c'].map((id) => ({ ...duplicateBase, id, brokerTransactionId: id }))
+const dismissed = recordTransactionOverride(repeated, [], {}, 'b', { duplicateReviewed: true })
+const reordered = [repeated[2], repeated[1], repeated[0]].map((row) => ({ ...row, id: `sync-${row.id}` }))
+applyTransactionOverrides(reordered, [], cleanTransactionOverrides(JSON.parse(JSON.stringify(dismissed))))
+assert.equal(reordered[1].duplicateReviewed, true)
+assert.equal(reordered[0].duplicateReviewed, undefined)
+assert.deepEqual([...duplicateTransactionIds(reordered)], ['sync-a'], 'dismissal stays on the reviewed broker record')
+const csvRepeated = repeated.map(({ brokerTransactionId: _brokerId, ...row }) => row)
+const csvEdits = recordTransactionOverride(csvRepeated, [], {}, 'b', { type: 'Sell' })
+applyTransactionOverrides(csvRepeated, [], csvEdits)
+assert.deepEqual(csvRepeated.map((row) => row.type), ['Dividend', 'Sell', 'Dividend'], 'identical CSV rows retain separate edits')
+
+const legacy = [{ ...duplicateBase, id: 'legacy', classificationSource: 'manual' as const, duplicateReviewed: true }]
+const migrated = migrateTransactionOverrides(legacy, [])
+const freshLegacy = [{ ...duplicateBase, id: 'fresh', type: 'Other' as const }]
+applyTransactionOverrides(freshLegacy, [], migrated)
+assert.equal(freshLegacy[0].type, 'Dividend')
+assert.equal((freshLegacy[0] as Transaction).duplicateReviewed, true)
+assert.deepEqual(cleanTransactionOverrides({ invalid: { type: 'Fake', updatedAt: 'yesterday' } }), {})
+console.log('manual transaction persistence tests passed')

@@ -691,6 +691,7 @@ function mapTxn(accountId: string, t: any): Transaction {
 
   return {
     id: 'txn_' + Math.random().toString(36).slice(2, 9),
+    brokerTransactionId: t.activityId != null ? String(t.activityId) : t.transactionId != null ? String(t.transactionId) : undefined,
     accountId,
     date: String(t.tradeDate ?? t.time ?? '').slice(0, 10),
     type,

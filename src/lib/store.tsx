@@ -19,6 +19,7 @@ import { summarizeSync } from './sync-summary'
 import { captureCsvAuthority, mergePositionAuthority, mergeTransactionAuthority, reconcileCsvAuthority } from './csv-authority'
 import { mergeHistoricalBalances } from './statement-history'
 import { createBalanceSnapshot, hydrateSnapshotFlows, mergeSnapshotMonths, snapshotMonth } from './balance-snapshots'
+import { applyTransactionOverrides, mergeTransactionOverrides, migrateTransactionOverrides, recordTransactionOverride } from './transaction-overrides'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -36,7 +37,6 @@ function applyRulesTo(d: AppData, extraManaged?: Iterable<string>) {
   const active = all
     .filter((r) => r.enabled && r.contains.trim())
     .sort((a, b) => a.contains.length - b.contains.length)
-  if (!managed.size && !active.length) return
   for (const t of d.transactions) {
     if (managed.size && t.tags.some((tg) => managed.has(tg))) {
       t.tags = t.tags.filter((tg) => !managed.has(tg))
@@ -47,9 +47,10 @@ function applyRulesTo(d: AppData, extraManaged?: Iterable<string>) {
       if (r.amountDirection === 'negative' && t.amount >= 0) continue
       if (r.amountDirection === 'zero' && t.amount !== 0) continue
       if (r.tag && !t.tags.includes(r.tag)) t.tags.push(r.tag)
-      if (r.setType) { t.type = r.setType; t.classificationSource = 'rule' }
+      if (r.setType && t.classificationSource !== 'manual') { t.type = r.setType; t.classificationSource = 'rule' }
     }
   }
+  applyTransactionOverrides(d.transactions, d.accounts, d.transactionOverrides)
 }
 
 function amountDirection(amount: number): NonNullable<TagRule['amountDirection']> {
@@ -77,6 +78,7 @@ function upsertRule(d: AppData, rule: Omit<TagRule, 'id'>) {
 // distinctive descriptions. Preserve explicitly assigned transfer categories.
 function classifyKnownOthers(d: AppData) {
   for (const t of d.transactions) {
+    if (t.classificationSource === 'manual') continue
     if (t.type !== 'Other' && !(t.type === 'Transfer' && !['manual', 'rule'].includes(t.classificationSource ?? ''))) continue
     const classified = classifySchwabTransaction({
       description: t.description,
@@ -98,6 +100,7 @@ function load(): AppData {
     if (raw) {
       const parsed = JSON.parse(raw) as AppData
       if (parsed && parsed.version === 1) {
+        parsed.transactionOverrides = migrateTransactionOverrides(parsed.transactions, parsed.accounts, parsed.transactionOverrides)
         if (!parsed.keepList) parsed.keepList = DEFAULT_KEEP
         if (!parsed.soldSymbols) parsed.soldSymbols = []
         if (!parsed.tagRules) parsed.tagRules = []
@@ -160,10 +163,12 @@ function sharedPreferences(data: AppData): SharedPreferences {
     freshnessThresholds: data.freshnessThresholds ?? DEFAULT_FRESHNESS,
     savedTransactionViews: data.savedTransactionViews ?? [],
     historicalBalances: data.historicalBalances ?? [],
+    transactionOverrides: data.transactionOverrides ?? {},
   }
 }
 
 function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
+  data.transactionOverrides = mergeTransactionOverrides(data.transactionOverrides, preferences.transactionOverrides)
   data.bucketOverrides = preferences.bucketOverrides ?? {}
   data.tagRules = preferences.tagRules ?? []
   data.symbolRules = preferences.symbolRules ?? []
@@ -195,6 +200,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   applyRulesTo(data)
   resolveDividendSymbols(data.positions, data.transactions, data.symbolRules)
   applyRealizedPlOverrides(data.transactions, data.realizedPlOverrides)
+  data.balanceSnapshots = hydrateSnapshotFlows(data.balanceSnapshots ?? [], data.accounts, data.transactions)
 }
 
 const uid = () => 'x' + Math.random().toString(36).slice(2, 10)
@@ -327,12 +333,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!sharedReady) return
     const timeout = window.setTimeout(() => { void saveSharedPreferences(sharedPreferences(data)) }, 350)
     return () => window.clearTimeout(timeout)
-  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, data.importHistory, data.freshnessThresholds, data.savedTransactionViews, data.historicalBalances, sharedReady])
+  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, data.importHistory, data.freshnessThresholds, data.savedTransactionViews, data.historicalBalances, data.transactionOverrides, sharedReady])
 
   const mutate = useCallback((fn: (d: AppData) => AppData, label?: string) => {
     setData((prev) => {
       if (label) { undoRef.current = structuredClone(prev); setUndoLabel(label) }
-      return fn(structuredClone(prev))
+      const next = fn(structuredClone(prev))
+      // Persist in the edit path so a quick reload cannot beat a later effect.
+      save(next)
+      return next
     })
   }, [])
   const undoLast = useCallback(() => {
@@ -380,10 +389,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // incorrectly reclassify distinct same-ticker payments and trades.
           if (patch.type) {
             const t = d.transactions[i]
+            d.transactionOverrides = recordTransactionOverride(d.transactions, d.accounts, d.transactionOverrides ?? {}, id, { type: patch.type })
             t.classificationSource = 'manual'
             const contains = normalizeTransactionPattern(t.description) || t.description.trim()
             d.tagRules = (d.tagRules ?? []).filter((rule) => !(rule.setType && rule.contains.trim().toLowerCase() === contains.toLowerCase() && rule.amountDirection === amountDirection(t.amount)))
             applyRulesTo(d)
+            d.balanceSnapshots = hydrateSnapshotFlows(d.balanceSnapshots ?? [], d.accounts, d.transactions)
           }
         }
         return d
@@ -483,6 +494,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   const dismissDuplicateFlags: StoreCtx['dismissDuplicateFlags'] = useCallback((ids) => mutate((d) => {
+    d.transactionOverrides = recordTransactionOverride(d.transactions, d.accounts, d.transactionOverrides ?? {}, ids, { duplicateReviewed: true })
     const selected = new Set(ids)
     for (const transaction of d.transactions) if (selected.has(transaction.id)) transaction.duplicateReviewed = true
     return d
@@ -495,6 +507,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       mutate((d) => {
         const t = d.transactions.find((x) => x.id === id)
         if (t && !t.tags.includes(clean)) t.tags.push(clean)
+        if (t) d.transactionOverrides = recordTransactionOverride(d.transactions, d.accounts, d.transactionOverrides ?? {}, id, { tags: [...t.tags] })
         return d
       })
     },
@@ -506,6 +519,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       mutate((d) => {
         const t = d.transactions.find((x) => x.id === id)
         if (t) t.tags = t.tags.filter((x) => x !== tag)
+        if (t) d.transactionOverrides = recordTransactionOverride(d.transactions, d.accounts, d.transactionOverrides ?? {}, id, { tags: [...t.tags] })
         return d
       })
     },
@@ -628,7 +642,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           d.transactions.unshift(...nextTransactions)
           d.transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         }
-        if (source === 'live' && d.balanceSnapshots?.length) d.balanceSnapshots = hydrateSnapshotFlows(d.balanceSnapshots, d.accounts, d.transactions)
         d.bucketOverrides = d.bucketOverrides ?? {}
         for (const p of d.positions) p.allocationBucket = d.bucketOverrides[`${p.accountId}|${p.symbol}`]
         // Keep positions marked sold in the tracker out of the synced set.
@@ -643,6 +656,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         resolveDividendSymbols(d.positions, d.transactions, d.symbolRules)
         populateRealizedProfitLoss(d.positions, d.transactions)
         applyRealizedPlOverrides(d.transactions, d.realizedPlOverrides)
+        if (source === 'live' && d.balanceSnapshots?.length) d.balanceSnapshots = hydrateSnapshotFlows(d.balanceSnapshots, d.accounts, d.transactions)
         // Reflect the import as a connection so the Connections page shows it.
         const broker = result.broker || 'Schwab'
         d.connections = [

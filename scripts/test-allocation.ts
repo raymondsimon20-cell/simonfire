@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { allocationOrders, allocationProjection, type AllocationHolding } from '../src/lib/allocation-engine'
+import { allocationOrders, allocationProjection, allocationPriorityReason, type AllocationHolding } from '../src/lib/allocation-engine'
 import type { Bucket } from '../src/lib/buckets'
 import { contributionBudget } from '../src/lib/contribution-budget'
 import { spendingExclusionKey } from '../src/lib/spending'
 import type { Account, Transaction } from '../src/lib/types'
 
 const budgets = { Growth: 300, CEFs: 0, 'High Yield': 0, Leveraged: 0 }
-const row = (symbol: string, value: number, price = 10, trendScore?: number): AllocationHolding => ({ symbol, name: symbol, value, price, annualIncome: value * .04, trendScore })
+const row = (symbol: string, value: number, price = 10, trendScore?: number): AllocationHolding => ({ symbol, name: symbol, value, price, annualIncome: value * .04, trendScore, trendSignal: trendScore == null ? undefined : trendScore >= 80 ? 'strong' : trendScore > 0 ? 'healthy' : 'weak' })
 const holdings: Record<Bucket, AllocationHolding[]> = { Growth: [row('LARGE', 2000, 10, 100), row('STRONG', 500, 10, 100), row('WEAK', 500, 10, -100)], CEFs: [], 'High Yield': [], Leveraged: [] }
 const plain = allocationOrders(budgets, holdings, true)
 assert.equal(plain.find((r) => r.symbol === 'LARGE'), undefined, 'do not add to an oversized position')
@@ -20,6 +20,23 @@ const capped = allocationOrders(budgets, { ...holdings, Growth: [row('STRONG', 5
 assert.deepEqual(capped.map((r) => r.spend), [150, 150], 'trend cannot push a holding above its gap')
 const noSignals = { ...holdings, Growth: holdings.Growth.map(({ trendScore: _score, ...r }) => r) }
 assert.deepEqual(allocationOrders(budgets, noSignals, true, 'trend').map((r) => r.spend), plain.map((r) => r.spend))
+const prioritized = allocationOrders(budgets, holdings, true, 'priority')
+assert.deepEqual(prioritized.map((r) => [r.symbol, r.spend]), [['STRONG', 300]], 'strong eligible holding receives budget before weak and oversized holdings')
+const atCap = allocationOrders(budgets, { ...holdings, Growth: [row('STRONG', 500, 10, 100), row('WEAK', 500, 10, -100)] }, true, 'priority')
+assert.deepEqual(atCap.map((r) => r.spend), [150], 'leave money unused instead of exceeding size cap or buying weak holdings')
+const nextEligible = allocationOrders(budgets, { ...holdings, Growth: [row('FIRST', 1000, 10, 100), row('SECOND', 500, 10, 60), row('OVERSIZED', 1500, 10, 100)] }, true, 'priority')
+assert.deepEqual(nextEligible.map((r) => [r.symbol, r.spend]), [['FIRST', 100], ['SECOND', 200]])
+const ties = allocationOrders(budgets, { ...holdings, Growth: [row('B', 500, 10, 100), row('A', 500, 10, 100)] }, true, 'priority')
+assert.deepEqual(ties.map((r) => [r.symbol, r.spend]), [['A', 150], ['B', 150]])
+const smallBudget = allocationOrders({ ...budgets, Growth: 16 }, { ...holdings, Growth: [row('A', 500, 10, 100), row('B', 500, 10, 100), row('LOWER', 500, 1, 60), row('BIG', 2000, 10, 100)] }, true, 'priority')
+assert.deepEqual(smallBudget.map((r) => [r.symbol, r.spend]), [['A', 10], ['LOWER', 6]], 'affordable rounding leftovers stay with the strongest score first')
+assert.equal(allocationOrders(budgets, noSignals, true, 'priority').length, 0)
+assert.equal(allocationOrders(budgets, { ...holdings, Growth: [{ ...row('CAUTION', 500, 10, 20), trendSignal: 'caution' }] }, true, 'priority').length, 0, 'a positive score alone does not qualify a caution signal')
+const badPriorityQuote = allocationOrders(budgets, { ...holdings, Growth: [row('NOQUOTE', 500, 0, 100), row('VALID', 500, 10, 60)] }, true, 'priority')
+assert.deepEqual(badPriorityQuote.map((r) => [r.symbol, r.spend]), [['VALID', 150]])
+assert.match(allocationPriorityReason(row('BIG', 1000, 10, 100), 0), /At or above target/)
+assert.match(allocationPriorityReason(row('MISSING', 1000), 100), /fresh.*signals needed/)
+assert.match(allocationPriorityReason(row('WEAK', 1000, 10, -100), 100), /Paused: weak/)
 const fractional = allocationOrders({ ...budgets, Growth: 1 }, { ...holdings, Growth: [row('FRACTION', 100, 3)] }, false)
 assert.equal(fractional[0].shares, .333)
 assert.ok(Math.abs(fractional[0].spend - .999) < 1e-10)
@@ -35,11 +52,12 @@ assert.equal(p.yieldAfter, .04)
 assert.equal(allocationProjection(holdings, []).valueAfter, 3000)
 
 // Across different budgets, rounding can leave cash but never invent funding.
-for (const whole of [false, true]) for (const sizing of ['gaps', 'equal', 'trend'] as const) {
+for (const whole of [false, true]) for (const sizing of ['priority', 'gaps', 'equal', 'trend'] as const) {
   for (let budget = 1; budget <= 3000; budget += 37) {
     const orders = allocationOrders({ ...budgets, Growth: budget }, holdings, whole, sizing)
     assert.ok(orders.reduce((sum, r) => sum + r.spend, 0) <= budget + 1e-8)
     assert.ok(orders.every((r) => r.spend === r.shares * r.price))
+    if (sizing === 'priority') assert.ok(orders.every((r) => r.value + r.spend <= (3000 + budget) / 3 + 1e-8))
   }
 }
 console.log('allocation tests passed: gaps, trend caps, neutral signals, rounding, budgets, and income projections')

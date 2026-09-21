@@ -16,7 +16,7 @@ import { buildPutCloseOrder, buildPutPreviewOrder, isActiveProtectivePut, portfo
 import { usePersistentState } from '../lib/persistent-state'
 import { dividendStats } from '../lib/calc'
 import { brokerageDate } from '../lib/balance-snapshots'
-import { allocationOrders, allocationProjection, type AllocationHolding } from '../lib/allocation-engine'
+import { allocationOrders, allocationProjection, allocationPriorityReason, compareAllocationPriority, type AllocationHolding, type AllocationSizing } from '../lib/allocation-engine'
 import { contributionBudget } from '../lib/contribution-budget'
 
 const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<string, number> => {
@@ -47,7 +47,7 @@ export default function Allocation() {
     }
     const income = new Map(dividendStats(allocationPositions, transactions, brokerageDate()).bySymbol.map((row) => [row.symbol, row.projAnnual]))
     const insightAge = Date.parse(brokerageDate()) - Date.parse(data.insights?.generatedAt ?? '')
-    const trendScores = new Map(insights.filter((row) => row.available === 3 && insightAge >= -86_400_000 && insightAge <= 7 * 86_400_000).map((row) => [normTicker(row.symbol), row.score]))
+    const trendScores = new Map(insights.filter((row) => row.available === 3 && insightAge >= -86_400_000 && insightAge <= 7 * 86_400_000).map((row) => [normTicker(row.symbol), { score: row.score, signal: row.signal }]))
     const symbolValues = new Map<string, number>()
     for (const p of allocationPositions) symbolValues.set(normTicker(p.symbol), (symbolValues.get(normTicker(p.symbol)) ?? 0) + p.shares * p.lastPrice)
     for (const p of allocationPositions) {
@@ -56,7 +56,7 @@ export default function Allocation() {
       const annualIncome = (symbolValues.get(key) ?? 0) > 0 ? (income.get(key) ?? 0) * value / symbolValues.get(key)! : 0
       const existing = m[bucketOf(p)].find((row) => normTicker(row.symbol) === key)
       if (existing) { existing.value += value; existing.annualIncome += annualIncome }
-      else m[bucketOf(p)].push({ symbol: p.symbol, name: p.name, price: p.lastPrice, value, annualIncome, trendScore: trendScores.get(key) })
+      else m[bucketOf(p)].push({ symbol: p.symbol, name: p.name, price: p.lastPrice, value, annualIncome, trendScore: trendScores.get(key)?.score, trendSignal: trendScores.get(key)?.signal })
     }
     for (const b of BUCKETS) m[b].sort((a, z) => a.symbol.localeCompare(z.symbol))
     return m
@@ -95,7 +95,8 @@ export default function Allocation() {
   const [requestedContribution, setContribution] = useState(2000)
   const [planMode, setPlanMode] = useState<'contribution' | 'rebalance'>('contribution')
   const [wholeShares, setWholeShares] = useState(true)
-  const [sizing, setSizing] = usePersistentState<'gaps' | 'equal' | 'trend'>('simonfire.allocation.sizing', 'gaps')
+  const sizing = data.incomePlan?.allocationSizing ?? 'priority'
+  const setSizing = (allocationSizing: AllocationSizing) => setIncomePlan({ ...DEFAULT_INCOME_PLAN, ...data.incomePlan, allocationSizing })
   const [chosenOrderAccount, setOrderAccount] = useState<string>(() => scope !== 'all' ? scope : data.accounts[0]?.id ?? '')
   const orderAccount = data.accounts.some((account) => account.id === chosenOrderAccount) ? chosenOrderAccount : scope !== 'all' ? scope : data.accounts[0]?.id ?? ''
   const selectedOrderAccount = data.accounts.find((account) => account.id === orderAccount)
@@ -330,7 +331,7 @@ export default function Allocation() {
           </div>
           <span className="text-xs text-faint">Requested budget{expenseReserveEnabled ? ` · adjusted to ${usd(contribution)}` : ''}</span>
           <span className="text-sm text-muted">{usd(total, { cents: false })} → {usd(total + contribution, { cents: false })}</span>
-          <label className="flex items-center gap-2 text-xs text-muted">Purchase sizing<select aria-label="Purchase sizing" value={sizing} onChange={(event) => setSizing(event.target.value as 'gaps' | 'equal' | 'trend')} className="rounded-lg border border-border bg-surface-2 px-3 py-2"><option value="gaps">Fill holding gaps</option><option value="trend">Fill gaps + trend tilt</option><option value="equal">Equal dollars</option></select></label>
+          <label className="flex items-center gap-2 text-xs text-muted">Purchase sizing<select aria-label="Purchase sizing" value={sizing} onChange={(event) => setSizing(event.target.value as AllocationSizing)} className="rounded-lg border border-border bg-surface-2 px-3 py-2"><option value="priority">Prioritize stronger trends</option><option value="gaps">Fill holding gaps</option><option value="trend">Fill gaps + trend tilt</option><option value="equal">Equal dollars</option></select></label>
           <div className="ml-auto flex items-center rounded-lg border border-border bg-surface-2 p-0.5 text-xs">
             <button onClick={() => setWholeShares(true)} className={clsx('rounded-md px-3 py-1.5', wholeShares ? 'bg-surface text-ink' : 'text-muted')}>Whole shares</button>
             <button onClick={() => setWholeShares(false)} className={clsx('rounded-md px-3 py-1.5', !wholeShares ? 'bg-surface text-ink' : 'text-muted')}>Fractional</button>
@@ -416,7 +417,9 @@ export default function Allocation() {
           {planMode === 'rebalance' && sellPlan.length > 0 && <div className="rounded-xl border border-[#5a2631]/60 bg-[#33161d]/35 p-4"><div className="flex items-center gap-2"><TrendingDown size={15} className="text-neg"/><span className="font-semibold">Allocation-funded trims</span><span className="ml-auto text-xs text-faint">Review-only</span></div><div className="mt-3 grid gap-2 sm:grid-cols-2">{sellPlan.map((row) => <div key={row.bucket} className="flex items-center justify-between rounded-lg bg-black/15 px-3 py-2 text-sm"><span>{row.bucket}</span><span className="num text-neg">−{usd(row.amount)}</span></div>)}</div><p className="mt-3 text-xs text-faint">These are bucket-level sale amounts required for an immediate rebalance. Choose tax lots and confirm tax consequences at Schwab; the app does not generate or submit these sells.</p></div>}
           {BUCKETS.map((b) => {
             const add = plan[b]
-            const tickers = tickersByBucket[b]
+            const holdings = tickersByBucket[b]
+            const holdingTarget = holdings.length ? (buckets[b].value + add) / holdings.length : 0
+            const tickers = sizing === 'priority' ? [...holdings].sort((a, z) => Number(a.value >= holdingTarget) - Number(z.value >= holdingTarget) || compareAllocationPriority(a, z)) : holdings
             const nowW = buckets[b].weight * 100
             const tgtW = target[b] ?? 0
             const bucketOrders = orderQueue.filter((row) => row.bucket === b)
@@ -429,6 +432,7 @@ export default function Allocation() {
                   <span className={clsx('num ml-auto text-sm font-semibold', add > 0.5 ? 'text-pos' : 'text-faint')}>
                     {add > 0.5 ? `+${usd(add)}` : 'On target'}
                   </span>
+                  {sizing === 'priority' && add > 0.5 && <span className="text-xs text-faint">{usd(bucketOrders.reduce((sum, row) => sum + row.spend, 0))} assigned</span>}
                 </div>
                 {add > 0.5 && tickers.length > 0 && (
                   <div className="overflow-x-auto">
@@ -440,6 +444,7 @@ export default function Allocation() {
                           <th className="px-4 py-2 text-right font-medium">Shares</th>
                           <th className="px-4 py-2 text-right font-medium">Price</th>
                           <th className="px-4 py-2 text-right font-medium">After plan</th>
+                          {sizing === 'priority' && <th className="px-4 py-2 text-right font-medium">Room to target</th>}
                           <th className="px-4 py-2 font-medium">Reason</th>
                         </tr>
                       </thead>
@@ -458,7 +463,8 @@ export default function Allocation() {
                               <td className="num px-4 py-2 text-right text-muted">{wholeShares ? shares : shares.toFixed(3)}</td>
                               <td className="num px-4 py-2 text-right">{usd(t.price)}</td>
                               <td className="num px-4 py-2 text-right text-muted">{pct(((t.value + spend) / Math.max(projection.valueAfter, 1)) * 100)}</td>
-                              <td className="px-4 py-2 text-xs text-faint">{order?.reason ?? 'No buy within this budget and sizing rule'}</td>
+                              {sizing === 'priority' && <td className="num px-4 py-2 text-right text-muted">{usd(Math.max(0, holdingTarget - t.value))}</td>}
+                              <td className="px-4 py-2 text-xs text-faint">{order?.reason ?? (sizing === 'priority' ? `${allocationPriorityReason(t, holdingTarget - t.value)}${holdingTarget > t.value && (t.trendSignal === 'strong' || t.trendSignal === 'healthy') ? '; no buy fits remaining budget' : ''}` : 'No buy within this budget and sizing rule')}</td>
                             </tr>
                           )
                         })}
@@ -475,6 +481,7 @@ export default function Allocation() {
           {sizing !== 'equal' ? 'Buy budgets fill gaps toward an equal-weight mix within each bucket; larger holdings can receive no new dollars.' : 'Buy budgets are split evenly across each bucket’s holdings.'} Share quantities round down to stay within each budget. Projections include these buys only, before any proposed sales.
         </p>
         {sizing === 'trend' && <p className="mt-2 text-xs text-faint">Trend scores tilt gap weights by up to ±20% in Growth and Leveraged, and ±5% in income buckets. Holdings stay capped at their target gaps. Missing, incomplete, or older-than-seven-day signals are neutral. Price trends do not include distributions.</p>}
+        {sizing === 'priority' && <p className="mt-2 text-xs text-faint">Strong and healthy trends receive dollars in score order within each bucket. Ties share dollars by their size gaps. Each holding is capped at an equal share of its bucket’s value plus contribution. Neutral, caution, weak, missing, or older-than-seven-day signals receive no buys. Unused funds remain unallocated. This ranks price trends, not business quality or total return; distributions are not included in these signals.</p>}
       </div>
       <PlanReview contribution={contribution} account={selectedOrderAccount?.name ?? 'No account'} orderCount={orderQueue.length} plannedSpend={plannedSpend} cashRemaining={cashRemaining} yieldBefore={blendedYield} yieldAfter={projection.yieldAfter} capacity={capacity} overCapacity={contributionOverCapacity} onContinue={() => setTab('orders')} balanced={balanced} />
       </>}

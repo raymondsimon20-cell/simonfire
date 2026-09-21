@@ -248,6 +248,7 @@ export interface SyncChangeSummary {
 
 export interface IncomePlan {
   allocationExpenseReserve?: boolean
+  allocationSizing?: 'priority' | 'gaps' | 'equal' | 'trend'
   annualW2Target: number
   monthlySpending: number
   estimatedTaxRate: number // 0–100

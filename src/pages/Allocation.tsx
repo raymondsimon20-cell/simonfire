@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { Target, Wand2, Eraser, Percent, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList, ShieldCheck, LoaderCircle, ListChecks, CircleAlert, Lock, Unlock, Scale, SlidersHorizontal, Eye, ShoppingCart, ChevronRight } from 'lucide-react'
-import { useScoped, useStore } from '../lib/store'
+import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
 import { bucketOf, bucketStats, bucketClassification, BUCKETS, BUCKET_COLOR, type Bucket } from '../lib/buckets'
 import { normTicker } from '../lib/plan'
 import { buildInsights, SIGNAL_STYLE, ACTION_STYLE, type HoldingInsight } from '../lib/insights'
@@ -14,6 +14,10 @@ import clsx from 'clsx'
 import type { Account, HedgeRoll, Position } from '../lib/types'
 import { buildPutCloseOrder, buildPutPreviewOrder, isActiveProtectivePut, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, putRollTiming, rankProtectivePut, recommendPutRoll } from '../lib/hedge'
 import { usePersistentState } from '../lib/persistent-state'
+import { dividendStats } from '../lib/calc'
+import { brokerageDate } from '../lib/balance-snapshots'
+import { allocationOrders, allocationProjection, type AllocationHolding } from '../lib/allocation-engine'
+import { contributionBudget } from '../lib/contribution-budget'
 
 const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<string, number> => {
   const out: Record<string, number> = {}
@@ -22,10 +26,11 @@ const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<strin
 }
 
 export default function Allocation() {
-  const { positions, transactions } = useScoped()
-  const { data, setTargetAlloc, setPositionBucket } = useStore()
+  const { positions, transactions, scope } = useScoped()
+  const { data, setTargetAlloc, setPositionBucket, setIncomePlan } = useStore()
 
-  const stats = useMemo(() => bucketStats(positions, transactions), [positions, transactions])
+  const allocationPositions = useMemo(() => positions.filter((row) => !row.isOption && row.shares > 0), [positions])
+  const stats = useMemo(() => bucketStats(allocationPositions, transactions), [allocationPositions, transactions])
   const { buckets, total, blendedYield } = stats
   const [tab, setTab] = useState<'targets' | 'plan' | 'review' | 'hedges' | 'orders'>('targets')
   const [locked, setLocked] = useState<Set<Bucket>>(new Set())
@@ -37,32 +42,30 @@ export default function Allocation() {
 
   // Unique tickers per bucket (dedupe symbols across accounts).
   const tickersByBucket = useMemo(() => {
-    const m: Record<Bucket, { symbol: string; name: string; price: number }[]> = {
+    const m: Record<Bucket, AllocationHolding[]> = {
       Growth: [], CEFs: [], 'High Yield': [], Leveraged: [],
     }
-    const seen = new Set<string>()
-    for (const p of positions) {
-      if (p.isOption) continue // don't suggest DCA-ing into a specific option contract
+    const income = new Map(dividendStats(allocationPositions, transactions, brokerageDate()).bySymbol.map((row) => [row.symbol, row.projAnnual]))
+    const insightAge = Date.parse(brokerageDate()) - Date.parse(data.insights?.generatedAt ?? '')
+    const trendScores = new Map(insights.filter((row) => row.available === 3 && insightAge >= -86_400_000 && insightAge <= 7 * 86_400_000).map((row) => [normTicker(row.symbol), row.score]))
+    const symbolValues = new Map<string, number>()
+    for (const p of allocationPositions) symbolValues.set(normTicker(p.symbol), (symbolValues.get(normTicker(p.symbol)) ?? 0) + p.shares * p.lastPrice)
+    for (const p of allocationPositions) {
       const key = normTicker(p.symbol)
-      if (seen.has(key)) continue
-      seen.add(key)
-      m[bucketOf(p)].push({ symbol: p.symbol, name: p.name, price: p.lastPrice })
+      const value = p.shares * p.lastPrice
+      const annualIncome = (symbolValues.get(key) ?? 0) > 0 ? (income.get(key) ?? 0) * value / symbolValues.get(key)! : 0
+      const existing = m[bucketOf(p)].find((row) => normTicker(row.symbol) === key)
+      if (existing) { existing.value += value; existing.annualIncome += annualIncome }
+      else m[bucketOf(p)].push({ symbol: p.symbol, name: p.name, price: p.lastPrice, value, annualIncome, trendScore: trendScores.get(key) })
     }
     for (const b of BUCKETS) m[b].sort((a, z) => a.symbol.localeCompare(z.symbol))
     return m
-  }, [positions])
+  }, [allocationPositions, transactions, insights, data.insights?.generatedAt])
 
   // Target weights (persisted). Default to current allocation on first visit.
-  const [target, setTarget] = useState<Record<string, number>>(
-    () => data.targetAlloc ?? roundWeights(buckets),
-  )
-  useEffect(() => {
-    if (!data.targetAlloc) setTarget(roundWeights(buckets))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const target = data.targetAlloc ?? roundWeights(buckets)
 
   const update = (next: Record<string, number>) => {
-    setTarget(next)
     setTargetAlloc(next)
   }
   const setBucket = (b: Bucket, v: number) => { if (!locked.has(b)) update({ ...target, [b]: Math.max(0, Math.min(100, v)) }) }
@@ -89,10 +92,12 @@ export default function Allocation() {
   const targetBlended = BUCKETS.reduce((s, b) => s + ((target[b] ?? 0) / 100) * buckets[b].yield, 0)
 
   // ---- Rebalance calculator ----
-  const [contribution, setContribution] = useState(2000)
+  const [requestedContribution, setContribution] = useState(2000)
   const [planMode, setPlanMode] = useState<'contribution' | 'rebalance'>('contribution')
   const [wholeShares, setWholeShares] = useState(true)
-  const [orderAccount, setOrderAccount] = useState<string>(() => data.accounts[0]?.id ?? '')
+  const [sizing, setSizing] = usePersistentState<'gaps' | 'equal' | 'trend'>('simonfire.allocation.sizing', 'gaps')
+  const [chosenOrderAccount, setOrderAccount] = useState<string>(() => scope !== 'all' ? scope : data.accounts[0]?.id ?? '')
+  const orderAccount = data.accounts.some((account) => account.id === chosenOrderAccount) ? chosenOrderAccount : scope !== 'all' ? scope : data.accounts[0]?.id ?? ''
   const selectedOrderAccount = data.accounts.find((account) => account.id === orderAccount)
   const capacities = useMemo(() => data.accounts.map((account) => {
     const positionValue = data.positions
@@ -100,8 +105,13 @@ export default function Allocation() {
       .reduce((sum, position) => sum + position.shares * position.lastPrice, 0)
     return { account, capacity: marginCapacity(account, positionValue)! }
   }), [data.accounts, data.positions])
-  const capacity = capacities.find(({ account }) => account.id === orderAccount)?.capacity ?? null
-  const contributionOverCapacity = !!capacity && contribution > capacity.maxOrderSpend + 0.005
+  const expenseReserveEnabled = data.incomePlan?.allocationExpenseReserve !== false
+  const expenseBudget = useMemo(() => contributionBudget(selectedOrderAccount,
+    data.positions.filter((row) => row.accountId === orderAccount).reduce((sum, row) => sum + row.shares * row.lastPrice, 0),
+    data.transactions, brokerageDate(), data.spendingExclusions), [selectedOrderAccount, orderAccount, data.positions, data.transactions, data.spendingExclusions])
+  const capacity = expenseReserveEnabled ? expenseBudget.reserved : expenseBudget.current
+  const contribution = expenseReserveEnabled ? Math.min(requestedContribution, capacity?.maxOrderSpend ?? 0) : requestedContribution
+  const spending = expenseBudget.spending
 
   const plan = useMemo(() => {
     const empty: Record<Bucket, number> = { Growth: 0, CEFs: 0, 'High Yield': 0, Leveraged: 0 }
@@ -131,24 +141,8 @@ export default function Allocation() {
   }, [total, contribution, target, buckets, balanced, planMode])
 
   // Flatten the plan into a reviewable BUY order queue (one row per ticker).
-  const orderQueue = useMemo(() => {
-    const items: { symbol: string; name: string; bucket: Bucket; price: number; shares: number; spend: number }[] = []
-    for (const b of BUCKETS) {
-      const add = plan[b]
-      if (add <= 0.5) continue
-      const tickers = tickersByBucket[b]
-      if (!tickers.length) continue
-      const per = add / tickers.length
-      for (const t of tickers) {
-        const rawShares = t.price ? per / t.price : 0
-        const shares = wholeShares ? Math.floor(rawShares) : +rawShares.toFixed(3)
-        const spend = wholeShares ? shares * t.price : per
-        if (shares <= 0 || spend <= 0.5) continue
-        items.push({ symbol: t.symbol, name: t.name, bucket: b, price: t.price, shares, spend })
-      }
-    }
-    return items
-  }, [plan, tickersByBucket, wholeShares])
+  const orderQueue = useMemo(() => allocationOrders(plan, tickersByBucket, wholeShares, sizing), [plan, tickersByBucket, wholeShares, sizing])
+  const projection = useMemo(() => allocationProjection(tickersByBucket, orderQueue), [tickersByBucket, orderQueue])
   const sellPlan = useMemo(() => {
     if (planMode !== 'rebalance' || !balanced) return []
     const postValue = total + contribution
@@ -159,6 +153,7 @@ export default function Allocation() {
   const largestDrift = [...driftRows].sort((a, b) => Math.abs(b.drift) - Math.abs(a.drift))[0]
   const annualIncomeDelta = total * (targetBlended - blendedYield)
   const plannedSpend = orderQueue.reduce((sum, item) => sum + item.spend, 0)
+  const contributionOverCapacity = !!capacity && plannedSpend > capacity.maxOrderSpend + 0.005
   const cashRemaining = Math.max(0, contribution - plannedSpend)
   const classificationRows = positions.map((p) => ({ position: p, ...bucketClassification(p) }))
   const fallbackCount = classificationRows.filter((r) => r.method === 'Growth fallback').length
@@ -300,23 +295,42 @@ export default function Allocation() {
       {/* Rebalance calculator */}
       {tab === 'plan' && <>
       <div className="card mb-4 flex flex-wrap items-center gap-3 p-4"><span className="text-xs font-medium uppercase tracking-[.12em] text-faint">Scenario</span><button onClick={() => setPlanMode('contribution')} className={clsx('rounded-lg px-3 py-2 text-sm', planMode === 'contribution' ? 'bg-[#c7a96b]/15 text-[#e1c887]' : 'text-muted hover:bg-white/[.03]')}>New contribution only</button><button onClick={() => setPlanMode('rebalance')} className={clsx('rounded-lg px-3 py-2 text-sm', planMode === 'rebalance' ? 'bg-[#c7a96b]/15 text-[#e1c887]' : 'text-muted hover:bg-white/[.03]')}>Rebalance with sales</button><span className="ml-auto text-xs text-faint">Sales remain review-only and are never submitted automatically.</span></div>
+      <section className="mb-4 overflow-hidden rounded-[22px] border border-[#c7a96b]/20 bg-[linear-gradient(135deg,#151922,#0c1016)] p-5" aria-label="Expense-aware contribution plan">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div><div className="text-[10px] font-semibold uppercase tracking-[.18em] text-[#cbb77f]">Cash-flow planning</div><h3 className="mt-2 text-lg font-semibold">Room for bills before new buys</h3><p className="mt-1 text-xs text-muted">{selectedOrderAccount?.name ?? 'Choose an order account'} · averages from this account’s transactions</p></div>
+          <label className="flex items-center gap-2 text-xs text-muted"><input type="checkbox" checked={expenseReserveEnabled} onChange={(event) => setIncomePlan({ ...DEFAULT_INCOME_PLAN, ...data.incomePlan, allocationExpenseReserve: event.target.checked })} className="accent-[#c7a96b]" />Auto-adjust for one month of expenses</label>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-5 lg:grid-cols-4">
+          <SummaryMetric label="Average monthly expenses" value={spending ? usd(spending.monthlyAverage) : 'Unavailable'} />
+          <SummaryMetric label="Bills & withdrawals / mo" value={spending ? usd(spending.livingSpending / spending.months) : '—'} />
+          <SummaryMetric label="Interest & fees / mo" value={spending ? usd((spending.marginInterest + spending.fees) / spending.months) : '—'} />
+          <SummaryMetric label="Adjusted investment budget" value={usd(contribution)} tone={contribution < requestedContribution ? 'warn' : undefined} />
+        </div>
+        {spending ? <p className="mt-4 text-xs text-muted">{spending.from} through {spending.to} · {spending.months} completed calendar month{spending.months === 1 ? '' : 's'} · {spending.transactionCount} expense transactions. Current and partial opening months are excluded. Months without expenses count as zero; missing imports can understate the average.</p> : <p className="mt-4 text-xs text-[#e7c88f]">A completed month of transaction history is needed. Automatic sizing remains at $0 until an average is available; import history or turn off the expense adjustment to model a manual budget.</p>}
+        <p className="mt-2 text-xs text-faint">Bill payments and withdrawals count as spending; interest and fees are added separately. Purchases, transfers, and tax withholding are excluded. Your saved spending exclusions apply. Only expenses visible in this account are included.</p>
+        {expenseBudget.reviewRows.length > 0 && <p className="mt-3 text-xs text-[#e7c88f]">{expenseBudget.reviewRows.length} outgoing transfer or unclassified transaction{expenseBudget.reviewRows.length === 1 ? '' : 's'} excluded from the estimate. Review them in Transactions; classify living expenses as Bill Payment or Withdrawal.</p>}
+        {expenseReserveEnabled && spending && <p className="mt-3 text-xs text-[#e7c88f]">Reserve {usd(spending.monthlyAverage)} for the next month’s outflows. Purchases are capped at {usd(capacity?.maxOrderSpend ?? 0)} after this reserve and the 50% equity planning floor. This reserves borrowing room, not cash in a separate account. Future wages and dividends are not counted as available funding.</p>}
+        {!expenseReserveEnabled && <p className="mt-3 text-xs text-[#e7c88f]">Expense adjustment is off. This scenario does not reserve room for upcoming bills.</p>}
+      </section>
       <div className="card mt-4 p-5">
         <div className="mb-1 flex items-center gap-2">
           <Calculator size={18} className="text-brand" />
           <h3 className="text-lg font-semibold">Rebalance Calculator</h3>
         </div>
-        <p className="mb-4 text-xs text-faint">Enter your next contribution and see exactly how to split it toward your target.</p>
+        <p className="mb-4 text-xs text-faint">Plan stock and ETF purchases using your existing targets. Options and short positions are excluded from this allocation mix. Account limits use current synced balances; sync after a W‑2 deposit posts.</p>
 
         <div className="mb-5 flex flex-wrap items-center gap-4">
           <div className="flex items-center rounded-lg border border-border bg-surface-2 px-3">
             <span className="text-faint">$</span>
             <input
-              type="number" min={0} step={100} value={contribution}
+              aria-label="Investment budget" type="number" min={0} step={100} value={requestedContribution}
               onChange={(e) => setContribution(Math.max(0, +e.target.value))}
               className="w-32 bg-transparent py-2 pl-1 text-sm outline-none"
             />
           </div>
+          <span className="text-xs text-faint">Requested budget{expenseReserveEnabled ? ` · adjusted to ${usd(contribution)}` : ''}</span>
           <span className="text-sm text-muted">{usd(total, { cents: false })} → {usd(total + contribution, { cents: false })}</span>
+          <label className="flex items-center gap-2 text-xs text-muted">Purchase sizing<select aria-label="Purchase sizing" value={sizing} onChange={(event) => setSizing(event.target.value as 'gaps' | 'equal' | 'trend')} className="rounded-lg border border-border bg-surface-2 px-3 py-2"><option value="gaps">Fill holding gaps</option><option value="trend">Fill gaps + trend tilt</option><option value="equal">Equal dollars</option></select></label>
           <div className="ml-auto flex items-center rounded-lg border border-border bg-surface-2 p-0.5 text-xs">
             <button onClick={() => setWholeShares(true)} className={clsx('rounded-md px-3 py-1.5', wholeShares ? 'bg-surface text-ink' : 'text-muted')}>Whole shares</button>
             <button onClick={() => setWholeShares(false)} className={clsx('rounded-md px-3 py-1.5', !wholeShares ? 'bg-surface text-ink' : 'text-muted')}>Fractional</button>
@@ -328,8 +342,8 @@ export default function Allocation() {
             <div className="flex items-start gap-2 bg-surface-2/60 px-4 py-3">
               <CircleAlert size={16} className="mt-0.5 shrink-0 text-[#f0a94a]" />
               <div>
-                <div className="text-sm font-semibold">50% Minimum Equity by Account</div>
-                <div className="mt-0.5 text-xs text-faint">Equity % matches Schwab’s view. Maximum safe spend accounts for current margin debt and keeps account equity at or above 50%, capped by Schwab SMA and buying power.</div>
+                <div className="text-sm font-semibold">50% Equity Planning Floor by Account</div>
+                <div className="mt-0.5 text-xs text-faint">This app limit uses current debt, SMA, and buying power. It is not Schwab’s maintenance requirement, which varies by holding. Upcoming bills and interest are not reserved by this limit.</div>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -338,7 +352,7 @@ export default function Allocation() {
                   <tr className="border-t border-border-soft text-left text-xs text-muted">
                     <th className="px-4 py-2 font-medium">Account</th>
                     <th className="px-3 py-2 text-right font-medium">Current Equity %</th>
-                    <th className="px-3 py-2 text-right font-medium">Maximum Safe Spend</th>
+                    <th className="px-3 py-2 text-right font-medium">Planning Spend Limit</th>
                     <th className="px-3 py-2 text-right font-medium">After This Plan</th>
                     <th className="px-4 py-2 text-right font-medium">Use</th>
                   </tr>
@@ -346,8 +360,8 @@ export default function Allocation() {
                 <tbody>
                   {capacities.map(({ account, capacity: accountCapacity }) => {
                     const selected = account.id === orderAccount
-                    const over = contribution > accountCapacity.maxOrderSpend + 0.005
-                    const afterEquity = 1 - accountCapacity.projectedUsage(contribution)
+                    const over = plannedSpend > accountCapacity.maxOrderSpend + 0.005
+                    const afterEquity = 1 - accountCapacity.projectedUsage(plannedSpend)
                     return (
                       <tr key={account.id} className={clsx('border-t border-border-soft', selected && 'bg-[#10233f]/60')}>
                         <td className="px-4 py-3">
@@ -365,7 +379,7 @@ export default function Allocation() {
                         <td className={clsx('num px-3 py-3 text-right font-semibold', over || accountCapacity.alreadyOverLimit ? 'text-neg' : 'text-pos')}>
                           {accountCapacity.alreadyOverLimit
                             ? 'Below 50%'
-                            : account.isMargin ? pct(afterEquity * 100) : over ? `Over by ${usd(contribution - accountCapacity.maxOrderSpend)}` : '100.00%'}
+                            : account.isMargin ? pct(afterEquity * 100) : over ? `Over by ${usd(plannedSpend - accountCapacity.maxOrderSpend)}` : '100.00%'}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-2">
@@ -392,7 +406,7 @@ export default function Allocation() {
               <div className="border-t border-[#5a2631] bg-[#33161d] px-4 py-2.5 text-xs font-semibold text-[#f2607a]">
                 {capacity.alreadyOverLimit
                   ? `${selectedOrderAccount?.name} is already below 50% equity; no additional order spend is permitted by this guardrail.`
-                  : `${selectedOrderAccount?.name} exceeds its safe maximum by ${usd(contribution - capacity.maxOrderSpend)}.`}
+                  : `${selectedOrderAccount?.name} exceeds its planning limit by ${usd(plannedSpend - capacity.maxOrderSpend)}.`}
               </div>
             )}
           </div>
@@ -405,7 +419,7 @@ export default function Allocation() {
             const tickers = tickersByBucket[b]
             const nowW = buckets[b].weight * 100
             const tgtW = target[b] ?? 0
-            const per = tickers.length ? add / tickers.length : 0
+            const bucketOrders = orderQueue.filter((row) => row.bucket === b)
             return (
               <div key={b} className="overflow-hidden rounded-xl border border-border-soft">
                 <div className="flex flex-wrap items-center gap-3 bg-surface-2/50 px-4 py-3">
@@ -431,9 +445,9 @@ export default function Allocation() {
                       </thead>
                       <tbody>
                         {tickers.map((t) => {
-                          const rawShares = t.price ? per / t.price : 0
-                          const shares = wholeShares ? Math.floor(rawShares) : rawShares
-                          const spend = wholeShares ? shares * t.price : per
+                          const order = bucketOrders.find((row) => row.symbol === t.symbol)
+                          const shares = order?.shares ?? 0
+                          const spend = order?.spend ?? 0
                           return (
                             <tr key={t.symbol} className="border-b border-border-soft last:border-0">
                               <td className="px-4 py-2">
@@ -441,10 +455,10 @@ export default function Allocation() {
                                 <span className="ml-2 text-xs text-faint">{t.name}</span>
                               </td>
                               <td className="num px-4 py-2 text-right text-pos">+{usd(spend)}</td>
-                              <td className="num px-4 py-2 text-right text-muted">{wholeShares ? shares : `~${rawShares.toFixed(3)}`}</td>
+                              <td className="num px-4 py-2 text-right text-muted">{wholeShares ? shares : shares.toFixed(3)}</td>
                               <td className="num px-4 py-2 text-right">{usd(t.price)}</td>
-                              <td className="num px-4 py-2 text-right text-muted">{pct(((buckets[b].value + plan[b]) / Math.max(total + contribution, 1)) * 100)}</td>
-                              <td className="px-4 py-2 text-xs text-faint">Under target by {Math.max(0, tgtW - nowW).toFixed(1)} pts</td>
+                              <td className="num px-4 py-2 text-right text-muted">{pct(((t.value + spend) / Math.max(projection.valueAfter, 1)) * 100)}</td>
+                              <td className="px-4 py-2 text-xs text-faint">{order?.reason ?? 'No buy within this budget and sizing rule'}</td>
                             </tr>
                           )
                         })}
@@ -452,20 +466,23 @@ export default function Allocation() {
                     </table>
                   </div>
                 )}
+                {add > 0.5 && !tickers.length && <p className="px-4 py-3 text-xs text-faint">No eligible holdings in this bucket. {usd(add)} remains unallocated.</p>}
               </div>
             )
           })}
         </div>
         <p className="mt-4 text-xs text-faint">
-          Amounts move your portfolio toward its target allocation and are split evenly across each bucket's holdings. This is a plan — place the actual buys in your brokerage.
+          {sizing !== 'equal' ? 'Buy budgets fill gaps toward an equal-weight mix within each bucket; larger holdings can receive no new dollars.' : 'Buy budgets are split evenly across each bucket’s holdings.'} Share quantities round down to stay within each budget. Projections include these buys only, before any proposed sales.
         </p>
+        {sizing === 'trend' && <p className="mt-2 text-xs text-faint">Trend scores tilt gap weights by up to ±20% in Growth and Leveraged, and ±5% in income buckets. Holdings stay capped at their target gaps. Missing, incomplete, or older-than-seven-day signals are neutral. Price trends do not include distributions.</p>}
       </div>
-      <PlanReview contribution={contribution} account={selectedOrderAccount?.name ?? 'No account'} orderCount={orderQueue.length} plannedSpend={plannedSpend} cashRemaining={cashRemaining} yieldBefore={blendedYield} yieldAfter={targetBlended} capacity={capacity} overCapacity={contributionOverCapacity} onContinue={() => setTab('orders')} balanced={balanced} />
+      <PlanReview contribution={contribution} account={selectedOrderAccount?.name ?? 'No account'} orderCount={orderQueue.length} plannedSpend={plannedSpend} cashRemaining={cashRemaining} yieldBefore={blendedYield} yieldAfter={projection.yieldAfter} capacity={capacity} overCapacity={contributionOverCapacity} onContinue={() => setTab('orders')} balanced={balanced} />
       </>}
 
       {/* Order Queue — review & place */}
       {tab === 'orders' && <>
-      <PlanReview contribution={contribution} account={selectedOrderAccount?.name ?? 'No account'} orderCount={orderQueue.length} plannedSpend={plannedSpend} cashRemaining={cashRemaining} yieldBefore={blendedYield} yieldAfter={targetBlended} capacity={capacity} overCapacity={contributionOverCapacity} balanced={balanced} />
+      {expenseReserveEnabled && <p className="mb-4 rounded-xl border border-[#c7a96b]/20 bg-surface p-4 text-xs text-muted">Expense adjustment is on: {spending ? `${usd(spending.monthlyAverage)} reserved for one month of expenses in ${selectedOrderAccount?.name}.` : 'A completed month of transaction history is needed before automatic sizing is available.'} Projections include this reserve. Adjust the requested budget in Contribution Plan.</p>}
+      <PlanReview contribution={contribution} account={selectedOrderAccount?.name ?? 'No account'} orderCount={orderQueue.length} plannedSpend={plannedSpend} cashRemaining={cashRemaining} yieldBefore={blendedYield} yieldAfter={projection.yieldAfter} capacity={capacity} overCapacity={contributionOverCapacity} balanced={balanced} />
       <OrderQueue
         items={orderQueue}
         wholeShares={wholeShares}
@@ -494,8 +511,24 @@ function SummaryMetric({ label, value, tone }: { label: string; value: string; t
 
 function PlanReview({ contribution, account, orderCount, plannedSpend, cashRemaining, yieldBefore, yieldAfter, capacity, overCapacity, balanced, onContinue }: { contribution: number; account: string; orderCount: number; plannedSpend: number; cashRemaining: number; yieldBefore: number; yieldAfter: number; capacity: MarginCapacity | null; overCapacity: boolean; balanced: boolean; onContinue?: () => void }) {
   const projectedEquity = capacity ? (1 - capacity.projectedUsage(plannedSpend)) * 100 : null
-  const warnings = [!balanced && 'Targets do not total 100%.', overCapacity && 'Contribution exceeds the account safety limit.', orderCount === 0 && 'No executable whole-share orders were generated.'].filter(Boolean)
-  return <div className="card mt-4 p-5"><div className="flex items-center gap-2"><ShieldCheck size={17} className="text-brand"/><h3 className="font-semibold">Final Plan Review</h3>{warnings.length === 0 && <span className="ml-auto rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Ready for review</span>}</div><div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4"><SummaryMetric label="Contribution" value={usd(contribution)} /><SummaryMetric label="Order account" value={account} /><SummaryMetric label="Proposed orders" value={String(orderCount)} /><SummaryMetric label="Planned exposure" value={usd(plannedSpend)} /><SummaryMetric label="Cash remaining" value={usd(cashRemaining)} /><SummaryMetric label="Yield impact" value={`${pct(yieldBefore * 100)} → ${pct(yieldAfter * 100)}`} /><SummaryMetric label="Projected equity" value={projectedEquity == null ? 'Cash account' : pct(projectedEquity)} tone={projectedEquity != null && projectedEquity < 50 ? 'warn' : undefined} /><SummaryMetric label="Safety limit" value={capacity ? usd(capacity.maxOrderSpend) : '—'} /></div>{warnings.length > 0 && <div className="mt-4 rounded-xl border border-[#5a3a16] bg-[#38240f]/70 p-3 text-xs text-[#e7c88f]">{warnings.join(' ')}</div>}{onContinue && <div className="mt-4 flex justify-end"><Button variant="primary" onClick={onContinue} disabled={warnings.length > 0}>Review order queue</Button></div>}</div>
+  const fundingGap = Math.max(0, plannedSpend - contribution)
+  const warnings = [!balanced && 'Targets do not total 100%.', !capacity && 'Select a synced order account.', overCapacity && 'Proposed buys exceed the account planning limit.', orderCount === 0 && 'No orders fit the current budget and sizing rules.'].filter(Boolean)
+  return <div className="card mt-4 p-5">
+    <div className="flex items-center gap-2"><ShieldCheck size={17} className="text-brand"/><h3 className="font-semibold">Final Plan Review</h3>{warnings.length === 0 && <span className="ml-auto rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Ready for review</span>}</div>
+    <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <SummaryMetric label="Investment budget" value={usd(contribution)} />
+      <SummaryMetric label="Order account" value={account} />
+      <SummaryMetric label="Proposed orders" value={String(orderCount)} />
+      <SummaryMetric label="Planned exposure" value={usd(plannedSpend)} />
+      <SummaryMetric label="Unallocated budget" value={usd(cashRemaining)} />
+      <SummaryMetric label="Estimated yield after buys" value={`${pct(yieldBefore * 100)} → ${pct(yieldAfter * 100)}`} />
+      <SummaryMetric label="Projected equity after plan & reserve" value={projectedEquity == null ? 'Unavailable' : pct(projectedEquity)} tone={projectedEquity != null && projectedEquity < 50 ? 'warn' : undefined} />
+      <SummaryMetric label="Planning spend limit" value={capacity ? usd(capacity.maxOrderSpend) : '—'} />
+    </div>
+    {fundingGap > 0.005 && <p className="mt-3 text-xs text-[#e7c88f]">This rebalance needs {usd(fundingGap)} beyond the contribution. Proposed sales have not been executed; confirm funding before placing buys.</p>}
+    {warnings.length > 0 && <div className="mt-4 rounded-xl border border-[#5a3a16] bg-[#38240f]/70 p-3 text-xs text-[#e7c88f]">{warnings.join(' ')}</div>}
+    {onContinue && <div className="mt-4 flex justify-end"><Button variant="primary" onClick={onContinue} disabled={warnings.length > 0}>Review order queue</Button></div>}
+  </div>
 }
 
 function ClassificationReview({ rows, fallbackCount, accounts: _accounts }: { rows: Array<{ position: Position; bucket: Bucket; method: ReturnType<typeof bucketClassification>['method'] }>; fallbackCount: number; accounts: Account[] }) {

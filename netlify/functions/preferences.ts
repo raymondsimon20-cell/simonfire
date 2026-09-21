@@ -20,6 +20,7 @@ type SharedPreferences = {
   savedTransactionViews?: unknown[]
   historicalBalances?: unknown[]
   incomePlan?: {
+    allocationExpenseReserve?: boolean
     annualW2Target: number
     monthlySpending: number
     estimatedTaxRate: number
@@ -70,6 +71,7 @@ function clean(input: any): SharedPreferences {
   }
   const rawPlan = input?.incomePlan
   const incomePlan = rawPlan && typeof rawPlan === 'object' ? {
+    allocationExpenseReserve: rawPlan.allocationExpenseReserve !== false,
     annualW2Target: numberIn(rawPlan.annualW2Target, 0, 10_000_000, 0),
     monthlySpending: numberIn(rawPlan.monthlySpending, 0, 1_000_000, 0),
     estimatedTaxRate: numberIn(rawPlan.estimatedTaxRate, 0, 60, 20),

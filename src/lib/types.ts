@@ -247,6 +247,7 @@ export interface SyncChangeSummary {
 }
 
 export interface IncomePlan {
+  allocationExpenseReserve?: boolean
   annualW2Target: number
   monthlySpending: number
   estimatedTaxRate: number // 0–100

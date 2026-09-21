@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.margin.test.json",
+  "compilerOptions": { "outDir": "/tmp/simonfire-allocation-tests" },
+  "include": ["test-allocation.ts", "../src/lib/allocation-engine.ts"]
+}

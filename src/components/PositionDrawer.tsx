@@ -14,7 +14,8 @@ import {
 } from 'lucide-react'
 import type { Position } from '../lib/types'
 import { useStore } from '../lib/store'
-import { positionMetrics } from '../lib/calc'
+import { positionDividends, positionMetrics } from '../lib/calc'
+import { normTicker } from '../lib/plan'
 import { usd, pct, num, posNeg } from '../lib/format'
 import clsx from 'clsx'
 import { BucketBadge } from './HoldingCell'
@@ -49,13 +50,16 @@ function Stat({
 }
 
 export function PositionDrawer({
-  position,
+  position: selectedPosition,
   onClose,
 }: {
   position: Position | null
   onClose: () => void
 }) {
   const { data } = useStore()
+  const position = selectedPosition ? data.positions.find((row) => row.id === selectedPosition.id) ??
+    data.positions.find((row) => row.accountId === selectedPosition.accountId &&
+      normTicker(row.symbol) === normTicker(selectedPosition.symbol) && !!row.isOption === !!selectedPosition.isOption) ?? selectedPosition : null
   const [mode, setMode] = useState<Mode>('Auto')
 
   useEffect(() => {
@@ -67,18 +71,18 @@ export function PositionDrawer({
 
   const detail = useMemo(() => {
     if (!position) return null
-    const m = positionMetrics(position)
+    const m = positionMetrics(position, data.transactions)
     const account = data.accounts.find((a) => a.id === position.accountId)
     const authority = (data.csvPositionAuthority ?? []).find((row) => row.accountMask === account?.mask && row.position.symbol.replace(/\s+/g, '') === position.symbol.replace(/\s+/g, ''))
     const importEntry = authority?.importBatchId ? (data.importHistory ?? []).find((row) => row.id === authority.importBatchId) : undefined
     const related = data.transactions.filter(
-      (t) => t.accountId === position.accountId && t.symbol === position.symbol,
+      (t) => t.accountId === position.accountId && normTicker(t.symbol ?? '') === normTicker(position.symbol),
     )
     const realized = related
       .filter((t) => t.type === 'Sell')
       .reduce((s, t) => s + (t.pl ?? 0), 0)
     const includeIncome = mode !== 'Off'
-    const income = includeIncome ? position.dividendsReceived : 0
+    const income = includeIncome ? positionDividends(position, data.transactions) : 0
     const realizedShown = includeIncome ? realized : 0
     const totalReturn = m.totalGain + income + realizedShown
     const totalReturnPct = m.costBasis ? totalReturn / m.costBasis : 0

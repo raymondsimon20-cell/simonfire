@@ -42,7 +42,7 @@ export default function Positions() {
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
 
   const rows = useMemo(() => {
-    const r = positions.map((p) => ({ p, m: positionMetrics(p) }))
+    const r = positions.map((p) => ({ p, m: positionMetrics(p, transactions) }))
     const total = r.reduce((s, x) => s + x.m.value, 0)
     const withWeight = r.map((x) => ({ ...x, weight: total ? x.m.value / total : 0 }))
     const filtered = withWeight.filter((x) => {
@@ -83,10 +83,10 @@ export default function Positions() {
       return dir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
     })
     return { filtered, total }
-  }, [positions, query, bucket, sort, dir])
+  }, [positions, transactions, query, bucket, sort, dir])
 
   const totals = useMemo(() => {
-    const m = positions.map(positionMetrics)
+    const m = positions.map((position) => positionMetrics(position))
     return {
       value: m.reduce((s, x) => s + x.value, 0),
       dayChange: m.reduce((s, x) => s + x.dayChange, 0),

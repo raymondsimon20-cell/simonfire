@@ -58,13 +58,13 @@ export default function Dashboard() {
 
   // Top positions (by market value) across the current scope.
   const topPositions = useMemo(() => {
-    const rows = positions.map((p) => ({ p, m: positionMetrics(p) }))
+    const rows = positions.map((p) => ({ p, m: positionMetrics(p, transactions) }))
     rows.sort((a, b) => b.m.value - a.m.value)
     return rows.slice(0, 8)
-  }, [positions])
+  }, [positions, transactions])
 
   const totals = useMemo(() => {
-    const m = positions.map(positionMetrics)
+    const m = positions.map((position) => positionMetrics(position))
     const value = m.reduce((a, x) => a + x.value, 0)
     const day = m.reduce((a, x) => a + x.dayChange, 0)
     const gain = m.reduce((a, x) => a + x.totalGain, 0)

@@ -2,6 +2,7 @@ import type { Account, HistoricalBalance, MonthlyBalanceSnapshot, Position, Tran
 import { normTicker } from './plan'
 import { isClosingSale } from './transaction-review'
 import { statementBridgeValues, statementHistory, type StatementMonth } from './statement-history'
+import { brokerageDate } from './balance-snapshots'
 
 // ---------- Position-level ----------
 export interface PosMetrics {
@@ -20,14 +21,22 @@ export function realizedPL(txns: Transaction[]): number {
   return txns.filter((t) => t.type === 'Sell').reduce((s, t) => s + (t.pl ?? 0), 0)
 }
 
-export function positionMetrics(p: Position): PosMetrics {
+export function positionDividends(p: Position, transactions: Transaction[], asOf = brokerageDate()): number {
+  if (p.isOption) return 0
+  const symbol = normTicker(p.symbol)
+  return transactions.reduce((sum, row) => row.accountId === p.accountId &&
+    row.type === 'Dividend' && normTicker(row.symbol ?? '') === symbol && row.date <= asOf
+    ? sum + row.amount : sum, 0)
+}
+
+export function positionMetrics(p: Position, transactions?: Transaction[]): PosMetrics {
   const value = p.shares * p.lastPrice
   const costBasis = p.shares * p.avgCost
   const dayChange = p.shares * (p.lastPrice - p.prevClose)
   const dayChangePct = p.prevClose ? (p.lastPrice - p.prevClose) / p.prevClose : 0
   const totalGain = value - costBasis
   const totalGainPct = costBasis ? totalGain / costBasis : 0
-  const totalReturn = totalGain + p.dividendsReceived
+  const totalReturn = totalGain + (transactions ? positionDividends(p, transactions) : p.dividendsReceived)
   const totalReturnPct = costBasis ? totalReturn / costBasis : 0
   return {
     value,

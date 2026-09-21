@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { dividendStats } from '../src/lib/calc'
+import { dividendStats, positionDividends, positionMetrics } from '../src/lib/calc'
 import { resolveDividendSymbols } from '../src/lib/dividend-symbol'
 import { previewDividendEnrichment, previewRealizedGainLoss, type ImportResult } from '../src/lib/import'
 import { captureCsvAuthority, reconcileCsvAuthority } from '../src/lib/csv-authority'
@@ -37,6 +37,26 @@ const transactions: Transaction[] = [
   txn({ id: 'sold', date: '2026-02-01', type: 'Dividend', symbol: 'SOLD', amount: 75 }),
   txn({ id: 'sold-trade', date: '2026-03-01', type: 'Sell', symbol: 'SOLD', amount: 500, units: -50 }),
 ]
+
+// Received income must follow the final ledger, even when the positions CSV
+// has a zero or stale dividend cache. Test multiple tickers and account scopes.
+const incomeHoldings = ['TOPW', 'OXLC', 'CLM'].map((symbol) => ({ ...positions[0], symbol, dividendsReceived: 0 }))
+const incomeLedger = incomeHoldings.flatMap((p, i) => [
+  txn({ id: `${p.symbol}-cash`, date: '2026-08-01', type: 'Dividend', symbol: ` ${p.symbol.toLowerCase()} `, amount: 10 + i }),
+  txn({ id: `${p.symbol}-sale`, date: '2026-08-02', type: 'Sell', symbol: p.symbol, amount: 1000, units: -20 }),
+  txn({ id: `${p.symbol}-other-account`, date: '2026-08-01', type: 'Dividend', symbol: p.symbol, amount: 999, accountId: 'other' }),
+  txn({ id: `${p.symbol}-future`, date: '2099-08-01', type: 'Dividend', symbol: p.symbol, amount: 999 }),
+])
+for (const [i, holding] of incomeHoldings.entries()) {
+  assert.equal(positionDividends(holding, incomeLedger), 10 + i)
+  assert.equal(positionMetrics(holding, incomeLedger).totalReturn, 200 + 10 + i)
+}
+const updatedIncome = [...incomeLedger, txn({ id: 'new-payment', date: '2026-08-03', type: 'Dividend', symbol: 'TOPW', amount: 7 })]
+assert.equal(positionDividends(incomeHoldings[0], updatedIncome), 17)
+assert.equal(positionDividends(incomeHoldings[0], updatedIncome.map((row) => row.id === 'new-payment' ? { ...row, type: 'Sell' as const } : row)), 10)
+assert.equal(positionDividends({ ...incomeHoldings[0], dividendsReceived: 999 }, []), 0)
+assert.equal(positionDividends({ ...incomeHoldings[0], isOption: true }, updatedIncome), 0)
+assert.equal(positionDividends(incomeHoldings[0], [...incomeLedger, txn({ id: 'reversal', date: '2026-08-03', type: 'Dividend', symbol: 'TOPW', amount: -2 })]), 8)
 
 const stats = dividendStats(positions, transactions, '2026-08-27')
 const xyz = stats.bySymbol.find((row) => row.symbol === 'XYZ')

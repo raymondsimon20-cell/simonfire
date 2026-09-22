@@ -20,6 +20,7 @@ import { relTime } from '../lib/format'
 import { PageHeader, Button, Badge } from '../components/ui'
 import { Modal } from '../components/Modal'
 import { ImportModal } from '../components/ImportModal'
+import { StatementImportStatus } from '../components/StatementImportStatus'
 import { schwabStatus, schwabSync, schwabDisconnect, schwabLoginUrl } from '../lib/api'
 import clsx from 'clsx'
 import { useToast } from '../components/Toast'
@@ -126,7 +127,7 @@ export default function Connections() {
         right={
           <>
             <Button onClick={() => setImportOpen(true)}>
-              <Upload size={15} /> Import CSV
+              <Upload size={15} /> Import PDF / CSV
             </Button>
             <Button variant="primary" onClick={() => setModal(true)}>
               <Plus size={15} /> Connect New Broker
@@ -182,6 +183,7 @@ export default function Connections() {
         <p className="mt-3 text-xs text-faint">Counts show what Schwab returned, not a guarantee of all historical activity. Sync also asks Schwab for missing dividend tickers using security identifiers, exact security names, and individual payment details. Manual corrections take precedence. Review remaining payments in Transactions → Review → Dividends missing tickers.</p>
       </div>
 
+      <StatementImportStatus />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {data.connections.map((c) => {
           const accts = accountsOf(c.accountIds)

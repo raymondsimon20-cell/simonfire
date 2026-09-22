@@ -1,5 +1,6 @@
 import type { HistoricalBalance } from './types'
 import { parseCsv } from './import'
+import { parseStatementTransactions, type PdfTextPage } from './statement-transactions'
 
 const number = (value = '') => {
   const clean = value.trim().replace(/[$,]/g, '')
@@ -49,6 +50,10 @@ export function parseHistoricalBalanceCsv(text: string, fileName = 'historical-b
 }
 
 export async function parseSchwabStatementPdf(data: ArrayBuffer, fileName: string, accountMask = ''): Promise<HistoricalBalance> {
+  return (await parseSchwabStatementDocument(data, fileName, accountMask)).balance
+}
+
+export async function parseSchwabStatementDocument(data: ArrayBuffer, fileName: string, accountMask = '') {
   const pdf = await import('pdfjs-dist/legacy/build/pdf.mjs')
   // Vite turns this into the hashed worker asset in production. Keep it lazy so
   // CSV-only consumers and the Node test runner do not load a browser worker.
@@ -60,11 +65,14 @@ export async function parseSchwabStatementPdf(data: ArrayBuffer, fileName: strin
   try {
     const document = await task.promise
     const text: string[] = []
+    const pages: PdfTextPage[] = []
     for (let i = 1; i <= document.numPages; i++) {
       const page = await document.getPage(i); const content = await page.getTextContent()
       text.push(content.items.map((item) => 'str' in item ? item.str : '').join(' '))
+      pages.push({ page: i, items: content.items.flatMap((item) => 'str' in item ? [{ str: item.str, x: item.transform[4], y: item.transform[5], width: item.width }] : []) })
     }
-    return parseSchwabStatementText(text.join('\n'), fileName, accountMask)
+    const balance = parseSchwabStatementText(text.join('\n'), fileName, accountMask)
+    return { balance, details: parseStatementTransactions(pages, balance.month, balance.accountMask, fileName) }
   } finally { await task.destroy() }
 }
 

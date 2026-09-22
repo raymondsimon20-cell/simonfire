@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import type { Account, AppData, Connection, HedgeRoll, HistoricalBalance, IncomePlan, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
+import type { Account, AppData, Connection, HedgeRoll, HistoricalBalance, StatementTransactions, IncomePlan, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
@@ -17,7 +17,8 @@ import { dividendDescriptionKey, hasDividendIdentity, resolveDividendSymbols } f
 import { applyRealizedPlOverrides, populateRealizedProfitLoss, realizedPlOverrideKey } from './realized-pl'
 import { summarizeSync } from './sync-summary'
 import { captureCsvAuthority, mergePositionAuthority, mergeTransactionAuthority, reconcileCsvAuthority } from './csv-authority'
-import { mergeHistoricalBalances } from './statement-history'
+import { mergeHistoricalBalances, statementAccount } from './statement-history'
+import { mergeStatementTransactions, reconcileStatementTransactions } from './statement-transactions'
 import { createBalanceSnapshot, hydrateSnapshotFlows, mergeSnapshotMonths, snapshotMonth } from './balance-snapshots'
 import { applyTransactionOverrides, mergeTransactionOverrides, migrateTransactionOverrides, recordTransactionOverride } from './transaction-overrides'
 import { applyPositionBuckets } from './position-buckets'
@@ -161,6 +162,7 @@ function sharedPreferences(data: AppData): SharedPreferences {
     realizedPlOverrides: data.realizedPlOverrides ?? {},
     csvPositionAuthority: data.csvPositionAuthority ?? [],
     csvTransactionAuthority: data.csvTransactionAuthority ?? [],
+    statementTransactions: data.statementTransactions ?? [],
     importHistory: data.importHistory ?? [],
     freshnessThresholds: data.freshnessThresholds ?? DEFAULT_FRESHNESS,
     savedTransactionViews: data.savedTransactionViews ?? [],
@@ -193,6 +195,8 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
     data.positions = reconciled.positions
     data.transactions = reconciled.transactions
   }
+  data.statementTransactions = mergeStatementTransactions(data.statementTransactions, preferences.statementTransactions)
+  data.transactions = reconcileStatementTransactions(data.accounts, data.transactions, data.statementTransactions).transactions
   classifyKnownOthers(data)
   applyPositionBuckets(data.positions, data.bucketOverrides)
   const sold = new Set(data.soldSymbols)
@@ -232,7 +236,7 @@ interface StoreCtx {
   applyImport: (result: ImportPayload, mode: 'replace' | 'merge', source?: 'imported' | 'live') => void
   rollbackImport: (id: string) => void
   clearCsvAuthority: (accountMask: string, kind: 'positions' | 'transactions' | 'realizedPl') => void
-  applyHistoricalBalances: (balances: HistoricalBalance[]) => void
+  applyHistoricalBalances: (balances: HistoricalBalance[], statements?: StatementTransactions[]) => void
   setFreshnessThresholds: (value: AppData['freshnessThresholds']) => void
   setSavedTransactionViews: (value: NonNullable<AppData['savedTransactionViews']>) => void
   restoreBackup: (backup: AppData) => void
@@ -334,7 +338,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!sharedReady) return
     const timeout = window.setTimeout(() => { void saveSharedPreferences(sharedPreferences(data)) }, 350)
     return () => window.clearTimeout(timeout)
-  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, data.importHistory, data.freshnessThresholds, data.savedTransactionViews, data.historicalBalances, data.transactionOverrides, sharedReady])
+  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, data.importHistory, data.freshnessThresholds, data.savedTransactionViews, data.historicalBalances, data.statementTransactions, data.transactionOverrides, sharedReady])
 
   const mutate = useCallback((fn: (d: AppData) => AppData, label?: string) => {
     setData((prev) => {
@@ -622,7 +626,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         } else {
           const reconciled = reconcileCsvAuthority(result.accounts, result.positions, result.transactions, d.csvPositionAuthority ?? [], d.csvTransactionAuthority ?? [])
           nextPositions = reconciled.positions
-          nextTransactions = reconciled.transactions
+          nextTransactions = reconcileStatementTransactions(result.accounts, reconciled.transactions, d.statementTransactions ?? []).transactions
           csvConflicts = reconciled.conflicts
           csvConflictDetails = reconciled.conflictDetails
         }
@@ -699,8 +703,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [mutate],
   )
 
-  const applyHistoricalBalances: StoreCtx['applyHistoricalBalances'] = useCallback((balances) => {
-    mutate((d) => { d.historicalBalances = mergeHistoricalBalances(d.historicalBalances ?? [], balances, d.accounts); return d }, 'Import historical balances')
+  const applyHistoricalBalances: StoreCtx['applyHistoricalBalances'] = useCallback((balances, statements = []) => {
+    mutate((d) => {
+      d.historicalBalances = mergeHistoricalBalances(d.historicalBalances ?? [], balances, d.accounts)
+      const canonical = statements.filter((group) => group.complete).map((group) => {
+        const accountMask = statementAccount(group, d.accounts)?.mask ?? group.accountMask
+        return { ...group, accountMask, transactions: group.transactions.map((row) => ({ ...row, statement: row.statement ? { ...row.statement, key: `${accountMask}|${row.statement.key.split('|').slice(1).join('|')}` } : undefined })) }
+      })
+      d.statementTransactions = mergeStatementTransactions(d.statementTransactions, canonical)
+      d.transactions = reconcileStatementTransactions(d.accounts, d.transactions, d.statementTransactions).transactions
+      applyRulesTo(d)
+      resolveDividendSymbols(d.positions, d.transactions, d.symbolRules)
+      populateRealizedProfitLoss(d.positions, d.transactions)
+      applyRealizedPlOverrides(d.transactions, d.realizedPlOverrides)
+      d.balanceSnapshots = hydrateSnapshotFlows(d.balanceSnapshots ?? [], d.accounts, d.transactions)
+      return d
+    }, 'Import Schwab statements')
   }, [mutate])
 
   const reset: StoreCtx['reset'] = useCallback(() => {

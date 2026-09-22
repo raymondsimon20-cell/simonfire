@@ -11,5 +11,5 @@
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "include": ["test-historical-balances.ts", "../src/lib/historical-balances.ts", "../src/lib/types.ts"]
+  "include": ["test-historical-balances.ts", "test-statement-transactions.ts", "../src/lib/historical-balances.ts", "../src/lib/types.ts"]
 }

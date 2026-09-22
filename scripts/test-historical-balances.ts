@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import './test-statement-transactions'
 import { parseHistoricalBalanceCsv, parseSchwabStatementText } from '../src/lib/historical-balances'
 import { availableMonths, monthClose, portfolioSummary } from '../src/lib/calc'
 import { mergeHistoricalBalances, statementHistory, statementProfit } from '../src/lib/statement-history'

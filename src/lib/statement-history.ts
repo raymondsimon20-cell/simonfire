@@ -1,7 +1,7 @@
 import type { Account, HistoricalBalance, MonthlyBalanceSnapshot } from './types'
 import { automaticBalances } from './balance-snapshots'
 
-export function statementAccount(balance: HistoricalBalance, accounts: Account[]) {
+export function statementAccount(balance: Pick<HistoricalBalance, 'accountMask'>, accounts: Account[]) {
   const mask = balance.accountMask.replace(/\D/g, '')
   if (!mask) return accounts.length === 1 ? accounts[0] : undefined
   const matches = accounts.filter((account) => {

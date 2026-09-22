@@ -71,6 +71,8 @@ export type TxnType =
   | 'Other'
 
 export interface Transaction {
+  statement?: { key: string; fileName: string; page: number; row: number; date: string }
+  price?: number
   securityId?: string
   securityName?: string
   symbolSource?: 'broker' | 'manual' | 'inferred'
@@ -88,12 +90,22 @@ export interface Transaction {
   exp?: string
   pl?: number // realized P/L on sells
   plEstimated?: boolean // reconstructed from available trade/cost-basis data
-  plSource?: 'broker' | 'csv' | 'estimated' | 'manual'
+  plSource?: 'broker' | 'csv' | 'statement' | 'estimated' | 'manual'
   tags: string[]
   classificationSource?: 'schwab' | 'automatic' | 'rule' | 'manual'
   duplicateReviewed?: boolean
   positionEffect?: 'Opening' | 'Closing' | 'Unknown'
-  dataSource?: 'csv' | 'api' | 'manual'
+  dataSource?: 'csv' | 'api' | 'manual' | 'statement'
+}
+
+export interface StatementTransactions {
+  accountMask: string
+  month: string
+  fileName: string
+  importedAt: string
+  transactions: Omit<Transaction, 'id' | 'accountId'>[]
+  complete: boolean
+  issues: string[]
 }
 
 export interface TransactionOverride {
@@ -134,6 +146,7 @@ export interface ConnectionEvent {
 }
 
 export interface AppData {
+  statementTransactions?: StatementTransactions[]
   accountSyncCoverage?: AccountSyncCoverage[]
   version: number
   accounts: Account[]

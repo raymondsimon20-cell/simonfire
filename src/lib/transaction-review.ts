@@ -1,6 +1,8 @@
 import type { Transaction } from './types'
 
 export function duplicateTransactionKey(transaction: Transaction) {
+  // Distinct statement line numbers are evidence of distinct posted events.
+  if (transaction.statement) return `${transaction.accountId}|statement|${transaction.statement.key}`
   // Schwab can post multiple same-day cash dividends without a payer symbol.
   // Those rows cannot be safely matched, so they must remain separate until a
   // symbol is assigned rather than being treated as duplicate imports.

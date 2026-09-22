@@ -15,7 +15,8 @@ export function transactionOverrideKeys(transactions: Transaction[], accounts: A
     const occurrence = counts.get(fingerprint) ?? 0
     counts.set(fingerprint, occurrence + 1)
     return {
-      primary: row.brokerTransactionId ? JSON.stringify([accountKey, row.brokerTransactionId]) : `${fingerprint}:${occurrence}`,
+      primary: row.brokerTransactionId ? JSON.stringify([accountKey, row.brokerTransactionId]) : row.statement ? JSON.stringify([accountKey, 'statement', row.statement.key]) : `${fingerprint}:${occurrence}`,
+      statement: row.statement ? JSON.stringify([accountKey, 'statement', row.statement.key]) : '',
       legacy: `${fingerprint}:${occurrence}`,
     }
   })
@@ -35,8 +36,9 @@ export function recordTransactionOverride(transactions: Transaction[], accounts:
   const next = { ...overrides }
   transactions.forEach((row, index) => {
     if (!selected.has(row.id)) return
-    const { primary, legacy } = keys[index]
-    next[primary] = { ...(overrides[primary] ?? overrides[legacy]), ...patch, updatedAt }
+    const { primary, legacy, statement } = keys[index]
+    next[primary] = { ...(overrides[primary] ?? overrides[statement] ?? overrides[legacy]), ...patch, updatedAt }
+    if (statement) next[statement] = next[primary]
   })
   return next
 }
@@ -44,8 +46,9 @@ export function recordTransactionOverride(transactions: Transaction[], accounts:
 export function applyTransactionOverrides(transactions: Transaction[], accounts: Account[], overrides: Overrides = {}) {
   const keys = transactionOverrideKeys(transactions, accounts)
   transactions.forEach((row, index) => {
-    const { primary, legacy } = keys[index]
-    const edit = overrides[primary] ?? overrides[legacy]
+    const { primary, legacy, statement } = keys[index]
+    const edit = [overrides[primary], overrides[statement], overrides[legacy]].filter((value): value is TransactionOverride => !!value)
+      .reduce<TransactionOverride | undefined>((latest, value) => !latest || value.updatedAt > latest.updatedAt ? value : latest, undefined)
     if (!edit) return
     if (edit.type) { row.type = edit.type; row.classificationSource = 'manual' }
     if (edit.symbol) { row.symbol = edit.symbol; row.symbolSource = 'manual' }

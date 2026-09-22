@@ -2,8 +2,11 @@ import { getStore } from '@netlify/blobs'
 import { json } from './lib/schwab'
 import { cleanTransactionOverrides, mergeTransactionOverrides } from '../../src/lib/transaction-overrides'
 import type { TransactionOverride } from '../../src/lib/types'
+import type { StatementTransactions } from '../../src/lib/types'
+import { mergeStatementTransactions } from '../../src/lib/statement-transactions'
 
 type SharedPreferences = {
+  statementTransactions?: StatementTransactions[]
   transactionOverrides?: Record<string, TransactionOverride>
   bucketOverrides?: Record<string, string>
   tagRules?: unknown[]
@@ -116,6 +119,7 @@ function clean(input: any): SharedPreferences {
       ...(typeof row.coverageNote === 'string' ? { coverageNote: row.coverageNote.slice(0, 300) } : {}),
     })) : []
   return {
+    statementTransactions: Array.isArray(input?.statementTransactions) ? input.statementTransactions.filter((group: any) => group && typeof group.accountMask === 'string' && /^20\d{2}-\d{2}$/.test(group.month) && typeof group.importedAt === 'string' && group.complete === true && Array.isArray(group.transactions) && group.transactions.every((row: any) => row && typeof row.date === 'string' && Number.isFinite(row.amount) && Number.isFinite(row.units) && typeof row.statement?.key === 'string')) : [],
     transactionOverrides: cleanTransactionOverrides(input?.transactionOverrides),
     bucketOverrides,
     tagRules,
@@ -151,7 +155,7 @@ export default async (request: Request) => {
     // decisions and use conditional writes so simultaneous saves cannot lose edits.
     for (let attempt = 0; attempt < 5; attempt++) {
       const existing = await storage.getWithMetadata(KEY, { type: 'json' })
-      const preferences = { ...incoming, transactionOverrides: mergeTransactionOverrides(
+      const preferences = { ...incoming, statementTransactions: mergeStatementTransactions(existing?.data.statementTransactions, incoming.statementTransactions), transactionOverrides: mergeTransactionOverrides(
         cleanTransactionOverrides(existing?.data.transactionOverrides), incoming.transactionOverrides,
       ) }
       if (existing && !existing.etag) return json({ ok: false, error: 'missing_etag' }, 503)

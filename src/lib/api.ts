@@ -15,7 +15,7 @@ export async function loadBalanceHistory(): Promise<{ snapshots: MonthlyBalanceS
   } catch { return null }
 }
 
-export type SharedPreferences = Pick<AppData, 'bucketOverrides' | 'tagRules' | 'symbolRules' | 'targetAlloc' | 'keepList' | 'soldSymbols' | 'incomePlan' | 'spendingExclusions' | 'realizedPlOverrides' | 'csvPositionAuthority' | 'csvTransactionAuthority' | 'importHistory' | 'freshnessThresholds' | 'savedTransactionViews' | 'transactionOverrides'> & { historicalBalances?: HistoricalBalance[] }
+export type SharedPreferences = Pick<AppData, 'statementTransactions' | 'bucketOverrides' | 'tagRules' | 'symbolRules' | 'targetAlloc' | 'keepList' | 'soldSymbols' | 'incomePlan' | 'spendingExclusions' | 'realizedPlOverrides' | 'csvPositionAuthority' | 'csvTransactionAuthority' | 'importHistory' | 'freshnessThresholds' | 'savedTransactionViews' | 'transactionOverrides'> & { historicalBalances?: HistoricalBalance[] }
 
 export async function loadSharedPreferences(): Promise<SharedPreferences | null> {
   try {

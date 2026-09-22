@@ -130,7 +130,7 @@ function RealizedPlEditor({ txn }: { txn: Transaction }) {
   const [value, setValue] = useState(txn.pl?.toFixed(2) ?? '')
   useEffect(() => setValue(txn.pl?.toFixed(2) ?? ''), [txn.id, txn.pl])
   const valid = value.trim() !== '' && Number.isFinite(Number(value))
-  return <div className="mt-4 rounded-xl border border-border-soft bg-surface-2/40 p-3"><label className="text-xs text-muted"><span>Realized P/L</span><div className="mt-1 flex gap-2"><span className="flex min-w-0 flex-1 items-center rounded-lg border border-border bg-surface-2 px-3"><span className="text-faint">$</span><input type="number" step="0.01" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Enter Schwab realized gain or loss" className="num min-w-0 flex-1 bg-transparent px-1 py-2 text-sm text-ink outline-none"/></span><button onClick={() => valid && updateTransaction(txn.id, { pl: Number(value), plEstimated: false, plSource: 'manual' })} disabled={!valid} className="rounded-lg border border-border px-3 text-xs font-semibold text-brand disabled:opacity-40">Save</button>{txn.plSource === 'manual' && <button onClick={() => updateTransaction(txn.id, { pl: undefined, plEstimated: undefined, plSource: undefined })} className="rounded-lg border border-border px-3 text-xs text-muted">Clear</button>}</div></label><div className="mt-2 text-[10px] text-faint">Enter the realized gain or loss shown by Schwab, including its sign. Manual values persist after sync and across devices. Clearing restores any estimate the app can reconstruct.</div>{txn.pl != null && <div className="mt-2 text-[10px] font-medium text-pos">Current source: {txn.plSource === 'csv' ? 'Schwab CSV' : txn.plSource === 'manual' ? 'Manual Schwab value' : txn.plEstimated ? 'App estimate' : 'Broker/imported value'}</div>}</div>
+  return <div className="mt-4 rounded-xl border border-border-soft bg-surface-2/40 p-3"><label className="text-xs text-muted"><span>Realized P/L</span><div className="mt-1 flex gap-2"><span className="flex min-w-0 flex-1 items-center rounded-lg border border-border bg-surface-2 px-3"><span className="text-faint">$</span><input type="number" step="0.01" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Enter Schwab realized gain or loss" className="num min-w-0 flex-1 bg-transparent px-1 py-2 text-sm text-ink outline-none"/></span><button onClick={() => valid && updateTransaction(txn.id, { pl: Number(value), plEstimated: false, plSource: 'manual' })} disabled={!valid} className="rounded-lg border border-border px-3 text-xs font-semibold text-brand disabled:opacity-40">Save</button>{txn.plSource === 'manual' && <button onClick={() => updateTransaction(txn.id, { pl: undefined, plEstimated: undefined, plSource: undefined })} className="rounded-lg border border-border px-3 text-xs text-muted">Clear</button>}</div></label><div className="mt-2 text-[10px] text-faint">Enter the realized gain or loss shown by Schwab, including its sign. Manual values persist after sync and across devices. Clearing restores any estimate the app can reconstruct.</div>{txn.pl != null && <div className="mt-2 text-[10px] font-medium text-pos">Current source: {txn.plSource === 'statement' ? 'Schwab statement' : txn.plSource === 'csv' ? 'Schwab CSV' : txn.plSource === 'manual' ? 'Manual Schwab value' : txn.plEstimated ? 'App estimate' : 'Broker/imported value'}</div>}</div>
 }
 
 export function TransactionDrawer({
@@ -193,8 +193,8 @@ export function TransactionDrawer({
 
             <div className="mb-3 mt-7 text-sm font-semibold text-muted">Transaction Details</div>
             <div className="grid grid-cols-2 gap-3">
-              <Tile icon={<Calendar size={13} />} label="Trade Date" value={shortDate(txn.date)} />
-              <Tile icon={<Calendar size={13} />} label="Settlement Date" value={shortDate(txn.date)} />
+              <Tile icon={<Calendar size={13} />} label={txn.statement && !txn.brokerTransactionId ? "Recorded Date" : "Trade Date"} value={shortDate(txn.date)} />
+              <Tile icon={<Calendar size={13} />} label="Settlement Date" value={shortDate(txn.statement?.date ?? txn.date)} />
               <Tile icon={<Landmark size={13} />} label="Account" value={detail.account?.name ?? '—'} />
               <Tile icon={<Building2 size={13} />} label="Institution" value={detail.account?.broker ?? '—'} />
             </div>
@@ -220,6 +220,7 @@ export function TransactionDrawer({
               {txn.units !== 0 && <Tile icon={<BarChart3 size={13} />} label="Units" value={num(txn.units)} />}
             </div>
             {isClosingSale(txn) && <RealizedPlEditor txn={txn} />}
+            {txn.statement && <div className="mt-4 rounded-lg border border-border-soft p-3 text-xs text-muted"><strong className="text-ink">Schwab PDF statement</strong><div className="mt-1">{txn.statement.fileName} · page {txn.statement.page}, row {txn.statement.row}</div><div className="mt-1">Settlement/process date: {txn.statement.date}</div></div>}
 
             <div className="mb-3 mt-7 text-sm font-semibold text-muted">Snapshot Reference</div>
             <div className="grid grid-cols-2 gap-3">

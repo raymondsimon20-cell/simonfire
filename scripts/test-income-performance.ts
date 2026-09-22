@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { incomePerformance, incomeAndRealizedGains, recordedIncomePerformance } from '../src/lib/income-performance'
+import { incomePerformance, incomeAndRealizedGains, internalTransferIds, recordedIncomePerformance } from '../src/lib/income-performance'
 import { statementHistory } from '../src/lib/statement-history'
 import type { Account } from '../src/lib/types'
 import type { Transaction, TxnType } from '../src/lib/types'
@@ -79,4 +79,18 @@ close(incomeAndRealizedGains([txn('Dividend', 12, '2020-01-01')], '', '2026-06-3
   assert.equal(r.withdrawals, 3000, 'only money actually leaving (classified withdrawals), not internal transfers')
   assert.ok(Math.abs(r.beginning + r.deposits - r.statementWithdrawals + r.investmentChange - r.ending) < 0.01, 'reconciles to closing equity')
   console.log('recorded income performance tests passed')
+}
+
+// Transfers between your own accounts are not money leaving.
+{
+  const t = (id: string, accountId: string, date: string, type: TxnType, amount: number): Transaction => ({ id, accountId, date, type, amount, units: 0, description: '', tags: [] })
+  const pool = [
+    t('w1', 'a', '2026-04-10', 'Withdrawal', -50000), t('d1', 'b', '2026-04-11', 'Contribution', 50000), // internal move
+    t('w2', 'a', '2026-04-15', 'Bill Payment', -1200), // real bill
+    t('w3', 'a', '2026-04-20', 'Withdrawal', -300), t('d3', 'b', '2026-05-15', 'Contribution', 300), // too far apart
+    t('w4', 'a', '2026-04-22', 'Withdrawal', -500), t('d4', 'a', '2026-04-22', 'Contribution', 500), // same account: not a transfer between accounts
+  ]
+  const ids = internalTransferIds(pool)
+  assert.deepEqual([...ids].sort(), ['d1', 'w1'])
+  console.log('internal transfer matching tests passed')
 }

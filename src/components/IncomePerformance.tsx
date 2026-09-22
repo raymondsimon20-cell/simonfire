@@ -4,8 +4,8 @@ import { monthLabel, pct, posNeg, shortDate, usd } from '../lib/format'
 import type { Transaction, TwrPoint } from '../lib/types'
 import type { StatementMonth } from '../lib/statement-history'
 
-export function IncomePerformance({ points, transactions, sample = false, recorded = [], fromMonth = '' }: { points: TwrPoint[]; transactions: Transaction[]; sample?: boolean; recorded?: StatementMonth[]; fromMonth?: string }) {
-  const measured = recordedIncomePerformance(recorded, transactions, fromMonth)
+export function IncomePerformance({ points, transactions, sample = false, recorded = [], fromMonth = '', allTransactions }: { points: TwrPoint[]; transactions: Transaction[]; sample?: boolean; recorded?: StatementMonth[]; fromMonth?: string; allTransactions?: Transaction[] }) {
+  const measured = recordedIncomePerformance(recorded, transactions, fromMonth, allTransactions ?? transactions)
   if (measured) return <RecordedPerformance r={measured} sample={sample}/>
   const result = incomePerformance(points, transactions)
   if (!result) return <section className="mt-5 rounded-2xl border border-white/[.07] p-5"><h2 className="font-semibold">Income & capital performance</h2><p className="mt-2 text-sm text-muted">Not enough value history for this period. Sync your account or select a longer date range.</p></section>
@@ -73,9 +73,9 @@ function RecordedPerformance({ r, sample }: { r: Recorded; sample: boolean }) {
       <dl className="mt-3 space-y-2">{rows.map(([label, value]) => <div key={label} className="flex justify-between gap-4"><dt className="text-muted">{label}</dt><dd className={clsx('num shrink-0', posNeg(value))}>{usd(value, { sign: true })}</dd></div>)}</dl>
       <div className="mt-4 border-t border-white/[.07] pt-3 text-xs leading-6 text-muted">
         <p>Opening equity {usd(r.beginning)} + deposits {usd(r.deposits)} − withdrawals {usd(r.statementWithdrawals)} + investment gain / loss {usd(r.investmentChange, { sign: true })} = closing equity {usd(r.ending)}. Deposits and withdrawals here are as printed on each statement, so transfers between your own accounts appear on both sides and cancel.</p>
-        <p>Withdrawals & bill payments above count only transactions classified as Withdrawal or Bill Payment, so internal transfers are left out. Distributions may include return of capital; they are not all economic profit.</p>
+        <p>Withdrawals &amp; bill payments above count money that left your accounts: Withdrawal and Bill Payment transactions, minus {usd(r.internalOut)} that arrived as a deposit in another of your accounts within a few days. Distributions may include return of capital; they are not all economic profit.</p>
       </div>
     </details>
-    {r.needsReview > 0 && <p className="mt-2 text-xs text-[#f0a94a]">Review {r.needsReview} transfer, corporate-action, or uncategorized record(s) with cash: if any is money leaving to you, classify it as a Withdrawal so coverage is right.</p>}
+    {r.needsReview > 0 && <p className="mt-2 text-xs text-[#f0a94a]">{r.needsReview} uncategorized record{r.needsReview === 1 ? '' : 's'} with cash. If any is money leaving to you, classify it as a Withdrawal so coverage is right.</p>}
   </section>
 }

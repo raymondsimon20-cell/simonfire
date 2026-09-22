@@ -1,6 +1,6 @@
 import { Area, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { ArrowDownLeft, CalendarCheck2, Percent } from 'lucide-react'
-import { statementProfit, type StatementMonth } from '../lib/statement-history'
+import { coverageGap, statementProfit, type StatementMonth } from '../lib/statement-history'
 import { monthLabel, pct, shortDate, usd } from '../lib/format'
 import { StatCard } from './ui'
 import { BalanceOverview, HistoryBadge } from './BalanceOverview'
@@ -22,7 +22,7 @@ export function StatementHistory({ rows }: { rows: StatementMonth[] }) {
     </div>
     <section className="card overflow-hidden p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="mb-1 text-[10px] uppercase tracking-[.16em] text-[#c7a96b]">The long view</p><h2 className="text-lg font-medium">Equity over time</h2><p className="mt-1 text-xs text-faint">Recorded checkpoints. Current and partial months use their latest observation.</p></div><div className="flex gap-4 text-[11px] text-muted"><span className="flex items-center gap-1.5"><span className="h-1.5 w-4 rounded-full bg-[#d8bd7a]"/>Net equity</span><span className="flex items-center gap-1.5"><span className="h-1.5 w-4 rounded-full bg-[#648cb6]"/>Margin debt</span></div></div>
-      {rows.some((row) => !row.complete) && <p className="mt-3 text-xs text-amber-200">Partial account coverage: each month includes only its recorded accounts. Select an account to compare its history.</p>}
+      {rows.some((row) => !row.complete) && <p className="mt-3 text-xs text-amber-200">Partial account coverage: each month includes only its recorded accounts. The Monthly record below names the missing statements. Select an account to compare its history.</p>}
       <div className="mt-7 h-72 sm:h-80"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={rows} margin={{ top: 10, right: 10, bottom: 0, left: 0 }}>
         <defs><linearGradient id="recorded-equity-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#c7a96b" stopOpacity={0.2}/><stop offset="100%" stopColor="#c7a96b" stopOpacity={0}/></linearGradient></defs>
         <CartesianGrid stroke="#ffffff08" vertical={false}/>
@@ -37,10 +37,11 @@ export function StatementHistory({ rows }: { rows: StatementMonth[] }) {
       <div className="overflow-auto"><table className="w-full min-w-[950px] text-xs">
         <thead><tr className="border-b border-border-soft text-[10px] uppercase tracking-[.07em] text-faint">{['Month / source', 'Net equity', 'Deposits', 'Withdrawals', 'Income', 'Expenses', 'Market & other', 'Investment result', 'Margin debt'].map((label, index) => <th key={label} className={`px-4 py-3.5 font-medium ${index ? 'text-right' : 'text-left'}`}>{label}</th>)}</tr></thead>
         <tbody>{rows.slice().reverse().map((row) => <tr key={row.month} className="border-b border-white/[.04] last:border-0 hover:bg-white/[.025]">
-          <th className="px-5 py-4 text-left font-medium"><span className="block whitespace-nowrap">{monthLabel(row.month)}</span><span className="mt-2 block"><HistoryBadge row={row}/></span>{row.asOf && <span className="mt-1 block text-[10px] font-normal text-faint">As of {shortDate(row.asOf)}</span>}</th>
+          <th className="min-w-[230px] px-5 py-4 text-left font-medium"><span className="block whitespace-nowrap">{monthLabel(row.month)}</span><span className="mt-2 block"><HistoryBadge row={row}/></span>{row.asOf && <span className="mt-1 block text-[10px] font-normal text-faint">As of {shortDate(row.asOf)}</span>}{coverageGap(row) && <span className="mt-1.5 block max-w-[260px] whitespace-normal text-[10px] font-normal leading-relaxed text-amber-200/80">{coverageGap(row)}</span>}</th>
           {[row.closingEquity, row.flowsAvailable !== false ? row.deposits : undefined, row.flowsAvailable !== false ? row.withdrawals : undefined, row.flowsAvailable !== false ? row.dividendsInterest : undefined, row.flowsAvailable !== false ? row.expenses : undefined, statementProfit(row) != null ? row.marketChange : undefined, statementProfit(row), row.marginLoanBalance].map((value, index) => <td key={index} className={`num whitespace-nowrap px-4 py-4 text-right ${index === 0 ? 'font-medium text-[#e9d8ad]' : index === 6 && value != null ? value >= 0 ? 'text-pos' : 'text-neg' : 'text-muted'}`}>{value == null ? '—' : usd(value)}</td>)}
         </tr>)}</tbody>
       </table></div>
+      <p className="border-t border-white/[.06] px-5 py-3 text-[11px] leading-relaxed text-faint sm:px-6">Deposits and withdrawals are as printed on each statement, so a transfer between two of your own accounts appears in both columns; net funding is unaffected. A blank Market &amp; other or Investment result means the month has no opening balance for every account. A blank Margin debt means a margin account statement lacked a Net Loan Balance line.</p>
     </section>
   </>
 }

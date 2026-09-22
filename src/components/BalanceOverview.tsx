@@ -3,14 +3,15 @@ import { ArrowUpRight, Clock3, ShieldCheck, Sparkles, Wallet } from 'lucide-reac
 import { Link } from 'react-router-dom'
 import type { MonthlyBalanceSnapshot, SnapshotStatus } from '../lib/types'
 import { shortDate, usd } from '../lib/format'
-import { historySource, type StatementMonth } from '../lib/statement-history'
+import { coverageGap, historySource, type StatementMonth } from '../lib/statement-history'
 import { brokerageDate } from '../lib/balance-snapshots'
 
 export function HistoryBadge({ row }: { row: StatementMonth }) {
   const automatic = row.statements.some((item) => item.source === 'Automatic snapshot')
   const partial = !row.complete || (row.monthEnd === false && row.month < brokerageDate().slice(0, 7))
-  return <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-medium tracking-wide ${partial ? 'border-amber-300/20 bg-amber-300/5 text-amber-200' : automatic ? 'border-sky-300/20 bg-sky-300/5 text-sky-200' : 'border-[#c7a96b]/25 bg-[#c7a96b]/10 text-[#e1c887]'}`}>
-    {automatic ? <Clock3 size={11}/> : <ShieldCheck size={11}/>}{partial ? 'Partial coverage' : historySource(row)}
+  const gap = coverageGap(row)
+  return <span title={gap || undefined} className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-medium tracking-wide ${partial ? 'border-amber-300/20 bg-amber-300/5 text-amber-200' : automatic ? 'border-sky-300/20 bg-sky-300/5 text-sky-200' : 'border-[#c7a96b]/25 bg-[#c7a96b]/10 text-[#e1c887]'}`}>
+    {automatic ? <Clock3 size={11}/> : <ShieldCheck size={11}/>}{partial ? row.missingAccounts.length && row.statements.length ? `${row.statements.length} of ${row.statements.length + row.missingAccounts.length} accounts` : 'Partial coverage' : historySource(row)}
   </span>
 }
 

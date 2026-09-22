@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import './test-statement-transactions'
 import { parseHistoricalBalanceCsv, parseSchwabStatementText } from '../src/lib/historical-balances'
 import { availableMonths, monthClose, portfolioSummary } from '../src/lib/calc'
-import { mergeHistoricalBalances, statementHistory, statementProfit } from '../src/lib/statement-history'
+import { coverageGap, mergeHistoricalBalances, statementHistory, statementProfit } from '../src/lib/statement-history'
 import type { Account, Transaction } from '../src/lib/types'
 
 const parsed = parseHistoricalBalanceCsv([
@@ -49,7 +49,21 @@ const combined = statementHistory([...merged, { ...pdf, accountMask: '4567' }], 
 assert.equal(combined.closingEquity, 2520)
 assert.equal(combined.marginLoanBalance, 800)
 assert.equal(combined.complete, true)
-assert.equal(statementHistory([pdf, { ...pdf, accountMask: '4567', marginLoanBalance: undefined }], accounts, 'all')[0].marginLoanBalance, undefined)
+assert.equal(statementHistory([pdf, { ...pdf, accountMask: '4567', marginLoanBalance: undefined }], accounts, 'all')[0].marginLoanBalance, undefined, 'a margin account statement without a loan line stays unknown')
+// A cash/IRA statement never prints a Net Loan Balance line: that is $0 debt, not unknown.
+const ira: Account = { ...other, id: 'c', mask: '7777', isMargin: false, type: 'Individual', marginBalance: 0 }
+const withIra = statementHistory([pdf, { ...pdf, accountMask: '7777', marginLoanBalance: undefined }], [account, ira], 'all')[0]
+assert.equal(withIra.marginLoanBalance, 400, 'non-margin statements contribute zero debt instead of blanking the month')
+assert.equal(withIra.complete, true)
+assert.equal(coverageGap(withIra), '')
+// Missing statements are named so the user knows what to import.
+const partial = statementHistory([pdf], [account, ira], 'all')[0]
+assert.equal(partial.complete, false)
+assert.deepEqual(partial.missingAccounts.map((row) => row.id), ['c'])
+assert.match(coverageGap(partial), /No statement for A/)
+const noOpening = statementHistory([{ ...pdf, openingEquity: undefined }], [account], 'all')[0]
+assert.equal(noOpening.openingEquity, undefined)
+assert.match(coverageGap(noOpening), /No opening balance for A: import the December 2025 statement/)
 assert.deepEqual(availableMonths([], merged), ['2026-01'], 'statement-only months must be selectable')
 
 const transactions: Transaction[] = [{ id: 't', accountId: 'a', date: '2026-01-10', type: 'Sell', amount: 10000, pl: 9999, units: 1, description: '', tags: [] }]

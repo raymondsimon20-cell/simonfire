@@ -6,7 +6,7 @@ import { usd, pct, monthLabel, shortDate } from '../lib/format'
 import { PageHeader, StatCard, Card } from '../components/ui'
 import { EquityBridge } from '../components/EquityBridge'
 import { BalanceOverview, HistoryBadge, SnapshotStatusBar } from '../components/BalanceOverview'
-import { statementHistory, statementProfit } from '../lib/statement-history'
+import { coverageGap, statementHistory, statementProfit } from '../lib/statement-history'
 import { brokerageDate } from '../lib/balance-snapshots'
 
 export default function MonthClose() {
@@ -42,7 +42,7 @@ export default function MonthClose() {
     }/>
     <SnapshotStatusBar snapshots={snapshots} status={data.snapshotStatus}/>
     <BalanceOverview equity={mc.balanceAvailable ? mc.closing : undefined} label="Net equity" date={asOf} profit={profit} funding={funding} estimated={automatic} note={note} badge={row && <HistoryBadge row={row}/>}/>
-    {row && !row.complete && <p className="mb-4 text-xs text-amber-200">Partial account coverage. Totals include only accounts with a balance for this month.</p>}
+    {row && (!row.complete || coverageGap(row)) && <p className="mb-4 text-xs text-amber-200">{row.complete ? '' : 'Partial account coverage. Totals include only accounts with a balance for this month. '}{coverageGap(row)}</p>}
 
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard label="Equity change" value={mc.historyAvailable ? usd(mc.netChange, { sign: true }) : '—'} sub="Includes net funding" valueClass={mc.historyAvailable ? mc.netChange >= 0 ? 'text-pos' : 'text-neg' : 'text-faint'}/>

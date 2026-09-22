@@ -139,7 +139,7 @@ export function PlanHealth() {
         {earnings.estimated && <p className="mt-2 text-xs text-muted">Includes estimated realized P/L.</p>}
         {earnings.missingPl > 0 && <p className="mt-2 text-xs text-[#f0a94a]">Partial result: {earnings.missingPl} closing sale(s) lack realized P/L. <Link to="/transactions" className="underline">Review transactions</Link>.</p>}
       </div>
-      <IncomePerformance points={performancePoints} transactions={transactions} sample={data.source === 'sample'} />
+      <IncomePerformance points={performancePoints} transactions={transactions} sample={data.source === 'sample'} recorded={recorded} fromMonth={dateRangeStart(dateRange, localToday()).slice(0, 7)} />
       <p className="mt-5 text-sm text-muted">Income independence progress · {headline}</p>
       <p className="mt-2 text-xs leading-5 text-muted">Accumulation plan: invest W-2 income while funding bills through margin. Track net equity and debt relative to assets as you build toward income independence over 5–10 years. Spending coverage measures progress toward that goal; it is not a requirement for the accumulation phase. Historical equity growth requires recorded balances.</p>
       {editing && <PlanInputs plan={plan} observedSpending={model.observedSpending} onChange={setIncomePlan}/>}

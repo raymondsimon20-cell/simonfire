@@ -144,7 +144,7 @@ export default function HistoricalValue() {
           </div>
 
           <p className="mt-4 text-xs text-muted">Historical values cover stock/ETF holdings and reconstructed cash. Historical margin debt and option valuations are unavailable, so full-account net-equity growth cannot be measured from this chart. Current net equity uses the latest account balance.</p>
-          <IncomePerformance points={visible} transactions={transactions} sample={data.source === 'sample'} />
+          <IncomePerformance points={visible} transactions={transactions} sample={data.source === 'sample'} recorded={statementRows} />
 
           <div className="card mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 text-xs text-muted"><span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-[#d8bd7a]" /> Covered value (estimated)</span><span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-[#5aa2ff]" /> Recorded equity</span><span className="ml-auto">Net flows including excluded option cash <span className={clsx('num ml-1 font-medium', posNeg(stats.flow))}>{usd(stats.flow, { sign: true })}</span> · Value drawdown (includes flows) <span className="num ml-1 text-neg">{pct(stats.maxDrawdown * 100)}</span></span></div>
 

@@ -1,5 +1,7 @@
 import { strict as assert } from 'node:assert'
-import { incomePerformance, incomeAndRealizedGains } from '../src/lib/income-performance'
+import { incomePerformance, incomeAndRealizedGains, recordedIncomePerformance } from '../src/lib/income-performance'
+import { statementHistory } from '../src/lib/statement-history'
+import type { Account } from '../src/lib/types'
 import type { Transaction, TxnType } from '../src/lib/types'
 
 const txn = (type: TxnType, amount: number, date = '2026-06-01', symbol?: string): Transaction => ({ id: `${type}-${amount}`, accountId: 'a', date, type, amount, symbol, description: '', units: 0, tags: [] })
@@ -59,3 +61,22 @@ assert.equal(earnings.missingPl, 1)
 assert.equal(earnings.estimated, true)
 close(incomeAndRealizedGains([], '', '2026-06-30').gross, 0)
 close(incomeAndRealizedGains([txn('Dividend', 12, '2020-01-01')], '', '2026-06-30').gross, 12)
+
+// Recorded months: margin borrowing and deposits are never investment gain.
+{
+  const acct: Account = { id: 'm', mask: '9414', broker: 'Schwab', name: 'M', fullName: 'M', type: 'Margin', isMargin: true, cash: 0, marginBalance: 0, equity: 0 }
+  const month = (m: string, open: number, close: number, dep: number, wd: number, income: number, exp: number, loan: number) => ({ id: m, accountMask: '9414', month: m, openingEquity: open, closingEquity: close, deposits: dep, withdrawals: wd, dividendsInterest: income, expenses: exp, marketChange: close - open - dep - wd - income - exp, marginLoanBalance: loan, source: 'Schwab statement' as const, fileName: 's', importedAt: '2026-09-01' })
+  // Raymond's May–Sep 2026: the price-series panel said +$44,225; statements say ~+$758.
+  const rows = statementHistory([
+    month('2026-05', 49164.41, 48750.81, 9018.93, -12519.42, 824.01, -168.95, 25122), month('2026-06', 48750.81, 48644.57, 9798.88, -9586.69, 754.93, -121.33, 14778),
+    month('2026-07', 48644.57, 89313.57, 52636.10, -9458.38, 1029.82, -95.54, 16966), month('2026-08', 89313.57, 76560.75, 5177.58, -18358.35, 1784.24, -126.19, 61393),
+    month('2026-09', 76560.75, 77196.37, 6437.03, -5871.28, 1727.09, 0, 70179),
+  ], [acct], 'all')
+  const r = recordedIncomePerformance(rows, [{ id: 'w', accountId: 'm', date: '2026-06-10', type: 'Withdrawal', amount: -3000, units: 0, description: '', tags: [] }])!
+  assert.ok(Math.abs(r.investmentChange - 757.56) < 0.05, `got ${r.investmentChange}`)
+  assert.equal(r.fromMonth, '2026-05')
+  assert.ok(Math.abs(r.netIncome - (824.01 + 754.93 + 1029.82 + 1784.24 + 1727.09 - 168.95 - 121.33 - 95.54 - 126.19)) < 0.01)
+  assert.equal(r.withdrawals, 3000, 'only money actually leaving (classified withdrawals), not internal transfers')
+  assert.ok(Math.abs(r.beginning + r.deposits - r.statementWithdrawals + r.investmentChange - r.ending) < 0.01, 'reconciles to closing equity')
+  console.log('recorded income performance tests passed')
+}

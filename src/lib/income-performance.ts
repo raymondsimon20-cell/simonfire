@@ -1,6 +1,7 @@
 import type { Transaction, TwrPoint } from './types'
 import { flowsByDate } from './twr'
 import { isClosingSale } from './transaction-review'
+import { monthlyReturn, type StatementMonth } from './statement-history'
 
 // Transaction earnings do not require reconstructed market-value history.
 export function incomeAndRealizedGains(transactions: Transaction[], fromDate: string, toDate: string) {
@@ -44,4 +45,40 @@ export function incomePerformance(series: TwrPoint[], transactions: Transaction[
   const needsReview = txns.filter((t) => ['Other', 'Transfer', 'Corporate Action'].includes(t.type)).length
   return { start, end, dividends, interest, costs, taxes, contributions, withdrawals, optionCash,
     investmentChange, netIncome, priceChange, retained, incomeAfterWithdrawals, needsReview }
+}
+
+// ---------- Recorded-month version (statements + saved balances) ----------
+// The capital side comes from recorded month-end equity, which already nets
+// margin debt and uses deposits/withdrawals exactly as Schwab reported them, so
+// borrowing or moving money is never counted as investment gain. Uses the same
+// unbroken run of measurable months as the statement TWR.
+export function recordedIncomePerformance(rows: StatementMonth[], transactions: Transaction[], fromMonth = '') {
+  const window = rows.filter((row) => !fromMonth || row.month >= fromMonth).sort((a, b) => a.month.localeCompare(b.month))
+  let run: StatementMonth[] = []
+  for (const row of window) run = monthlyReturn(row) ? [...run, row] : []
+  if (!run.length) return null
+  const first = run[0]
+  const last = run.at(-1)!
+  const total = (pick: (row: StatementMonth) => number) => run.reduce((sum, row) => sum + pick(row), 0)
+  const deposits = total((row) => row.deposits)
+  const statementWithdrawals = -total((row) => row.withdrawals)
+  const beginning = first.openingEquity!
+  const ending = last.closingEquity
+  const investmentChange = ending - beginning - deposits + statementWithdrawals
+  const income = total((row) => row.dividendsInterest)
+  const costs = -total((row) => row.expenses)
+  const netIncome = income - costs
+  // Money that actually left to you: transaction-classified withdrawals and
+  // bills, so transfers between your own accounts (tagged Transfer) don't count.
+  const fromDate = `${first.month}-01`
+  const toDate = last.asOf?.slice(0, 10) ?? `${last.month}-31`
+  const txns = transactions.filter((t) => t.date >= fromDate && t.date <= toDate)
+  const withdrawals = -txns.filter((t) => t.type === 'Withdrawal' || t.type === 'Bill Payment').reduce((n, t) => n + t.amount, 0)
+  return {
+    fromMonth: first.month, toMonth: last.month, asOf: last.asOf, estimated: run.some((row) => row.statements.some((s) => s.source === 'Automatic snapshot')),
+    beginning, ending, deposits, statementWithdrawals, income, costs, netIncome,
+    investmentChange, priceChange: investmentChange - netIncome, withdrawals,
+    retained: investmentChange - withdrawals, incomeAfterWithdrawals: netIncome - withdrawals,
+    needsReview: txns.filter((t) => ['Other', 'Transfer', 'Corporate Action'].includes(t.type) && t.amount !== 0).length,
+  }
 }

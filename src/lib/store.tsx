@@ -168,6 +168,7 @@ function sharedPreferences(data: AppData): SharedPreferences {
     savedTransactionViews: data.savedTransactionViews ?? [],
     historicalBalances: data.historicalBalances ?? [],
     transactionOverrides: data.transactionOverrides ?? {},
+    accountOpenMonths: data.accountOpenMonths ?? {},
   }
 }
 
@@ -187,6 +188,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   data.importHistory = preferences.importHistory ?? data.importHistory ?? []
   data.freshnessThresholds = { ...DEFAULT_FRESHNESS, ...(preferences.freshnessThresholds ?? data.freshnessThresholds ?? {}) }
   data.savedTransactionViews = preferences.savedTransactionViews ?? data.savedTransactionViews ?? []
+  data.accountOpenMonths = preferences.accountOpenMonths ?? data.accountOpenMonths ?? {}
   if (preferences.historicalBalances?.length) {
     data.historicalBalances = mergeHistoricalBalances(data.historicalBalances ?? [], preferences.historicalBalances, data.accounts)
   }
@@ -238,6 +240,7 @@ interface StoreCtx {
   clearCsvAuthority: (accountMask: string, kind: 'positions' | 'transactions' | 'realizedPl') => void
   applyHistoricalBalances: (balances: HistoricalBalance[], statements?: StatementTransactions[]) => void
   setFreshnessThresholds: (value: AppData['freshnessThresholds']) => void
+  setAccountOpenMonth: (mask: string, month: string | undefined) => void
   setSavedTransactionViews: (value: NonNullable<AppData['savedTransactionViews']>) => void
   restoreBackup: (backup: AppData) => void
   reset: () => void
@@ -338,7 +341,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!sharedReady) return
     const timeout = window.setTimeout(() => { void saveSharedPreferences(sharedPreferences(data)) }, 350)
     return () => window.clearTimeout(timeout)
-  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, data.importHistory, data.freshnessThresholds, data.savedTransactionViews, data.historicalBalances, data.statementTransactions, data.transactionOverrides, sharedReady])
+  }, [data.bucketOverrides, data.tagRules, data.symbolRules, data.targetAlloc, data.keepList, data.soldSymbols, data.incomePlan, data.spendingExclusions, data.realizedPlOverrides, data.csvPositionAuthority, data.csvTransactionAuthority, data.importHistory, data.freshnessThresholds, data.savedTransactionViews, data.historicalBalances, data.statementTransactions, data.transactionOverrides, data.accountOpenMonths, sharedReady])
 
   const mutate = useCallback((fn: (d: AppData) => AppData, label?: string) => {
     setData((prev) => {
@@ -751,6 +754,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     d.freshnessThresholds = { ...DEFAULT_FRESHNESS, ...(value ?? {}) }
     return d
   }), [mutate])
+  const setAccountOpenMonth: StoreCtx['setAccountOpenMonth'] = useCallback((mask, month) => mutate((d) => {
+    const next = { ...(d.accountOpenMonths ?? {}) }
+    if (month && /^20\d{2}-(0[1-9]|1[0-2])$/.test(month)) next[mask] = month
+    else delete next[mask]
+    d.accountOpenMonths = next
+    return d
+  }), [mutate])
   const setSavedTransactionViews: StoreCtx['setSavedTransactionViews'] = useCallback((value) => mutate((d) => { d.savedTransactionViews = value; return d }), [mutate])
 
   const restoreBackup: StoreCtx['restoreBackup'] = useCallback((backup) => {
@@ -926,6 +936,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       clearCsvAuthority,
       applyHistoricalBalances,
       setFreshnessThresholds,
+      setAccountOpenMonth,
       setSavedTransactionViews,
       restoreBackup,
       reset,
@@ -970,6 +981,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       rollbackImport,
       clearCsvAuthority,
       setFreshnessThresholds,
+      setAccountOpenMonth,
       setSavedTransactionViews,
       restoreBackup,
       reset,

@@ -22,6 +22,7 @@ type SharedPreferences = {
   freshnessThresholds?: { positions: number; transactions: number; realizedPl: number }
   savedTransactionViews?: unknown[]
   historicalBalances?: unknown[]
+  accountOpenMonths?: Record<string, string>
   incomePlan?: {
     allocationExpenseReserve?: boolean
     allocationSizing?: 'priority' | 'gaps' | 'equal' | 'trend'
@@ -135,6 +136,7 @@ function clean(input: any): SharedPreferences {
     freshnessThresholds,
     savedTransactionViews,
     historicalBalances,
+    accountOpenMonths: Object.fromEntries(Object.entries(input?.accountOpenMonths ?? {}).filter(([mask, month]) => /^\d{3,4}$/.test(mask) && typeof month === 'string' && /^20\d{2}-(0[1-9]|1[0-2])$/.test(month)).slice(0, 50)) as Record<string, string>,
     incomePlan,
   }
 }
@@ -155,7 +157,9 @@ export default async (request: Request) => {
     // decisions and use conditional writes so simultaneous saves cannot lose edits.
     for (let attempt = 0; attempt < 5; attempt++) {
       const existing = await storage.getWithMetadata(KEY, { type: 'json' })
-      const preferences = { ...incoming, statementTransactions: mergeStatementTransactions(existing?.data.statementTransactions, incoming.statementTransactions), transactionOverrides: mergeTransactionOverrides(
+      // Tabs from before open months existed omit the field; keep the saved value.
+      const accountOpenMonths = 'accountOpenMonths' in body ? incoming.accountOpenMonths : existing?.data.accountOpenMonths ?? {}
+      const preferences = { ...incoming, accountOpenMonths, statementTransactions: mergeStatementTransactions(existing?.data.statementTransactions, incoming.statementTransactions), transactionOverrides: mergeTransactionOverrides(
         cleanTransactionOverrides(existing?.data.transactionOverrides), incoming.transactionOverrides,
       ) }
       if (existing && !existing.etag) return json({ ok: false, error: 'missing_etag' }, 503)

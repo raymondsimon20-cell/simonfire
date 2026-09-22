@@ -66,7 +66,7 @@ export default function HistoricalValue() {
   const { data } = useStore()
   const { scope, transactions, positions, accounts } = useScoped()
   const [showDaily, setShowDaily] = useState(false)
-  const history = useMemo(() => statementHistory(data.historicalBalances ?? [], accounts, scope, data.balanceSnapshots), [data.historicalBalances, data.balanceSnapshots, accounts, scope])
+  const history = useMemo(() => statementHistory(data.historicalBalances ?? [], accounts, scope, data.balanceSnapshots, data.accountOpenMonths), [data.historicalBalances, data.balanceSnapshots, data.accountOpenMonths, accounts, scope])
   const [range, setRange] = useState<Range>('1Y')
   const statementRows = !history.length ? history : history.filter((row) => row.month >= statementStartForRange(history.at(-1)!.month, range))
   const fullSeries = useMemo(() => coveredSeries(seriesForScope(data.twr, scope), transactions), [data.twr, scope, transactions])

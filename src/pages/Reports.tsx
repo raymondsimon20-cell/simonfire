@@ -13,7 +13,7 @@ import { isActiveProtectivePut } from '../lib/hedge'
 export default function Reports() {
   const { data } = useStore()
   const { accounts, positions, transactions, scope } = useScoped()
-  const history = statementHistory(data.historicalBalances ?? [], accounts, scope, data.balanceSnapshots)
+  const history = statementHistory(data.historicalBalances ?? [], accounts, scope, data.balanceSnapshots, data.accountOpenMonths)
   const months = availableMonths(transactions, history)
   const revision = (data.historicalBalances ?? []).map((row) => `${row.accountMask}:${row.month}:${row.importedAt}`).join('|')
   const [selection, setSelection] = useState<{ month: string; scope: string; revision: string }>()
@@ -22,7 +22,7 @@ export default function Reports() {
   const setMonth = (month: string) => setSelection({ month, scope, revision })
   const report = useMemo(() => {
     const summary = portfolioSummary(positions, accounts, scope, transactions)
-    const close = monthClose(accounts, transactions, scope, month, summary, data.historicalBalances, data.balanceSnapshots)
+    const close = monthClose(accounts, transactions, scope, month, summary, data.historicalBalances, data.balanceSnapshots, data.accountOpenMonths)
     const flow = cashFlow(transactions, `${month}-01`, `${month}-31`)
     const dividends = transactions.filter((row) => row.type === 'Dividend' && row.date.slice(0, 7) === month).reduce((sum, row) => sum + row.amount, 0)
     const dividendRunRate = dividendStats(positions, transactions, `${month}-28`).estMonthly

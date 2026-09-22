@@ -146,6 +146,8 @@ export interface ConnectionEvent {
 }
 
 export interface AppData {
+  /** Manual "opened in" month (YYYY-MM) per account mask; overrides inference. */
+  accountOpenMonths?: Record<string, string>
   statementTransactions?: StatementTransactions[]
   accountSyncCoverage?: AccountSyncCoverage[]
   version: number

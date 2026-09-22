@@ -13,7 +13,7 @@ export default function MonthClose() {
   const { data } = useStore()
   const { positions, accounts, transactions, scope } = useScoped()
   const snapshots = data.balanceSnapshots ?? []
-  const history = useMemo(() => statementHistory(data.historicalBalances ?? [], accounts, scope, data.balanceSnapshots), [data.historicalBalances, data.balanceSnapshots, accounts, scope])
+  const history = useMemo(() => statementHistory(data.historicalBalances ?? [], accounts, scope, data.balanceSnapshots, data.accountOpenMonths), [data.historicalBalances, data.balanceSnapshots, data.accountOpenMonths, accounts, scope])
   const months = availableMonths(transactions, history)
   const currentMonth = brokerageDate().slice(0, 7)
   // A routine capture must not move the month the user is reviewing.
@@ -24,7 +24,7 @@ export default function MonthClose() {
   const idx = months.indexOf(ym)
   const selectMonth = (month: string) => setSelection({ month, scope, revision })
   const summary = useMemo(() => portfolioSummary(positions, accounts, scope, transactions), [positions, accounts, scope, transactions])
-  const mc = monthClose(accounts, transactions, scope, ym, summary, data.historicalBalances, snapshots)
+  const mc = monthClose(accounts, transactions, scope, ym, summary, data.historicalBalances, snapshots, data.accountOpenMonths)
   const row = mc.statement
   const automatic = row?.statements.some((item) => item.source === 'Automatic snapshot')
   const profit = row ? statementProfit(row) : undefined

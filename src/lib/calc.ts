@@ -598,6 +598,7 @@ export function monthClose(
   currentSummary: PortfolioSummary,
   historicalBalances: HistoricalBalance[] = [],
   snapshots: MonthlyBalanceSnapshot[] = [],
+  openMonths: Record<string, string> = {},
 ): MonthClose {
   const flowsOf = (m: string) => {
     const t = txns.filter((x) => x.date.slice(0, 7) === m)
@@ -615,7 +616,7 @@ export function monthClose(
   // Transactions alone cannot establish past net equity or market movement.
   // Never fabricate an opening balance from today's debt or a pseudo return.
   const f = flowsOf(ym)
-  const historical = statementHistory(historicalBalances, accounts, scope, snapshots).find((balance) => balance.month === ym)
+  const historical = statementHistory(historicalBalances, accounts, scope, snapshots, openMonths).find((balance) => balance.month === ym)
   const today = new Date()
   const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
   const isCurrent = ym === currentMonth

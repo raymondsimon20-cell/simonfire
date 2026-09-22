@@ -43,10 +43,30 @@ export function statementMarginDebt(row: HistoricalBalance, accounts: Account[])
   return account && !account.isMargin ? 0 : undefined
 }
 
-export function statementHistory(balances: HistoricalBalance[], accounts: Account[], scope: string, snapshots: MonthlyBalanceSnapshot[] = []): StatementMonth[] {
+export type OpenMonthSource = 'manual' | 'first statement' | undefined
+const MONTH = /^20\d{2}-(0[1-9]|1[0-2])$/
+
+// When did each account start? A manual month always wins. Otherwise, if the
+// earliest recorded month for an account opens at $0.00, the account held
+// nothing before then, so earlier months should not expect a statement for it.
+// (Even if it technically existed, its balance contributed $0.) Without that
+// evidence nothing is assumed: a missing statement stays a real gap.
+export function accountOpenMonths(balances: HistoricalBalance[], accounts: Account[], manual: Record<string, string> = {}) {
+  const result = new Map<string, { month: string; source: Exclude<OpenMonthSource, undefined> }>()
+  for (const account of accounts) {
+    const set = manual[account.mask]
+    if (set && MONTH.test(set)) { result.set(account.id, { month: set, source: 'manual' }); continue }
+    const first = balances.filter((row) => statementAccount(row, accounts)?.id === account.id).sort((a, b) => a.month.localeCompare(b.month))[0]
+    if (first && first.openingEquity != null && Math.abs(first.openingEquity) < 0.005) result.set(account.id, { month: first.month, source: 'first statement' })
+  }
+  return result
+}
+
+export function statementHistory(balances: HistoricalBalance[], accounts: Account[], scope: string, snapshots: MonthlyBalanceSnapshot[] = [], manualOpenMonths: Record<string, string> = {}): StatementMonth[] {
   const groups = new Map<string, HistoricalBalance[]>()
   const imported = mergeHistoricalBalances([], balances, accounts)
   const combined = mergeHistoricalBalances(automaticBalances(snapshots, imported), imported, accounts)
+  const opened = accountOpenMonths(combined, accounts, manualOpenMonths)
   for (const balance of combined) {
     if (scope !== 'all' && statementAccount(balance, accounts)?.id !== scope) continue
     groups.set(balance.month, [...(groups.get(balance.month) ?? []), balance])
@@ -56,7 +76,8 @@ export function statementHistory(balances: HistoricalBalance[], accounts: Accoun
     const sum = (field: 'openingEquity' | 'closingEquity' | 'deposits' | 'withdrawals' | 'dividendsInterest' | 'marketChange' | 'expenses') =>
       statements.reduce((total, row) => total + (row[field] ?? 0), 0)
     const margins = statements.map((row) => statementMarginDebt(row, accounts))
-    const missingAccounts = selected.filter((account) => !statements.some((row) => statementAccount(row, accounts)?.id === account.id))
+    const expected = selected.filter((account) => !opened.has(account.id) || month >= opened.get(account.id)!.month)
+    const missingAccounts = expected.filter((account) => !statements.some((row) => statementAccount(row, accounts)?.id === account.id))
     const unmatched = statements.filter((row) => !statementAccount(row, accounts))
     const noOpening = statements.filter((row) => row.openingEquity == null).map((row) => statementAccount(row, accounts)?.name ?? `····${row.accountMask || '?'}`)
     return {
@@ -65,7 +86,7 @@ export function statementHistory(balances: HistoricalBalance[], accounts: Accoun
       monthEnd: statements.every((row) => row.source !== 'Automatic snapshot' || row.monthEnd),
       flowsAvailable: statements.every((row) => row.flowsAvailable !== false),
       coverageNote: [...new Set(statements.map((row) => row.coverageNote).filter(Boolean))].join(' '),
-      complete: selected.length > 0 && missingAccounts.length === 0 && unmatched.length === 0,
+      complete: expected.length > 0 && missingAccounts.length === 0 && unmatched.length === 0,
       openingEquity: statements.every((row) => row.openingEquity != null) ? sum('openingEquity') : undefined,
       closingEquity: sum('closingEquity'), deposits: sum('deposits'), withdrawals: sum('withdrawals'),
       dividendsInterest: sum('dividendsInterest'), marketChange: sum('marketChange'), expenses: sum('expenses'),
@@ -91,7 +112,7 @@ export function statementBridgeValues(row: HistoricalBalance) {
 // figure is blank. Empty when the month is complete and fully reconciled.
 export function coverageGap(row: StatementMonth) {
   const parts: string[] = []
-  if (row.missingAccounts.length) parts.push(`No statement for ${row.missingAccounts.map((account) => account.name).join(', ')}.`)
+  if (row.missingAccounts.length) parts.push(`No statement for ${row.missingAccounts.map((account) => account.name).join(', ')}. If it opened later, set its open month in Data Quality.`)
   if (row.unmatched.length) {
     const blank = row.unmatched.filter((item) => !item.accountMask.replace(/\D/g, ''))
     if (blank.length) parts.push(`${blank.length} imported row${blank.length === 1 ? ' has' : 's have'} no account number, so it cannot be tied to an account: re-import it with the account chosen.`)

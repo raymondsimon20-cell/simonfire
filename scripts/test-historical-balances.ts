@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import './test-statement-transactions'
 import { parseHistoricalBalanceCsv, parseSchwabStatementText } from '../src/lib/historical-balances'
 import { availableMonths, monthClose, portfolioSummary } from '../src/lib/calc'
-import { coverageGap, mergeHistoricalBalances, statementHistory, statementProfit } from '../src/lib/statement-history'
+import { accountOpenMonths, coverageGap, mergeHistoricalBalances, statementHistory, statementProfit } from '../src/lib/statement-history'
 import type { Account, Transaction } from '../src/lib/types'
 
 const parsed = parseHistoricalBalanceCsv([
@@ -64,6 +64,17 @@ assert.match(coverageGap(partial), /No statement for A/)
 const blankMask = statementHistory([{ ...pdf, accountMask: '' }], accounts, 'all')[0]
 assert.equal(blankMask.complete, false)
 assert.match(coverageGap(blankMask), /no account number.*re-import it with the account chosen/)
+// Accounts that opened later are not expected before they opened.
+const opensLater = [{ ...pdf, month: '2026-01' }, { ...pdf, accountMask: '7777', month: '2026-03', openingEquity: 0, closingEquity: 500 }, { ...pdf, month: '2026-03' }]
+const later = statementHistory(opensLater, [account, ira], 'all')
+assert.equal(later.find((row) => row.month === '2026-01')!.complete, true, 'a $0 first opening marks when the account started')
+assert.equal(later.find((row) => row.month === '2026-03')!.complete, true)
+assert.equal(accountOpenMonths(opensLater, [account, ira]).get('c')?.source, 'first statement')
+// No $0 evidence: nothing is assumed until the user sets it.
+const unknownStart = [{ ...pdf, month: '2026-01' }, { ...pdf, accountMask: '7777', month: '2026-03', openingEquity: 250 }]
+assert.equal(statementHistory(unknownStart, [account, ira], 'all')[0].complete, false)
+assert.equal(statementHistory(unknownStart, [account, ira], 'all', [], { '7777': '2026-02' })[0].complete, true, 'manual open month clears earlier gaps')
+assert.equal(statementHistory(unknownStart, [account, ira], 'all', [], { '7777': 'bad' })[0].complete, false, 'invalid manual months are ignored')
 const noOpening = statementHistory([{ ...pdf, openingEquity: undefined }], [account], 'all')[0]
 assert.equal(noOpening.openingEquity, undefined)
 assert.match(coverageGap(noOpening), /No opening balance for A: import the December 2025 statement/)

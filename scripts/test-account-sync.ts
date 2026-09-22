@@ -4,8 +4,10 @@ import { fetchPortfolio } from '../netlify/functions/lib/schwab'
 import { applyPositionBuckets } from '../src/lib/position-buckets'
 import { mergeLiveAccounts } from '../src/lib/live-accounts'
 import type { Account, Position, Transaction } from '../src/lib/types'
+import { testDividendApi } from './test-dividend-api'
 
 async function main() {
+  await testDividendApi()
   const position = (accountId: string): Position => ({ id: accountId, accountId, symbol: 'ABC', name: 'ABC', shares: 1, avgCost: 1, lastPrice: 1, prevClose: 1, dividendsReceived: 0 })
   const positions = [position('one'), position('two'), position('three')]
   applyPositionBuckets(positions, { 'one|ABC': 'High Yield' })
@@ -47,7 +49,7 @@ async function main() {
   await assert.rejects(() => fetchTransactionHistory(async () => ({}), start, end), /INVALID_TRANSACTION_RESPONSE/)
 
   const realFetch = globalThis.fetch
-  let fail = false, missingHash = false
+  let fail = false, missingHash = false, apiOnly = false, detailOnly = false, instrumentCalls = 0, detailCalls = 0
   globalThis.fetch = async (input) => {
     const url = new URL(String(input))
     if (url.pathname.endsWith('/accounts/accountNumbers')) return Response.json(['1111', '2222', '3333'].filter((id) => !missingHash || id !== '2222').map((id) => ({ accountNumber: id, hashValue: id })))
@@ -55,8 +57,15 @@ async function main() {
     if (url.pathname.endsWith('/transactions')) {
       if (fail && url.pathname.includes('2222')) return Response.json({}, { status: 500 })
       const account = url.pathname.split('/').at(-2)
-      return Response.json([{ activityId: account, type: 'DIVIDEND_OR_INTEREST', netAmount: 10, tradeDate: new Date().toISOString(), description: 'Dividend', transferItems: [{ amount: 0, instrument: { assetType: 'EQUITY', cusip: '123456789', ...(account === '1111' ? { symbol: 'ABC' } : {}) } }, { amount: 10, instrument: { assetType: 'CURRENCY', symbol: 'CURRENCY_USD' } }] }])
+      const cash = { amount: 10, instrument: { assetType: 'CURRENCY', symbol: 'CURRENCY_USD' } }
+      return Response.json([{ activityId: account, type: 'DIVIDEND_OR_INTEREST', netAmount: 10, tradeDate: new Date().toISOString(), description: 'Dividend', transferItems: detailOnly ? [cash] : [{ amount: 0, instrument: { assetType: 'EQUITY', cusip: '123456789', ...(!apiOnly && account === '1111' ? { symbol: 'ABC' } : {}) } }, cash] }])
     }
+    if (url.pathname.includes('/transactions/')) {
+      detailCalls++
+      const id = url.pathname.split('/').at(-1)
+      return Response.json({ activityId: id, type: 'DIVIDEND_OR_INTEREST', netAmount: 10, description: 'Dividend', transferItems: [{ amount: 0, instrument: { assetType: 'EQUITY', cusip: '123456789' } }] })
+    }
+    if (url.pathname.endsWith('/instruments/123456789')) { instrumentCalls++; return Response.json({ instruments: [{ symbol: 'ABC', cusip: '123456789', assetType: 'EQUITY' }] }) }
     return Response.json({ candles: [] })
   }
   try {
@@ -64,6 +73,16 @@ async function main() {
     assert.equal(portfolio.accountSyncCoverage.length, 3)
     assert.equal(portfolio.transactions.length, 3)
     assert.ok(portfolio.transactions.every((row) => row.symbol === 'ABC' && row.units === 0), 'CUSIP-only dividends resolve across all accounts without counting cash as units')
+    assert.equal(instrumentCalls, 0, 'known symbols do not need API enrichment')
+    apiOnly = true
+    const enriched = await fetchPortfolio('test-token')
+    assert.equal(instrumentCalls, 1, 'one lookup resolves missing symbols across three accounts')
+    assert.ok(enriched.transactions.every((row) => row.symbol === 'ABC' && row.symbolSource === 'broker'))
+    assert.ok(enriched.accountSyncCoverage.every((row) => row.dividendLookup?.resolved === 1))
+    detailOnly = true
+    const detailed = await fetchPortfolio('test-token')
+    assert.equal(detailCalls, 3, 'cash-only payments request individual transaction details for each account')
+    assert.ok(detailed.transactions.every((row) => row.symbol === 'ABC' && row.amount === 10 && row.units === 0))
     fail = true
     await assert.rejects(() => fetchPortfolio('test-token'), /history failed.*2222/)
     fail = false; missingHash = true

@@ -9,6 +9,7 @@ import { brokerageDate, createBalanceSnapshot } from '../../../src/lib/balance-s
 import type { BalanceSnapshot, Transaction } from '../../../src/lib/types'
 import type { AccountSyncCoverage } from '../../../src/lib/types'
 import { fetchTransactionHistory } from './transaction-history'
+import { resolveDividendSymbolsFromApi } from './dividend-api'
 
 const TOKEN_URL = 'https://api.schwabapi.com/v1/oauth/token'
 const AUTH_URL = 'https://api.schwabapi.com/v1/oauth/authorize'
@@ -507,6 +508,7 @@ export async function fetchPortfolio(token: string) {
   const positions: any[] = []
   const transactions: any[] = []
   const accountSyncCoverage: AccountSyncCoverage[] = []
+  const accountHashes = new Map<string, string>()
   const accountMasks = new Set<string>()
 
   // 12 months of transactions
@@ -600,6 +602,7 @@ export async function fetchPortfolio(token: string) {
         `/accounts/${hash}/transactions?startDate=${encodeURIComponent(from)}&endDate=${encodeURIComponent(to)}`,
         token, AbortSignal.timeout(15_000),
       ), start, end)
+      accountHashes.set(accId, hash)
       for (const t of history.rows) transactions.push(mapTxn(accId, t))
       accountSyncCoverage.push({ accountId: accId, from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10), transactionCount: history.rows.length, positionCount: (sa.positions ?? []).length, method: history.method, syncedAt: end.toISOString() })
     } catch {
@@ -645,6 +648,8 @@ export async function fetchPortfolio(token: string) {
     }
   }
   resolveDividendSymbols(positions, transactions)
+  const dividendLookups = await resolveDividendSymbolsFromApi({ token, transactions, accountHashes, mapTransaction: mapTxn })
+  for (const coverage of accountSyncCoverage) coverage.dividendLookup = dividendLookups.get(coverage.accountId)
 
   // Backfill lifetime dividends per position from transactions.
   const divBy = new Map<string, number>()

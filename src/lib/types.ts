@@ -182,6 +182,7 @@ export interface AccountSyncCoverage {
   positionCount: number
   method: 'single request' | 'smaller date windows'
   syncedAt: string
+  dividendLookup?: { resolved: number; failed: number; limited: number }
 }
 
 export interface HistoricalBalance {

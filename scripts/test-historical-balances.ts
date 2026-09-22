@@ -61,6 +61,9 @@ const partial = statementHistory([pdf], [account, ira], 'all')[0]
 assert.equal(partial.complete, false)
 assert.deepEqual(partial.missingAccounts.map((row) => row.id), ['c'])
 assert.match(coverageGap(partial), /No statement for A/)
+const blankMask = statementHistory([{ ...pdf, accountMask: '' }], accounts, 'all')[0]
+assert.equal(blankMask.complete, false)
+assert.match(coverageGap(blankMask), /no account number.*re-import it with the account chosen/)
 const noOpening = statementHistory([{ ...pdf, openingEquity: undefined }], [account], 'all')[0]
 assert.equal(noOpening.openingEquity, undefined)
 assert.match(coverageGap(noOpening), /No opening balance for A: import the December 2025 statement/)

@@ -92,7 +92,12 @@ export function statementBridgeValues(row: HistoricalBalance) {
 export function coverageGap(row: StatementMonth) {
   const parts: string[] = []
   if (row.missingAccounts.length) parts.push(`No statement for ${row.missingAccounts.map((account) => account.name).join(', ')}.`)
-  if (row.unmatched.length) parts.push(`${row.unmatched.length} statement${row.unmatched.length === 1 ? '' : 's'} could not be matched to an account (mask ${row.unmatched.map((item) => item.accountMask || 'blank').join(', ')}).`)
+  if (row.unmatched.length) {
+    const blank = row.unmatched.filter((item) => !item.accountMask.replace(/\D/g, ''))
+    if (blank.length) parts.push(`${blank.length} imported row${blank.length === 1 ? ' has' : 's have'} no account number, so it cannot be tied to an account: re-import it with the account chosen.`)
+    const other = row.unmatched.length - blank.length
+    if (other) parts.push(`${other} statement${other === 1 ? '' : 's'} could not be matched to an account (ending ${row.unmatched.filter((item) => item.accountMask.replace(/\D/g, '')).map((item) => item.accountMask).join(', ')}).`)
+  }
   if (row.openingEquity == null && row.noOpening.length) parts.push(`No opening balance for ${row.noOpening.join(', ')}: import the ${monthLabel(previousMonth(row.month))} statement.`)
   if (row.marginLoanBalance == null) {
     const strict = row.statements.filter((item) => item.marginLoanBalance == null)

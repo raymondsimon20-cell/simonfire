@@ -6,7 +6,7 @@ import { dividendStats, portfolioSummary } from '../lib/calc'
 import { dateRangeStart } from '../lib/date-range'
 import { pct, posNeg, relTime, usd } from '../lib/format'
 import { computeTwr, flowsByDate, seriesForScope, sliceFrom, coveredSeries } from '../lib/twr'
-import { statementHistory, statementTwr, withholdingByMonth } from '../lib/statement-history'
+import { statementHistory, statementTwr, flowContext } from '../lib/statement-history'
 import { incomeAndRealizedGains } from '../lib/income-performance'
 import { IncomePerformance } from './IncomePerformance'
 import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
@@ -82,7 +82,7 @@ export function PlanHealth() {
   const performance = useMemo(() => {
     const cutoff = dateRangeStart(dateRange, localToday())
     const monthLabelShort = (month: string) => new Date(`${month}-01T12:00:00`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-    const fromStatements = statementTwr(recorded, cutoff ? cutoff.slice(0, 7) : '', withholdingByMonth(transactions))
+    const fromStatements = statementTwr(recorded, cutoff ? cutoff.slice(0, 7) : '', flowContext(transactions))
     if (fromStatements.ok) return { ok: true, twrPct: fromStatements.twrPct, label: `since ${monthLabelShort(fromStatements.startMonth)}`, basis: fromStatements.estimated ? 'Statements + saved balances' : 'Statements' }
     const result = computeTwr(sliceFrom(coveredSeries(seriesForScope(data.twr, scope), transactions), cutoff), flowsByDate(transactions))
     const label = !result.ok

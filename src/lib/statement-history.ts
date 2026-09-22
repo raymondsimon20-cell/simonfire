@@ -119,8 +119,10 @@ export function statementHistory(balances: HistoricalBalance[], accounts: Accoun
   })
 }
 
-export function statementProfit(row: HistoricalBalance) {
-  return row.openingEquity == null || row.flowsAvailable === false ? undefined : row.closingEquity - row.openingEquity - row.deposits - row.withdrawals
+// Investment result for a month. Pass the month's tax withheld so it is
+// treated as money leaving, not as an investment loss.
+export function statementProfit(row: HistoricalBalance, withheld = 0) {
+  return row.openingEquity == null || row.flowsAvailable === false ? undefined : row.closingEquity - row.openingEquity - row.deposits - row.withdrawals + withheld
 }
 
 export function historySource(row: StatementMonth) {
@@ -182,29 +184,80 @@ export interface StatementTwr {
 // Tax withheld from dividends is a prepayment of your income tax, not an
 // investment loss. Statements print dividends net of it; Schwab's performance
 // view counts the gross dividend as income and the withholding as money
-// leaving. Pass the month's withholding (positive dollars) to match that.
-export type WithholdingByMonth = Map<string, number>
-
-export function withholdingByMonth(transactions: Transaction[]): WithholdingByMonth {
-  const months: WithholdingByMonth = new Map()
-  for (const t of transactions) if (t.type === 'Tax Withholding' && t.amount < 0) months.set(t.date.slice(0, 7), (months.get(t.date.slice(0, 7)) ?? 0) - t.amount)
-  return months
+// leaving. The flow context carries it, plus the dates money actually moved,
+// so each month's return can weight flows by when they happened.
+export interface FlowContext {
+  withheld: Map<string, number> // month -> tax withheld (positive dollars)
+  daily: Map<string, number> // date -> net external flow (deposits +, withdrawals / bills / tax -)
 }
 
-export function monthlyReturn(row: StatementMonth, withheld = 0) {
+export const EMPTY_FLOWS: FlowContext = { withheld: new Map(), daily: new Map() }
+
+// A withdrawal from one of your accounts that lands as a deposit in another of
+// your accounts (same amount, within a few days) is money moving between your
+// accounts, not money leaving to you. Each deposit pairs once.
+export function internalTransferIds(pool: Transaction[], windowDays = 4) {
+  const ids = new Set<string>()
+  const deposits = pool.filter((t) => t.type === 'Contribution' && t.amount > 0).sort((a, b) => a.date.localeCompare(b.date))
+  const used = new Set<string>()
+  const day = (date: string) => new Date(`${date}T12:00:00Z`).getTime() / 86_400_000
+  for (const out of pool.filter((t) => (t.type === 'Withdrawal' || t.type === 'Bill Payment') && t.amount < 0).sort((a, b) => a.date.localeCompare(b.date))) {
+    const match = deposits.find((d) => !used.has(d.id) && d.accountId !== out.accountId && Math.abs(d.amount + out.amount) < 0.01 && Math.abs(day(d.date) - day(out.date)) <= windowDays)
+    if (!match) continue
+    used.add(match.id)
+    ids.add(out.id)
+    ids.add(match.id)
+  }
+  return ids
+}
+
+export function flowContext(transactions: Transaction[]): FlowContext {
+  const withheld = new Map<string, number>()
+  const daily = new Map<string, number>()
+  const internal = internalTransferIds(transactions)
+  for (const t of transactions) {
+    if (t.type === 'Tax Withholding' && t.amount < 0) {
+      withheld.set(t.date.slice(0, 7), (withheld.get(t.date.slice(0, 7)) ?? 0) - t.amount)
+      daily.set(t.date, (daily.get(t.date) ?? 0) + t.amount)
+    } else if ((t.type === 'Contribution' || t.type === 'Withdrawal' || t.type === 'Bill Payment') && !internal.has(t.id)) {
+      daily.set(t.date, (daily.get(t.date) ?? 0) + t.amount)
+    }
+  }
+  return { withheld, daily }
+}
+
+// Modified Dietz for one month. Each dated flow is weighted by the share of the
+// month it was invested (a deposit on the 2nd counts almost fully, one on the
+// 28th barely). Any part of the statement's net flow the transactions don't
+// explain is placed mid-month.
+export function monthlyReturn(row: StatementMonth, flows: FlowContext = EMPTY_FLOWS) {
   if (!row.complete || row.openingEquity == null || row.flowsAvailable === false) return undefined
+  const withheld = flows.withheld.get(row.month) ?? 0
   const flow = row.deposits + row.withdrawals - withheld
-  const base = row.openingEquity + flow / 2
+  const [year, number] = row.month.split('-').map(Number)
+  const daysInMonth = new Date(Date.UTC(year, number, 0)).getUTCDate()
+  const end = row.asOf && row.asOf.slice(0, 7) === row.month ? Math.max(1, Number(row.asOf.slice(8, 10))) : daysInMonth
+  let dated = 0
+  let weighted = 0
+  for (const [date, amount] of flows.daily) {
+    if (date.slice(0, 7) !== row.month) continue
+    const day = Number(date.slice(8, 10))
+    if (day > end) continue
+    dated += amount
+    weighted += amount * Math.max(0, (end - day + 0.5) / end)
+  }
+  const base = row.openingEquity + weighted + (flow - dated) / 2
   if (base <= 0) return undefined
-  return { r: (row.closingEquity - row.openingEquity - flow) / base, gain: row.closingEquity - row.openingEquity - flow }
+  const gain = row.closingEquity - row.openingEquity - flow
+  return { r: gain / base, gain }
 }
 
-export function statementTwr(rows: StatementMonth[], fromMonth = '', withheld: WithholdingByMonth = new Map()): StatementTwr {
+export function statementTwr(rows: StatementMonth[], fromMonth = '', flows: FlowContext = EMPTY_FLOWS): StatementTwr {
   const window = rows.filter((row) => !fromMonth || row.month >= fromMonth).sort((a, b) => a.month.localeCompare(b.month))
   // Longest unbroken run ending at the latest measurable month.
   let run: { row: StatementMonth; r: number; gain: number }[] = []
   for (const row of window) {
-    const result = monthlyReturn(row, withheld.get(row.month) ?? 0)
+    const result = monthlyReturn(row, flows)
     if (!result) { run = []; continue }
     run.push({ row, ...result })
   }

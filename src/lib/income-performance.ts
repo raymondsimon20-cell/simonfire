@@ -1,7 +1,8 @@
 import type { Transaction, TwrPoint } from './types'
 import { flowsByDate } from './twr'
 import { isClosingSale } from './transaction-review'
-import { monthlyReturn, type StatementMonth } from './statement-history'
+import { internalTransferIds, monthlyReturn, type StatementMonth } from './statement-history'
+export { internalTransferIds }
 
 // Transaction earnings do not require reconstructed market-value history.
 export function incomeAndRealizedGains(transactions: Transaction[], fromDate: string, toDate: string) {
@@ -52,25 +53,6 @@ export function incomePerformance(series: TwrPoint[], transactions: Transaction[
 // margin debt and uses deposits/withdrawals exactly as Schwab reported them, so
 // borrowing or moving money is never counted as investment gain. Uses the same
 // unbroken run of measurable months as the statement TWR.
-// A withdrawal from one of your accounts that lands as a deposit in another of
-// your accounts (same amount, within a few days) is money moving between your
-// accounts, not money leaving to you. Schwab classifies each side on its own
-// statement, so they have to be paired up here. Each deposit pairs once.
-export function internalTransferIds(pool: Transaction[], windowDays = 4) {
-  const ids = new Set<string>()
-  const deposits = pool.filter((t) => t.type === 'Contribution' && t.amount > 0).sort((a, b) => a.date.localeCompare(b.date))
-  const used = new Set<string>()
-  const day = (date: string) => new Date(`${date}T12:00:00Z`).getTime() / 86_400_000
-  for (const out of pool.filter((t) => (t.type === 'Withdrawal' || t.type === 'Bill Payment') && t.amount < 0).sort((a, b) => a.date.localeCompare(b.date))) {
-    const match = deposits.find((d) => !used.has(d.id) && d.accountId !== out.accountId && Math.abs(d.amount + out.amount) < 0.01 && Math.abs(day(d.date) - day(out.date)) <= windowDays)
-    if (!match) continue
-    used.add(match.id)
-    ids.add(out.id)
-    ids.add(match.id)
-  }
-  return ids
-}
-
 export function recordedIncomePerformance(rows: StatementMonth[], transactions: Transaction[], fromMonth = '', allTransactions: Transaction[] = transactions) {
   const window = rows.filter((row) => !fromMonth || row.month >= fromMonth).sort((a, b) => a.month.localeCompare(b.month))
   let run: StatementMonth[] = []

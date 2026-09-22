@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import './test-statement-transactions'
 import { parseHistoricalBalanceCsv, parseSchwabStatementText } from '../src/lib/historical-balances'
 import { availableMonths, monthClose, portfolioSummary } from '../src/lib/calc'
-import { accountOpenMonths, coverageGap, loanAssumption, statementTwr, mergeHistoricalBalances, statementHistory, statementProfit } from '../src/lib/statement-history'
+import { accountOpenMonths, coverageGap, flowContext, loanAssumption, statementTwr, mergeHistoricalBalances, statementHistory, statementProfit } from '../src/lib/statement-history'
 import type { Account, Transaction } from '../src/lib/types'
 
 const parsed = parseHistoricalBalanceCsv([
@@ -144,6 +144,24 @@ console.log('statement scope, import validation, and month-close reconciliation 
   const acct: Account = { id: 'm', mask: '9414', broker: 'Schwab', name: 'M', fullName: 'M', type: 'Margin', isMargin: true, cash: 0, marginBalance: 0, equity: 0 }
   const rows = statementHistory([{ id: 'f', accountMask: '9414', month: '2026-02', openingEquity: 1000, closingEquity: 1000, deposits: 0, withdrawals: 0, dividendsInterest: 76, expenses: 0, marketChange: -76, marginLoanBalance: 0, source: 'Schwab statement', fileName: 's', importedAt: '2026-03-01' }], [acct], 'all')
   assert.equal(statementTwr(rows).twrPct, 0)
-  assert.ok(Math.abs(statementTwr(rows, '', new Map([['2026-02', 24]])).twrPct - 24 / 988) < 1e-9, 'withheld tax counts as money leaving, not loss')
+  assert.ok(Math.abs(statementTwr(rows, '', { withheld: new Map([['2026-02', 24]]), daily: new Map() }).twrPct - 24 / 988) < 1e-9, 'withheld tax counts as money leaving, not loss')
   console.log('statement TWR withholding tests passed')
+}
+
+// Flows are weighted by the day they happened.
+{
+  const acct: Account = { id: 'm', mask: '9414', broker: 'Schwab', name: 'M', fullName: 'M', type: 'Margin', isMargin: true, cash: 0, marginBalance: 0, equity: 0 }
+  // Nov 2025 shape: small opening balance, big deposit early in the month.
+  const rows = statementHistory([{ id: 'n', accountMask: '9414', month: '2025-11', openingEquity: 14509.04, closingEquity: 60125.96, deposits: 55620.55, withdrawals: -10037.61, dividendsInterest: 371.95, expenses: -8.86, marketChange: -329.11, marginLoanBalance: 0, source: 'Schwab statement', fileName: 's', importedAt: '2025-12-01' }], [acct], 'all')
+  const t = (id: string, date: string, type: Transaction['type'], amount: number): Transaction => ({ id, accountId: 'm', date, type, amount, units: 0, description: '', tags: [] })
+  const early = statementTwr(rows, '', flowContext([t('d', '2025-11-03', 'Contribution', 55620.55), t('w', '2025-11-25', 'Withdrawal', -10037.61)]))
+  const late = statementTwr(rows, '', flowContext([t('d', '2025-11-27', 'Contribution', 55620.55), t('w', '2025-11-25', 'Withdrawal', -10037.61)]))
+  const unknown = statementTwr(rows)
+  assert.ok(Math.abs(early.twrPct) < Math.abs(unknown.twrPct), 'an early deposit enlarges the base, shrinking the % move')
+  assert.ok(Math.abs(late.twrPct) > Math.abs(early.twrPct))
+  assert.equal(early.gainUsd, unknown.gainUsd, 'timing changes the %, never the dollar result')
+  // Internal transfer pairs don't count as flows.
+  const ctx = flowContext([t('w1', '2025-11-05', 'Withdrawal', -500), { ...t('d1', '2025-11-06', 'Contribution', 500), accountId: 'other' }])
+  assert.equal(ctx.daily.size ? [...ctx.daily.values()].reduce((a, b) => a + b, 0) : 0, 0)
+  console.log('dated-flow TWR tests passed')
 }

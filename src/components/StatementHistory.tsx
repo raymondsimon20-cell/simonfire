@@ -1,21 +1,22 @@
 import { Area, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { ArrowDownLeft, CalendarCheck2, Percent } from 'lucide-react'
-import { coverageGap, loanAssumption, statementProfit, statementTwr, type StatementMonth, type WithholdingByMonth } from '../lib/statement-history'
+import { coverageGap, loanAssumption, statementProfit, statementTwr, type StatementMonth, type FlowContext, EMPTY_FLOWS } from '../lib/statement-history'
 import { monthLabel, pct, shortDate, usd } from '../lib/format'
 import { StatCard } from './ui'
 import { BalanceOverview, HistoryBadge } from './BalanceOverview'
 
-export function StatementHistory({ rows, withheld }: { rows: StatementMonth[]; withheld?: WithholdingByMonth }) {
+export function StatementHistory({ rows, flows = EMPTY_FLOWS }: { rows: StatementMonth[]; flows?: FlowContext }) {
+  const profitOf = (row: StatementMonth) => statementProfit(row, flows.withheld.get(row.month) ?? 0)
   const last = rows.at(-1)
   if (!last) return <p className="card p-5 text-muted">No recorded balances in this range.</p>
-  const profits = rows.map(statementProfit)
+  const profits = rows.map(profitOf)
   const profit = profits.every((value) => value != null) ? profits.reduce((sum, value) => sum + value!, 0) : undefined
   const netDeposits = rows.every((row) => row.flowsAvailable !== false) ? rows.reduce((sum, row) => sum + row.deposits + row.withdrawals, 0) : undefined
   const automatic = rows.some((row) => row.statements.some((item) => item.source === 'Automatic snapshot'))
   const assets = last.marginLoanBalance == null ? undefined : last.closingEquity + last.marginLoanBalance
-  const twr = statementTwr(rows, '', withheld)
+  const twr = statementTwr(rows, '', flows)
   return <>
-    <BalanceOverview equity={last.closingEquity} label="Recorded net equity" date={last.asOf ? `As of ${shortDate(last.asOf)}` : `${monthLabel(last.month)} · month end`} profit={profit} funding={netDeposits} estimated={automatic} badge={<HistoryBadge row={last}/>} note={`Results across ${rows.length} displayed month${rows.length === 1 ? '' : 's'}. ${profit == null ? 'Some months are missing an opening balance or complete cash flows.' : 'Income and market changes, less expenses. Your contributions are tracked separately.'}`}/>
+    <BalanceOverview equity={last.closingEquity} label="Recorded net equity" date={last.asOf ? `As of ${shortDate(last.asOf)}` : `${monthLabel(last.month)} · month end`} profit={profit} funding={netDeposits} estimated={automatic} badge={<HistoryBadge row={last}/>} note={`Results across ${rows.length} displayed month${rows.length === 1 ? '' : 's'}. ${profit == null ? 'Some months are missing an opening balance or complete cash flows.' : 'Income and market changes, less expenses. Contributions and tax withheld are tracked separately.'}`}/>
     <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard label="Margin debt" value={last.marginLoanBalance == null ? '—' : usd(last.marginLoanBalance)} sub="Latest recorded balance" right={<ArrowDownLeft size={15} className="text-faint"/>}/>
       <StatCard label="Equity ratio" value={assets == null ? '—' : pct(assets ? last.closingEquity / assets * 100 : 0)} sub="Equity / total assets" right={<Percent size={15} className="text-faint"/>}/>
@@ -40,7 +41,7 @@ export function StatementHistory({ rows, withheld }: { rows: StatementMonth[]; w
         <thead><tr className="border-b border-border-soft text-[10px] uppercase tracking-[.07em] text-faint">{['Month / source', 'Net equity', 'Deposits', 'Withdrawals', 'Income', 'Expenses', 'Market & other', 'Investment result', 'Margin debt'].map((label, index) => <th key={label} className={`px-4 py-3.5 font-medium ${index ? 'text-right' : 'text-left'}`}>{label}</th>)}</tr></thead>
         <tbody>{rows.slice().reverse().map((row) => <tr key={row.month} className="border-b border-white/[.04] last:border-0 hover:bg-white/[.025]">
           <th className="min-w-[230px] px-5 py-4 text-left font-medium"><span className="block whitespace-nowrap">{monthLabel(row.month)}</span><span className="mt-2 block"><HistoryBadge row={row}/></span>{row.asOf && <span className="mt-1 block text-[10px] font-normal text-faint">As of {shortDate(row.asOf)}</span>}{coverageGap(row) && <span className="mt-1.5 block max-w-[260px] whitespace-normal text-[10px] font-normal leading-relaxed text-amber-200/80">{coverageGap(row)}</span>}</th>
-          {[row.closingEquity, row.flowsAvailable !== false ? row.deposits : undefined, row.flowsAvailable !== false ? row.withdrawals : undefined, row.flowsAvailable !== false ? row.dividendsInterest : undefined, row.flowsAvailable !== false ? row.expenses : undefined, statementProfit(row) != null ? row.marketChange : undefined, statementProfit(row), row.marginLoanBalance].map((value, index) => <td key={index} title={index === 7 ? loanAssumption(row) || undefined : undefined} className={`num whitespace-nowrap px-4 py-4 text-right ${index === 0 ? 'font-medium text-[#e9d8ad]' : index === 6 && value != null ? value >= 0 ? 'text-pos' : 'text-neg' : 'text-muted'}`}>{value == null ? '—' : usd(value)}{index === 7 && value != null && loanAssumption(row) && <span className="ml-0.5 cursor-help text-faint">*</span>}</td>)}
+          {[row.closingEquity, row.flowsAvailable !== false ? row.deposits : undefined, row.flowsAvailable !== false ? row.withdrawals : undefined, row.flowsAvailable !== false ? row.dividendsInterest : undefined, row.flowsAvailable !== false ? row.expenses : undefined, profitOf(row) != null ? row.marketChange + (flows.withheld.get(row.month) ?? 0) : undefined, profitOf(row), row.marginLoanBalance].map((value, index) => <td key={index} title={index === 7 ? loanAssumption(row) || undefined : undefined} className={`num whitespace-nowrap px-4 py-4 text-right ${index === 0 ? 'font-medium text-[#e9d8ad]' : index === 6 && value != null ? value >= 0 ? 'text-pos' : 'text-neg' : 'text-muted'}`}>{value == null ? '—' : usd(value)}{index === 7 && value != null && loanAssumption(row) && <span className="ml-0.5 cursor-help text-faint">*</span>}</td>)}
         </tr>)}</tbody>
       </table></div>
       <p className="border-t border-white/[.06] px-5 py-3 text-[11px] leading-relaxed text-faint sm:px-6">Deposits and withdrawals are as printed on each statement, so a transfer between two of your own accounts appears in both columns; net funding is unaffected. A blank Market &amp; other or Investment result means the month has no opening balance for every account. Schwab prints a Net Loan Balance only when an account is borrowing, so a margin-enabled account without that line counts as $0 (marked *, hover for the account). Margin debt stays blank only when that account shows a loan in both the month before and the month after.</p>

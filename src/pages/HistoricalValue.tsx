@@ -16,7 +16,7 @@ import { portfolioSummary } from '../lib/calc'
 import type { TwrPoint } from '../lib/types'
 import { StatementHistory } from '../components/StatementHistory'
 import { SnapshotStatusBar } from '../components/BalanceOverview'
-import { statementHistory, withholdingByMonth } from '../lib/statement-history'
+import { statementHistory, flowContext } from '../lib/statement-history'
 import { IncomePerformance } from '../components/IncomePerformance'
 import { KpiCard, PageHeader } from '../components/ui'
 import { pct, posNeg, shortDate, usd } from '../lib/format'
@@ -124,7 +124,7 @@ export default function HistoricalValue() {
       </div>
 
       {history.length > 0 && <div className="mb-5 flex gap-5 border-b border-white/[.06]">{([{ daily: false, label: 'Recorded balances' }, { daily: true, label: 'Daily estimates' }]).map(({ daily, label }) => <button key={label} type="button" aria-pressed={showDaily === daily} onClick={() => setShowDaily(daily)} className={clsx('border-b-2 px-1 pb-3 text-xs transition-colors', showDaily === daily ? 'border-[#c7a96b] text-[#e1c887]' : 'border-transparent text-muted hover:text-ink')}>{label}</button>)}</div>}
-      {history.length > 0 && !showDaily ? <StatementHistory rows={statementRows} withheld={withholdingByMonth(transactions)}/> : !stats ? (
+      {history.length > 0 && !showDaily ? <StatementHistory rows={statementRows} flows={flowContext(transactions)}/> : !stats ? (
         <div className="card grid min-h-[360px] place-items-center p-8 text-center">
           <div>
             <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-surface-2 text-brand"><Activity size={22} /></div>

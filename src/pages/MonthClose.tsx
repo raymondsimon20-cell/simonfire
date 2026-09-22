@@ -6,7 +6,7 @@ import { usd, pct, monthLabel, shortDate } from '../lib/format'
 import { PageHeader, StatCard, Card } from '../components/ui'
 import { EquityBridge } from '../components/EquityBridge'
 import { BalanceOverview, HistoryBadge, SnapshotStatusBar } from '../components/BalanceOverview'
-import { coverageGap, statementHistory, statementProfit } from '../lib/statement-history'
+import { coverageGap, flowContext, statementHistory, statementProfit } from '../lib/statement-history'
 import { brokerageDate } from '../lib/balance-snapshots'
 
 export default function MonthClose() {
@@ -27,8 +27,10 @@ export default function MonthClose() {
   const mc = monthClose(accounts, transactions, scope, ym, summary, data.historicalBalances, snapshots, data.accountOpenMonths)
   const row = mc.statement
   const automatic = row?.statements.some((item) => item.source === 'Automatic snapshot')
-  const profit = row ? statementProfit(row) : undefined
-  const funding = row && row.flowsAvailable !== false ? row.deposits + row.withdrawals : undefined
+  const withheld = flowContext(transactions).withheld.get(ym) ?? 0
+  const profit = row ? statementProfit(row, withheld) : undefined
+  // Tax withheld is money leaving, so it belongs with funding, not the result.
+  const funding = row && row.flowsAvailable !== false ? row.deposits + row.withdrawals - withheld : undefined
   const asOf = row?.asOf ? `Recorded ${shortDate(row.asOf)}${ym === currentMonth ? ' · month to date' : row.monthEnd ? ' · month-end snapshot' : ' · partial month'}` : row ? `${monthLabel(ym)} · statement close` : mc.currentBalance ? `Latest synced balance · ${shortDate(data.lastSyncAt)}` : monthLabel(ym)
   const note = row?.coverageNote || (automatic ? 'Recorded balances and synced cash flows. A statement can verify the final month-end result.' : row ? 'Reconciled from your imported monthly summary. Deposits are kept separate from investment results.' : 'Connect Schwab to begin saving balances automatically. Earlier months can be filled with statements.')
 

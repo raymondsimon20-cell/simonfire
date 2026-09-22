@@ -18,7 +18,14 @@ export function mergeHistoricalBalances(existing: HistoricalBalance[], incoming:
   // when there is only one account. Re-importing never doubles the balances.
   for (const balance of [...existing, ...incoming]) {
     const accountMask = statementAccount(balance, accounts)?.mask ?? balance.accountMask
-    rows.set(`${accountMask}|${balance.month}`, { ...balance, accountMask })
+    const key = `${accountMask}|${balance.month}`
+    const prior = rows.get(key)
+    // A newer file for the same month replaces the old one, but it must not
+    // erase a loan balance the older file had (e.g. a CSV with net_loan_balance
+    // followed by a PDF whose loan line didn't parse) when both describe the
+    // same month-end.
+    const keepLoan = balance.marginLoanBalance == null && prior?.marginLoanBalance != null && Math.abs(prior.closingEquity - balance.closingEquity) < 1
+    rows.set(key, { ...balance, accountMask, ...(keepLoan ? { marginLoanBalance: prior.marginLoanBalance } : {}) })
   }
   return [...rows.values()].sort((a, b) => a.month.localeCompare(b.month))
 }
@@ -32,15 +39,30 @@ export type StatementMonth = HistoricalBalance & {
   unmatched: HistoricalBalance[]
   /** Display names of accounts whose row has no opening balance this month. */
   noOpening: string[]
+  /** Accounts whose loan figure was inferred (no loan line) or is unknown. */
+  loanNotes: { account: string; basis: LoanBasis }[]
 }
 
-// A statement that prints no "Net Loan Balance" line is a statement for an
-// account that cannot borrow: its loan is zero, not unknown. Margin accounts
-// stay strict so a missed line never reads as "no debt".
-export function statementMarginDebt(row: HistoricalBalance, accounts: Account[]) {
-  if (row.marginLoanBalance != null) return row.marginLoanBalance
+// Schwab prints a "Net Loan Balance" line only when an account is carrying a
+// loan. A cash/IRA account never has one, so it is $0. A margin-enabled account
+// with no line is also $0 (margin-enabled but not borrowing), UNLESS the same
+// account shows a loan in the month before or after. Then the missing line is
+// more likely a parse miss than a paid-off loan, and the figure stays unknown.
+export type LoanBasis = 'statement' | 'no line · cash account' | 'no line · not borrowing' | 'unknown'
+
+export function statementMarginDebt(row: HistoricalBalance, accounts: Account[], all: HistoricalBalance[] = []): { value?: number; basis: LoanBasis } {
+  if (row.marginLoanBalance != null) return { value: row.marginLoanBalance, basis: 'statement' }
   const account = statementAccount(row, accounts)
-  return account && !account.isMargin ? 0 : undefined
+  if (!account) return { basis: 'unknown' }
+  if (!account.isMargin) return { value: 0, basis: 'no line · cash account' }
+  const neighbors = [previousMonth(row.month), nextMonth(row.month)]
+  const borrowingNearby = all.some((other) => neighbors.includes(other.month) && statementAccount(other, accounts)?.id === account.id && (other.marginLoanBalance ?? 0) > 0)
+  return borrowingNearby ? { basis: 'unknown' } : { value: 0, basis: 'no line · not borrowing' }
+}
+
+function nextMonth(month: string) {
+  const [year, number] = month.split('-').map(Number)
+  return new Date(Date.UTC(year, number, 1)).toISOString().slice(0, 7)
 }
 
 export type OpenMonthSource = 'manual' | 'first statement' | undefined
@@ -75,13 +97,15 @@ export function statementHistory(balances: HistoricalBalance[], accounts: Accoun
   return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([month, statements]) => {
     const sum = (field: 'openingEquity' | 'closingEquity' | 'deposits' | 'withdrawals' | 'dividendsInterest' | 'marketChange' | 'expenses') =>
       statements.reduce((total, row) => total + (row[field] ?? 0), 0)
-    const margins = statements.map((row) => statementMarginDebt(row, accounts))
+    const loans = statements.map((row) => ({ row, ...statementMarginDebt(row, accounts, combined) }))
+    const margins = loans.map((item) => item.value)
+    const loanNotes = loans.filter((item) => item.basis !== 'statement' && item.basis !== 'no line · cash account').map((item) => ({ account: statementAccount(item.row, accounts)?.name ?? `····${item.row.accountMask || '?'}`, basis: item.basis }))
     const expected = selected.filter((account) => !opened.has(account.id) || month >= opened.get(account.id)!.month)
     const missingAccounts = expected.filter((account) => !statements.some((row) => statementAccount(row, accounts)?.id === account.id))
     const unmatched = statements.filter((row) => !statementAccount(row, accounts))
     const noOpening = statements.filter((row) => row.openingEquity == null).map((row) => statementAccount(row, accounts)?.name ?? `····${row.accountMask || '?'}`)
     return {
-      ...statements[0], month, statements, missingAccounts, unmatched, noOpening,
+      ...statements[0], month, statements, missingAccounts, unmatched, noOpening, loanNotes,
       asOf: statements.map((row) => row.asOf).filter((date): date is string => !!date).sort()[0],
       monthEnd: statements.every((row) => row.source !== 'Automatic snapshot' || row.monthEnd),
       flowsAvailable: statements.every((row) => row.flowsAvailable !== false),
@@ -120,9 +144,13 @@ export function coverageGap(row: StatementMonth) {
     if (other) parts.push(`${other} statement${other === 1 ? '' : 's'} could not be matched to an account (ending ${row.unmatched.filter((item) => item.accountMask.replace(/\D/g, '')).map((item) => item.accountMask).join(', ')}).`)
   }
   if (row.openingEquity == null && row.noOpening.length) parts.push(`No opening balance for ${row.noOpening.join(', ')}: import the ${monthLabel(previousMonth(row.month))} statement.`)
-  if (row.marginLoanBalance == null) {
-    const strict = row.statements.filter((item) => item.marginLoanBalance == null)
-    if (strict.length && !row.missingAccounts.length) parts.push('Margin debt unknown: a margin account statement has no Net Loan Balance line.')
-  }
+  const unknown = row.loanNotes.filter((note) => note.basis === 'unknown').map((note) => note.account)
+  if (unknown.length) parts.push(`Margin debt unknown: the ${unknown.join(', ')} statement has no Net Loan Balance line, but a neighboring month shows a loan. Re-import it or check the PDF.`)
   return parts.join(' ')
+}
+
+// Short note for figures inferred from a missing loan line (not an error).
+export function loanAssumption(row: StatementMonth) {
+  const zero = row.loanNotes.filter((note) => note.basis === 'no line · not borrowing').map((note) => note.account)
+  return zero.length ? `${zero.join(', ')}: no loan line on the statement, counted as $0 (margin-enabled, not borrowing).` : ''
 }

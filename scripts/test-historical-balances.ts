@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import './test-statement-transactions'
 import { parseHistoricalBalanceCsv, parseSchwabStatementText } from '../src/lib/historical-balances'
 import { availableMonths, monthClose, portfolioSummary } from '../src/lib/calc'
-import { accountOpenMonths, coverageGap, mergeHistoricalBalances, statementHistory, statementProfit } from '../src/lib/statement-history'
+import { accountOpenMonths, coverageGap, loanAssumption, mergeHistoricalBalances, statementHistory, statementProfit } from '../src/lib/statement-history'
 import type { Account, Transaction } from '../src/lib/types'
 
 const parsed = parseHistoricalBalanceCsv([
@@ -49,13 +49,23 @@ const combined = statementHistory([...merged, { ...pdf, accountMask: '4567' }], 
 assert.equal(combined.closingEquity, 2520)
 assert.equal(combined.marginLoanBalance, 800)
 assert.equal(combined.complete, true)
-assert.equal(statementHistory([pdf, { ...pdf, accountMask: '4567', marginLoanBalance: undefined }], accounts, 'all')[0].marginLoanBalance, undefined, 'a margin account statement without a loan line stays unknown')
 // A cash/IRA statement never prints a Net Loan Balance line: that is $0 debt, not unknown.
 const ira: Account = { ...other, id: 'c', mask: '7777', isMargin: false, type: 'Individual', marginBalance: 0 }
 const withIra = statementHistory([pdf, { ...pdf, accountMask: '7777', marginLoanBalance: undefined }], [account, ira], 'all')[0]
 assert.equal(withIra.marginLoanBalance, 400, 'non-margin statements contribute zero debt instead of blanking the month')
 assert.equal(withIra.complete, true)
 assert.equal(coverageGap(withIra), '')
+// Margin-enabled account with no loan line: $0 unless a neighboring month shows a loan.
+const idle = statementHistory([pdf, { ...pdf, accountMask: '4567', marginLoanBalance: undefined }], accounts, 'all')[0]
+assert.equal(idle.marginLoanBalance, 400, 'margin-enabled but not borrowing counts as $0')
+assert.match(loanAssumption(idle), /no loan line.*\$0/)
+// A later import of the same month without a loan line keeps the known loan.
+const kept = mergeHistoricalBalances([pdf], [{ ...pdf, marginLoanBalance: undefined, fileName: 'later.pdf' }], accounts)[0]
+assert.equal(kept.marginLoanBalance, 400)
+assert.equal(kept.fileName, 'later.pdf')
+const gap = statementHistory([{ ...pdf, month: '2025-12', marginLoanBalance: 900 }, { ...pdf, marginLoanBalance: undefined }], [account], 'a').find((row) => row.month === '2026-01')!
+assert.equal(gap.marginLoanBalance, undefined, 'a loan the month before makes a missing line unknown, not $0')
+assert.match(coverageGap(gap), /Margin debt unknown: the A statement/)
 // Missing statements are named so the user knows what to import.
 const partial = statementHistory([pdf], [account, ira], 'all')[0]
 assert.equal(partial.complete, false)
@@ -91,7 +101,8 @@ assert.equal(close.netChange, 260)
 assert.equal(close.liabilities, 400, 'use historical debt, not current debt')
 assert.equal(close.assets, 1660)
 assert.equal(close.bridge.slice(0, -1).reduce((sum, row) => sum + row.value, 0), close.closing, 'statement bridge reconciles without adding transaction P/L again')
-assert.equal(monthClose(accounts, [], 'a', '2026-01', summary, [{ ...pdf, marginLoanBalance: undefined }]).debtAvailable, false)
+assert.equal(monthClose(accounts, [], 'a', '2026-01', summary, [{ ...pdf, marginLoanBalance: undefined }]).liabilities, 0, 'margin-enabled, not borrowing')
+assert.equal(monthClose(accounts, [], 'a', '2026-01', summary, [{ ...pdf, month: '2025-12', marginLoanBalance: 900 }, { ...pdf, marginLoanBalance: undefined }]).debtAvailable, false, 'loan nearby: missing line stays unknown')
 assert.equal(monthClose(accounts, [], 'a', '2026-01', summary, [{ ...pdf, openingEquity: undefined }]).historyAvailable, false)
 assert.equal(monthClose(accounts, [], 'b', '2026-01', summary, merged).balanceAvailable, false)
 const now = new Date(); const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`

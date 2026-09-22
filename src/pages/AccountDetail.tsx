@@ -24,6 +24,7 @@ import {
 import { useStore } from '../lib/store'
 import { portfolioSummary, positionMetrics, investmentReturn, monthClose, availableMonths } from '../lib/calc'
 import { twrForScope } from '../lib/twr'
+import { statementHistory, statementTwr } from '../lib/statement-history'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { usd, pct, num, relTime, monthLabel, posNeg } from '../lib/format'
 import { Badge } from '../components/ui'
@@ -418,7 +419,14 @@ function BalanceHistoryTab({
 }) {
   const { data } = useStore()
   const rb = useMemo(() => investmentReturn(positions, txns), [positions, txns])
-  const twr = useMemo(() => twrForScope(data.twr, account.id, txns), [data.twr, account.id, txns])
+  // Prefer this account's recorded months; fall back to the price-history series.
+  const twr = useMemo(() => {
+    const recorded = statementTwr(statementHistory(data.historicalBalances ?? [], data.accounts, account.id, data.balanceSnapshots, data.accountOpenMonths))
+    if (!recorded.ok) return twrForScope(data.twr, account.id, txns)
+    const days = Math.max(30, Math.round((new Date(`${recorded.endMonth}-28`).getTime() - new Date(`${recorded.startMonth}-01`).getTime()) / 86_400_000))
+    const factor = 1 + recorded.twrPct
+    return { ok: true, twrPct: recorded.twrPct, gainUsd: recorded.gainUsd, annualizedPct: factor > 0 ? Math.pow(factor, 365 / days) - 1 : recorded.twrPct }
+  }, [data.twr, data.historicalBalances, data.balanceSnapshots, data.accountOpenMonths, data.accounts, account.id, txns])
 
   const series = useMemo(() => {
     const monthsAsc = availableMonths(txns).slice(0, 14).reverse()

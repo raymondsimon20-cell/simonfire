@@ -154,3 +154,56 @@ export function loanAssumption(row: StatementMonth) {
   const zero = row.loanNotes.filter((note) => note.basis === 'no line · not borrowing').map((note) => note.account)
   return zero.length ? `${zero.join(', ')}: no loan line on the statement, counted as $0 (margin-enabled, not borrowing).` : ''
 }
+
+// ---------- Time-weighted return from recorded months ----------
+// Each month is measured with Modified Dietz, the standard way to get a return
+// from a month's opening balance, closing balance and external flows when the
+// exact day of each flow isn't used:
+//
+//     r = (closing − opening − netFlow) / (opening + netFlow / 2)
+//
+// netFlow is deposits + withdrawals exactly as the statement (or snapshot)
+// records them, so money moving in or out is never counted as return. Income
+// and fees stay inside the portfolio and are part of the result. Monthly returns
+// are chained geometrically. The chain starts at the earliest month in the
+// window and restarts after any month that can't be measured (partial account
+// coverage, no opening balance, or unavailable cash flows), so the label always
+// states the span actually measured.
+export interface StatementTwr {
+  ok: boolean
+  twrPct: number
+  gainUsd: number
+  startMonth: string
+  endMonth: string
+  months: number
+  estimated: boolean // includes an automatic-snapshot month
+}
+
+export function monthlyReturn(row: StatementMonth) {
+  if (!row.complete || row.openingEquity == null || row.flowsAvailable === false) return undefined
+  const flow = row.deposits + row.withdrawals
+  const base = row.openingEquity + flow / 2
+  if (base <= 0) return undefined
+  return { r: (row.closingEquity - row.openingEquity - flow) / base, gain: row.closingEquity - row.openingEquity - flow }
+}
+
+export function statementTwr(rows: StatementMonth[], fromMonth = ''): StatementTwr {
+  const window = rows.filter((row) => !fromMonth || row.month >= fromMonth).sort((a, b) => a.month.localeCompare(b.month))
+  // Longest unbroken run ending at the latest measurable month.
+  let run: { row: StatementMonth; r: number; gain: number }[] = []
+  for (const row of window) {
+    const result = monthlyReturn(row)
+    if (!result) { run = []; continue }
+    run.push({ row, ...result })
+  }
+  if (!run.length) return { ok: false, twrPct: 0, gainUsd: 0, startMonth: '', endMonth: '', months: 0, estimated: false }
+  return {
+    ok: true,
+    twrPct: run.reduce((factor, item) => factor * (1 + item.r), 1) - 1,
+    gainUsd: run.reduce((sum, item) => sum + item.gain, 0),
+    startMonth: run[0].row.month,
+    endMonth: run.at(-1)!.row.month,
+    months: run.length,
+    estimated: run.some((item) => item.row.statements.some((statement) => statement.source === 'Automatic snapshot')),
+  }
+}

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import './test-statement-transactions'
 import { parseHistoricalBalanceCsv, parseSchwabStatementText } from '../src/lib/historical-balances'
 import { availableMonths, monthClose, portfolioSummary } from '../src/lib/calc'
-import { accountOpenMonths, coverageGap, loanAssumption, mergeHistoricalBalances, statementHistory, statementProfit } from '../src/lib/statement-history'
+import { accountOpenMonths, coverageGap, loanAssumption, statementTwr, mergeHistoricalBalances, statementHistory, statementProfit } from '../src/lib/statement-history'
 import type { Account, Transaction } from '../src/lib/types'
 
 const parsed = parseHistoricalBalanceCsv([
@@ -108,3 +108,28 @@ assert.equal(monthClose(accounts, [], 'b', '2026-01', summary, merged).balanceAv
 const now = new Date(); const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 assert.equal(monthClose(accounts, [], 'a', currentMonth, summary, [{ ...pdf, month: currentMonth }]).netEquity, 1260, 'an imported statement takes precedence over live balances for its month')
 console.log('statement scope, import validation, and month-close reconciliation tests passed')
+
+// Statement TWR: Modified Dietz per month, chained; deposits are never return.
+{
+  const acct: Account = { id: 'm', mask: '9414', broker: 'Schwab', name: 'M', fullName: 'M', type: 'Margin', isMargin: true, cash: 0, marginBalance: 0, equity: 0 }
+  const month = (m: string, open: number, close: number, dep: number, wd: number) => ({ id: m, accountMask: '9414', month: m, openingEquity: open, closingEquity: close, deposits: dep, withdrawals: wd, dividendsInterest: 0, expenses: 0, marketChange: close - open - dep - wd, marginLoanBalance: 0, source: 'Schwab statement' as const, fileName: 's', importedAt: '2026-09-01' })
+  // Raymond's real May–Sep 2026 figures: +2.66%, not the +37.84% the price series showed.
+  const rows = statementHistory([
+    month('2026-05', 49164.41, 48750.81, 9018.93, -12519.42), month('2026-06', 48750.81, 48644.57, 9798.88, -9586.69),
+    month('2026-07', 48644.57, 89313.57, 52636.10, -9458.38), month('2026-08', 89313.57, 76560.75, 5177.58, -18358.35),
+    month('2026-09', 76560.75, 77196.37, 6437.03, -5871.28),
+  ], [acct], 'all')
+  const twr = statementTwr(rows)
+  assert.equal(twr.ok, true)
+  assert.equal(twr.startMonth, '2026-05')
+  assert.ok(Math.abs(twr.twrPct - 0.0266) < 0.0005, `expected ~2.66%, got ${twr.twrPct}`)
+  assert.equal(statementTwr(rows, '2026-08').months, 2, 'window starts at the selected month')
+  // A big deposit with no market change is 0% return.
+  const depositOnly = statementTwr(statementHistory([month('2026-01', 10000, 60000, 50000, 0)], [acct], 'all'))
+  assert.equal(depositOnly.twrPct, 0)
+  // An unmeasurable month restarts the chain after it.
+  const broken = statementTwr(statementHistory([month('2026-01', 100, 110, 0, 0), { ...month('2026-02', 110, 120, 0, 0), openingEquity: undefined }, month('2026-03', 120, 132, 0, 0)], [acct], 'all'))
+  assert.equal(broken.startMonth, '2026-03')
+  assert.ok(Math.abs(broken.twrPct - 0.1) < 1e-9)
+  console.log('statement TWR tests passed')
+}

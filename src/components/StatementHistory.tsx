@@ -1,6 +1,6 @@
 import { Area, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { ArrowDownLeft, CalendarCheck2, Percent } from 'lucide-react'
-import { coverageGap, loanAssumption, statementProfit, type StatementMonth } from '../lib/statement-history'
+import { coverageGap, loanAssumption, statementProfit, statementTwr, type StatementMonth } from '../lib/statement-history'
 import { monthLabel, pct, shortDate, usd } from '../lib/format'
 import { StatCard } from './ui'
 import { BalanceOverview, HistoryBadge } from './BalanceOverview'
@@ -13,12 +13,14 @@ export function StatementHistory({ rows }: { rows: StatementMonth[] }) {
   const netDeposits = rows.every((row) => row.flowsAvailable !== false) ? rows.reduce((sum, row) => sum + row.deposits + row.withdrawals, 0) : undefined
   const automatic = rows.some((row) => row.statements.some((item) => item.source === 'Automatic snapshot'))
   const assets = last.marginLoanBalance == null ? undefined : last.closingEquity + last.marginLoanBalance
+  const twr = statementTwr(rows)
   return <>
     <BalanceOverview equity={last.closingEquity} label="Recorded net equity" date={last.asOf ? `As of ${shortDate(last.asOf)}` : `${monthLabel(last.month)} · month end`} profit={profit} funding={netDeposits} estimated={automatic} badge={<HistoryBadge row={last}/>} note={`Results across ${rows.length} displayed month${rows.length === 1 ? '' : 's'}. ${profit == null ? 'Some months are missing an opening balance or complete cash flows.' : 'Income and market changes, less expenses. Your contributions are tracked separately.'}`}/>
-    <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+    <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard label="Margin debt" value={last.marginLoanBalance == null ? '—' : usd(last.marginLoanBalance)} sub="Latest recorded balance" right={<ArrowDownLeft size={15} className="text-faint"/>}/>
       <StatCard label="Equity ratio" value={assets == null ? '—' : pct(assets ? last.closingEquity / assets * 100 : 0)} sub="Equity / total assets" right={<Percent size={15} className="text-faint"/>}/>
-      <StatCard label="History captured" value={`${rows.length} month${rows.length === 1 ? '' : 's'}`} sub={`${monthLabel(rows[0].month)} — ${monthLabel(last.month)}`} right={<CalendarCheck2 size={15} className="text-faint"/>} className="col-span-2 sm:col-span-1"/>
+      <StatCard label="Time-weighted return" value={twr.ok ? pct(twr.twrPct * 100, { sign: true }) : '—'} valueClass={twr.ok ? twr.twrPct >= 0 ? 'text-pos' : 'text-neg' : 'text-faint'} sub={twr.ok ? `${monthLabel(twr.startMonth)} — ${monthLabel(twr.endMonth)} · deposits excluded` : 'Needs a complete month with an opening balance'}/>
+      <StatCard label="History captured" value={`${rows.length} month${rows.length === 1 ? '' : 's'}`} sub={`${monthLabel(rows[0].month)} — ${monthLabel(last.month)}`} right={<CalendarCheck2 size={15} className="text-faint"/>}/>
     </div>
     <section className="card overflow-hidden p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="mb-1 text-[10px] uppercase tracking-[.16em] text-[#c7a96b]">The long view</p><h2 className="text-lg font-medium">Equity over time</h2><p className="mt-1 text-xs text-faint">Recorded checkpoints. Current and partial months use their latest observation.</p></div><div className="flex gap-4 text-[11px] text-muted"><span className="flex items-center gap-1.5"><span className="h-1.5 w-4 rounded-full bg-[#d8bd7a]"/>Net equity</span><span className="flex items-center gap-1.5"><span className="h-1.5 w-4 rounded-full bg-[#648cb6]"/>Margin debt</span></div></div>

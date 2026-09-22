@@ -6,6 +6,7 @@ import { dividendStats, portfolioSummary } from '../lib/calc'
 import { dateRangeStart } from '../lib/date-range'
 import { pct, posNeg, relTime, usd } from '../lib/format'
 import { computeTwr, flowsByDate, seriesForScope, sliceFrom, coveredSeries } from '../lib/twr'
+import { statementHistory, statementTwr } from '../lib/statement-history'
 import { incomeAndRealizedGains } from '../lib/income-performance'
 import { IncomePerformance } from './IncomePerformance'
 import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
@@ -74,8 +75,15 @@ export function PlanHealth() {
   // Time-weighted return over the window chosen in the header. The label states
   // the span actually measured, which is shorter than the selected range when
   // history does not reach back that far.
+  // Recorded months (statements + saved balances) are the authority: they carry
+  // deposits and withdrawals as Schwab reported them. The price-history series
+  // is only a fallback when no measurable month exists.
+  const recorded = useMemo(() => statementHistory(data.historicalBalances ?? [], accounts, scope, data.balanceSnapshots, data.accountOpenMonths), [data.historicalBalances, data.balanceSnapshots, data.accountOpenMonths, accounts, scope])
   const performance = useMemo(() => {
     const cutoff = dateRangeStart(dateRange, localToday())
+    const monthLabelShort = (month: string) => new Date(`${month}-01T12:00:00`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    const fromStatements = statementTwr(recorded, cutoff ? cutoff.slice(0, 7) : '')
+    if (fromStatements.ok) return { ok: true, twrPct: fromStatements.twrPct, label: `since ${monthLabelShort(fromStatements.startMonth)}`, basis: fromStatements.estimated ? 'Statements + saved balances' : 'Statements' }
     const result = computeTwr(sliceFrom(coveredSeries(seriesForScope(data.twr, scope), transactions), cutoff), flowsByDate(transactions))
     const label = !result.ok
       ? ''
@@ -84,8 +92,8 @@ export function PlanHealth() {
         : dateRange === '365'
           ? 'last 12 months'
           : `last ${dateRange} days`
-    return { ...result, label }
-  }, [data.twr, dateRange, scope, transactions])
+    return { ok: result.ok, twrPct: result.twrPct, label, basis: 'Price history estimate' }
+  }, [data.twr, dateRange, scope, transactions, recorded])
 
   const performancePoints = useMemo(() => sliceFrom(coveredSeries(seriesForScope(data.twr, scope), transactions), dateRangeStart(dateRange, localToday())), [data.twr, scope, dateRange, transactions])
   const earnings = useMemo(() => incomeAndRealizedGains(transactions, dateRangeStart(dateRange, localToday()), localToday()), [transactions, dateRange])
@@ -111,10 +119,10 @@ export function PlanHealth() {
         <SnapshotMetric
           label="Income + Realized Gains"
           value={usd(earnings.gross, { sign: true })}
-          sub={performance.ok ? `Estimated TWR ${pct(performance.twrPct * 100, { sign: true })} · ${performance.label}` : 'TWR unavailable'}
+          sub={performance.ok ? `TWR ${pct(performance.twrPct * 100, { sign: true })} · ${performance.label}` : 'TWR unavailable'}
           source={`${earnings.missingPl ? 'Partial' : earnings.estimated ? 'Estimated' : 'Recorded'} · selected period`}
           valueClass={posNeg(earnings.gross)}
-          title="Recorded dividends + interest + realized gains − realized losses for the selected period, before margin interest, fees, and taxes. Excludes unrealized gains and losses."
+          title={`Recorded dividends + interest + realized gains − realized losses for the selected period, before margin interest, fees, and taxes. Excludes unrealized gains and losses. TWR source: ${performance.basis}.`}
           className="col-span-2 border-white/[.06] sm:col-span-4 sm:border-t lg:col-span-1 lg:border-t-0"
         />
       </div>

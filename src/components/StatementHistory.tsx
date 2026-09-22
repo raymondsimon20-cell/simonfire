@@ -1,11 +1,11 @@
 import { Area, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts'
 import { ArrowDownLeft, CalendarCheck2, Percent } from 'lucide-react'
-import { coverageGap, loanAssumption, statementProfit, statementTwr, type StatementMonth } from '../lib/statement-history'
+import { coverageGap, loanAssumption, statementProfit, statementTwr, type StatementMonth, type WithholdingByMonth } from '../lib/statement-history'
 import { monthLabel, pct, shortDate, usd } from '../lib/format'
 import { StatCard } from './ui'
 import { BalanceOverview, HistoryBadge } from './BalanceOverview'
 
-export function StatementHistory({ rows }: { rows: StatementMonth[] }) {
+export function StatementHistory({ rows, withheld }: { rows: StatementMonth[]; withheld?: WithholdingByMonth }) {
   const last = rows.at(-1)
   if (!last) return <p className="card p-5 text-muted">No recorded balances in this range.</p>
   const profits = rows.map(statementProfit)
@@ -13,7 +13,7 @@ export function StatementHistory({ rows }: { rows: StatementMonth[] }) {
   const netDeposits = rows.every((row) => row.flowsAvailable !== false) ? rows.reduce((sum, row) => sum + row.deposits + row.withdrawals, 0) : undefined
   const automatic = rows.some((row) => row.statements.some((item) => item.source === 'Automatic snapshot'))
   const assets = last.marginLoanBalance == null ? undefined : last.closingEquity + last.marginLoanBalance
-  const twr = statementTwr(rows)
+  const twr = statementTwr(rows, '', withheld)
   return <>
     <BalanceOverview equity={last.closingEquity} label="Recorded net equity" date={last.asOf ? `As of ${shortDate(last.asOf)}` : `${monthLabel(last.month)} · month end`} profit={profit} funding={netDeposits} estimated={automatic} badge={<HistoryBadge row={last}/>} note={`Results across ${rows.length} displayed month${rows.length === 1 ? '' : 's'}. ${profit == null ? 'Some months are missing an opening balance or complete cash flows.' : 'Income and market changes, less expenses. Your contributions are tracked separately.'}`}/>
     <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">

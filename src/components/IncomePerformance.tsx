@@ -26,7 +26,7 @@ export function IncomePerformance({ points, transactions, sample = false, record
       <Metric label="Retained result · estimated" amount={r.retained} note="Investment gain / loss − withdrawals and bills" />
     </div>
     <div className="mt-4 rounded-xl bg-white/[.03] p-3 text-xs leading-5 text-muted">
-      Net income {r.incomeAfterWithdrawals >= 0 ? 'exceeded' : 'fell short of'} withdrawals and bills by <span className="num font-semibold text-ink">{usd(Math.abs(r.incomeAfterWithdrawals))}</span>
+      Net income {r.incomeAfterWithdrawals >= 0 ? 'exceeded' : 'fell short of'} withdrawals, bills and tax withheld by <span className="num font-semibold text-ink">{usd(Math.abs(r.incomeAfterWithdrawals))}</span>
       {r.withdrawals > 0 && <> ({pct(r.netIncome / r.withdrawals * 100)} cash coverage)</>}. Cash coverage alone does not establish capital preservation.
       {r.priceChange < 0 && <> Estimated price decline and other effects absorbed <span className="num text-neg">{usd(-r.priceChange)}</span>. This is an account-level estimate, not a measurement of fund NAV erosion.</>}
     </div>
@@ -52,9 +52,9 @@ function RecordedPerformance({ r, sample }: { r: Recorded; sample: boolean }) {
   const span = `${monthLabel(r.fromMonth)} – ${r.asOf ? shortDate(r.asOf.slice(0, 10)) : monthLabel(r.toMonth)}`
   const tag = r.estimated ? ' · includes this month to date' : ''
   const rows: [string, number][] = [
-    ['Dividends & interest', r.income], ['Margin interest & fees', -r.costs], ['Net income', r.netIncome],
+    ['Dividends & interest (before tax withheld)', r.income], ['Margin interest & fees', -r.costs], ['Net income', r.netIncome],
     ['Price change & other effects', r.priceChange], ['Investment gain / loss', r.investmentChange],
-    ['Withdrawals & bill payments', -r.withdrawals], ['Retained result', r.retained],
+    ['Withdrawals & bill payments', -r.withdrawals], ['Tax withheld from dividends', -r.taxWithheld], ['Retained result', r.retained],
   ]
   return <section className="mt-5 rounded-2xl border border-white/[.07] bg-black/15 p-4 sm:p-5">
     <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-lg font-semibold">Income & capital performance</h2><span className="text-xs text-muted">{sample ? 'Sample data · ' : ''}{span}</span></div>
@@ -62,17 +62,17 @@ function RecordedPerformance({ r, sample }: { r: Recorded; sample: boolean }) {
     <div className="mt-4 grid gap-4 sm:grid-cols-3">
       <Metric label="Net income received" amount={r.netIncome} note="Dividends + interest − margin interest and fees" />
       <Metric label="Investment gain / loss" amount={r.investmentChange} note="Income plus price changes, after costs" />
-      <Metric label="Retained result" amount={r.retained} note="Investment gain / loss − withdrawals and bills" />
+      <Metric label="Retained result" amount={r.retained} note="Investment gain / loss − withdrawals, bills and tax withheld" />
     </div>
     <div className="mt-4 rounded-xl bg-white/[.03] p-3 text-xs leading-5 text-muted">
       Net income {r.incomeAfterWithdrawals >= 0 ? 'exceeded' : 'fell short of'} withdrawals and bills by <span className="num font-semibold text-ink">{usd(Math.abs(r.incomeAfterWithdrawals))}</span>
-      {r.withdrawals > 0 && <> ({pct(r.netIncome / r.withdrawals * 100)} cash coverage)</>}.
+      {r.withdrawals + r.taxWithheld > 0 && <> ({pct(r.netIncome / (r.withdrawals + r.taxWithheld) * 100)} cash coverage)</>}.
       {r.priceChange < 0 && <> Price declines and other effects absorbed <span className="num text-neg">{usd(-r.priceChange)}</span>.</>}
     </div>
     <details className="mt-4 text-sm"><summary className="cursor-pointer text-muted">View income and capital reconciliation</summary>
       <dl className="mt-3 space-y-2">{rows.map(([label, value]) => <div key={label} className="flex justify-between gap-4"><dt className="text-muted">{label}</dt><dd className={clsx('num shrink-0', posNeg(value))}>{usd(value, { sign: true })}</dd></div>)}</dl>
       <div className="mt-4 border-t border-white/[.07] pt-3 text-xs leading-6 text-muted">
-        <p>Opening equity {usd(r.beginning)} + deposits {usd(r.deposits)} − withdrawals {usd(r.statementWithdrawals)} + investment gain / loss {usd(r.investmentChange, { sign: true })} = closing equity {usd(r.ending)}. Deposits and withdrawals here are as printed on each statement, so transfers between your own accounts appear on both sides and cancel.</p>
+        <p>Opening equity {usd(r.beginning)} + deposits {usd(r.deposits)} − withdrawals {usd(r.statementWithdrawals)} − tax withheld {usd(r.taxWithheld)} + investment gain / loss {usd(r.investmentChange, { sign: true })} = closing equity {usd(r.ending)}. Statements print dividends after tax withheld; here the tax is shown separately, as Schwab's performance view does. Deposits and withdrawals here are as printed on each statement, so transfers between your own accounts appear on both sides and cancel.</p>
         <p>Withdrawals &amp; bill payments above count money that left your accounts: Withdrawal and Bill Payment transactions, minus {usd(r.internalOut)} that arrived as a deposit in another of your accounts within a few days. Distributions may include return of capital; they are not all economic profit.</p>
       </div>
     </details>

@@ -94,3 +94,17 @@ close(incomeAndRealizedGains([txn('Dividend', 12, '2020-01-01')], '', '2026-06-3
   assert.deepEqual([...ids].sort(), ['d1', 'w1'])
   console.log('internal transfer matching tests passed')
 }
+
+// Tax withheld is added back to income and shown as its own outflow (Schwab's convention).
+{
+  const acct: Account = { id: 'm', mask: '9414', broker: 'Schwab', name: 'M', fullName: 'M', type: 'Margin', isMargin: true, cash: 0, marginBalance: 0, equity: 0 }
+  // Raymond's Feb 2026: statement income $2,027.71 = $2,551.18 gross - $523.47 withheld.
+  const rows = statementHistory([{ id: 'f', accountMask: '9414', month: '2026-02', openingEquity: 60223.50, closingEquity: 56011.39, deposits: 7546.66, withdrawals: -9458.62, dividendsInterest: 2027.71, expenses: -241.03, marketChange: -4086.83, marginLoanBalance: 40247.99, source: 'Schwab statement', fileName: 's', importedAt: '2026-03-01' }], [acct], 'all')
+  const tax: Transaction = { id: 't', accountId: 'm', date: '2026-02-27', type: 'Tax Withholding', amount: -523.47, units: 0, description: '', tags: [] }
+  const r = recordedIncomePerformance(rows, [tax])!
+  assert.ok(Math.abs(r.income - 2551.18) < 0.01)
+  assert.equal(r.taxWithheld, 523.47)
+  assert.ok(Math.abs(r.investmentChange - (-2300.15 + 523.47)) < 0.01, 'withholding is not an investment loss')
+  assert.ok(Math.abs(r.beginning + r.deposits - r.statementWithdrawals - r.taxWithheld + r.investmentChange - r.ending) < 0.01)
+  console.log('tax withholding tests passed')
+}

@@ -83,8 +83,12 @@ export function recordedIncomePerformance(rows: StatementMonth[], transactions: 
   const statementWithdrawals = -total((row) => row.withdrawals)
   const beginning = first.openingEquity!
   const ending = last.closingEquity
-  const investmentChange = ending - beginning - deposits + statementWithdrawals
-  const income = total((row) => row.dividendsInterest)
+  // Statements print dividends net of tax withheld. Add it back: withholding is
+  // a prepayment of your income tax (credited on your return), not a loss.
+  const months = new Set(run.map((row) => row.month))
+  const taxWithheld = -transactions.filter((t) => t.type === 'Tax Withholding' && t.amount < 0 && months.has(t.date.slice(0, 7))).reduce((n, t) => n + t.amount, 0)
+  const investmentChange = ending - beginning - deposits + statementWithdrawals + taxWithheld
+  const income = total((row) => row.dividendsInterest) + taxWithheld
   const costs = -total((row) => row.expenses)
   const netIncome = income - costs
   // Money that actually left to you: transaction-classified withdrawals and
@@ -100,7 +104,7 @@ export function recordedIncomePerformance(rows: StatementMonth[], transactions: 
     fromMonth: first.month, toMonth: last.month, asOf: last.asOf, estimated: run.some((row) => row.statements.some((s) => s.source === 'Automatic snapshot')),
     beginning, ending, deposits, statementWithdrawals, income, costs, netIncome,
     investmentChange, priceChange: investmentChange - netIncome, withdrawals,
-    retained: investmentChange - withdrawals, incomeAfterWithdrawals: netIncome - withdrawals, internalOut,
+    taxWithheld, retained: investmentChange - withdrawals - taxWithheld, incomeAfterWithdrawals: netIncome - withdrawals - taxWithheld, internalOut,
     // Only uncategorized cash rows can hide money leaving; journals already tagged
     // Transfer or Corporate Action are deliberate.
     needsReview: txns.filter((t) => t.type === 'Other' && t.amount !== 0).length,

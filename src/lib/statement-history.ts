@@ -1,4 +1,4 @@
-import type { Account, HistoricalBalance, MonthlyBalanceSnapshot } from './types'
+import type { Account, HistoricalBalance, MonthlyBalanceSnapshot, Transaction } from './types'
 import { automaticBalances, previousMonth } from './balance-snapshots'
 import { monthLabel } from './format'
 
@@ -179,20 +179,32 @@ export interface StatementTwr {
   estimated: boolean // includes an automatic-snapshot month
 }
 
-export function monthlyReturn(row: StatementMonth) {
+// Tax withheld from dividends is a prepayment of your income tax, not an
+// investment loss. Statements print dividends net of it; Schwab's performance
+// view counts the gross dividend as income and the withholding as money
+// leaving. Pass the month's withholding (positive dollars) to match that.
+export type WithholdingByMonth = Map<string, number>
+
+export function withholdingByMonth(transactions: Transaction[]): WithholdingByMonth {
+  const months: WithholdingByMonth = new Map()
+  for (const t of transactions) if (t.type === 'Tax Withholding' && t.amount < 0) months.set(t.date.slice(0, 7), (months.get(t.date.slice(0, 7)) ?? 0) - t.amount)
+  return months
+}
+
+export function monthlyReturn(row: StatementMonth, withheld = 0) {
   if (!row.complete || row.openingEquity == null || row.flowsAvailable === false) return undefined
-  const flow = row.deposits + row.withdrawals
+  const flow = row.deposits + row.withdrawals - withheld
   const base = row.openingEquity + flow / 2
   if (base <= 0) return undefined
   return { r: (row.closingEquity - row.openingEquity - flow) / base, gain: row.closingEquity - row.openingEquity - flow }
 }
 
-export function statementTwr(rows: StatementMonth[], fromMonth = ''): StatementTwr {
+export function statementTwr(rows: StatementMonth[], fromMonth = '', withheld: WithholdingByMonth = new Map()): StatementTwr {
   const window = rows.filter((row) => !fromMonth || row.month >= fromMonth).sort((a, b) => a.month.localeCompare(b.month))
   // Longest unbroken run ending at the latest measurable month.
   let run: { row: StatementMonth; r: number; gain: number }[] = []
   for (const row of window) {
-    const result = monthlyReturn(row)
+    const result = monthlyReturn(row, withheld.get(row.month) ?? 0)
     if (!result) { run = []; continue }
     run.push({ row, ...result })
   }

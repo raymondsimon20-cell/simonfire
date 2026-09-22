@@ -139,3 +139,11 @@ console.log('statement scope, import validation, and month-close reconciliation 
   assert.ok(Math.abs(broken.twrPct - 0.1) < 1e-9)
   console.log('statement TWR tests passed')
 }
+
+{
+  const acct: Account = { id: 'm', mask: '9414', broker: 'Schwab', name: 'M', fullName: 'M', type: 'Margin', isMargin: true, cash: 0, marginBalance: 0, equity: 0 }
+  const rows = statementHistory([{ id: 'f', accountMask: '9414', month: '2026-02', openingEquity: 1000, closingEquity: 1000, deposits: 0, withdrawals: 0, dividendsInterest: 76, expenses: 0, marketChange: -76, marginLoanBalance: 0, source: 'Schwab statement', fileName: 's', importedAt: '2026-03-01' }], [acct], 'all')
+  assert.equal(statementTwr(rows).twrPct, 0)
+  assert.ok(Math.abs(statementTwr(rows, '', new Map([['2026-02', 24]])).twrPct - 24 / 988) < 1e-9, 'withheld tax counts as money leaving, not loss')
+  console.log('statement TWR withholding tests passed')
+}

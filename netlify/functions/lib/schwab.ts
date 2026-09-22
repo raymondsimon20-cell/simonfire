@@ -7,6 +7,8 @@ import { resolveDividendSymbols } from '../../../src/lib/dividend-symbol'
 import { populateRealizedProfitLoss } from '../../../src/lib/realized-pl'
 import { brokerageDate, createBalanceSnapshot } from '../../../src/lib/balance-snapshots'
 import type { BalanceSnapshot, Transaction } from '../../../src/lib/types'
+import type { AccountSyncCoverage } from '../../../src/lib/types'
+import { fetchTransactionHistory } from './transaction-history'
 
 const TOKEN_URL = 'https://api.schwabapi.com/v1/oauth/token'
 const AUTH_URL = 'https://api.schwabapi.com/v1/oauth/authorize'
@@ -496,19 +498,21 @@ async function buildTwrSeries(
 
 export async function fetchPortfolio(token: string) {
   const accountsRaw: any[] = await api('/accounts?fields=positions', token)
-  const hashList: any[] = await api('/accounts/accountNumbers', token).catch(() => [])
+  const hashList: any[] = await api('/accounts/accountNumbers', token)
+  if (!Array.isArray(accountsRaw) || !accountsRaw.length || !Array.isArray(hashList)) throw new Error('Schwab did not return an account list. Reconnect and select all intended accounts; saved data was not replaced.')
   const hashByNumber = new Map<string, string>()
   for (const h of hashList) hashByNumber.set(accountDigits(h.accountNumber), String(h.hashValue))
 
   const accounts: any[] = []
   const positions: any[] = []
   const transactions: any[] = []
+  const accountSyncCoverage: AccountSyncCoverage[] = []
+  const accountMasks = new Set<string>()
 
   // 12 months of transactions
   const end = new Date()
   const start = new Date()
   start.setFullYear(start.getFullYear() - 1)
-  const iso = (d: Date) => d.toISOString().slice(0, 19) + 'Z'
 
   for (const entry of accountsRaw) {
     const sa = entry.securitiesAccount ?? entry
@@ -522,6 +526,8 @@ export async function fetchPortfolio(token: string) {
     // accidentally treated as zero when calculating remaining capacity.
     const marginBalance = Math.abs(num(bal.marginBalance))
     const mask = number.replace(/\D/g, '').slice(-4)
+    if (mask.length !== 4 || accountMasks.has(mask)) throw new Error('Schwab accounts could not be uniquely identified. Saved data was not replaced.')
+    accountMasks.add(mask)
     const accId = 'acc_' + (mask || Math.random().toString(36).slice(2, 8))
     // Extra balance fields Schwab reports — power the account-detail KPIs.
     const equity = bal.liquidationValue == null && bal.equity == null
@@ -572,6 +578,7 @@ export async function fetchPortfolio(token: string) {
         // Preserve the tradable OSI contract symbol. The underlying has its own
         // field and must never replace this value or close-order quotes fail.
         symbol: opt?.symbol || String(inst.symbol ?? 'UNKNOWN'),
+        securityId: inst.cusip ? String(inst.cusip) : undefined,
         name: opt ? opt.label : String(inst.description ?? inst.symbol ?? ''),
         shares: qty,
         avgCost: num(p.averagePrice) * mult,
@@ -587,12 +594,16 @@ export async function fetchPortfolio(token: string) {
 
     // Transactions for this account (by hashValue).
     const hash = hashByNumber.get(accountDigits(number)) || matchingHash(hashList, number)
-    if (hash) {
-      const txns: any[] = await api(
-        `/accounts/${hash}/transactions?startDate=${encodeURIComponent(iso(start))}&endDate=${encodeURIComponent(iso(end))}`,
-        token,
-      ).catch(() => [])
-      for (const t of txns) transactions.push(mapTxn(accId, t))
+    if (!hash) throw new Error(`Transaction access is missing for Schwab account ····${mask}. Reconnect and authorize this account. Saved data was not replaced.`)
+    try {
+      const history = await fetchTransactionHistory((from, to) => api(
+        `/accounts/${hash}/transactions?startDate=${encodeURIComponent(from)}&endDate=${encodeURIComponent(to)}`,
+        token, AbortSignal.timeout(15_000),
+      ), start, end)
+      for (const t of history.rows) transactions.push(mapTxn(accId, t))
+      accountSyncCoverage.push({ accountId: accId, from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10), transactionCount: history.rows.length, positionCount: (sa.positions ?? []).length, method: history.method, syncedAt: end.toISOString() })
+    } catch {
+      throw new Error(`Transaction history failed for Schwab account ····${mask}, including smaller date-window retries. Saved data was not replaced. Try Sync Now again; if it persists, reconnect and authorize all accounts.`)
     }
   }
 
@@ -657,7 +668,7 @@ export async function fetchPortfolio(token: string) {
     twr = undefined
   }
 
-  return { accounts, positions, transactions, broker: 'Schwab', twr, insights }
+  return { accounts, positions, transactions, broker: 'Schwab', twr, insights, accountSyncCoverage }
 }
 
 // Map a Schwab transaction to the app's model.
@@ -672,7 +683,7 @@ function mapTxn(accountId: string, t: any): Transaction {
     return at === 'CURRENCY' || sym === 'CURRENCY_USD' || sym.startsWith('CURRENCY')
   }
   const security =
-    items.find((i) => i.instrument?.symbol && !isCurrency(i)) ??
+    items.find((i) => !isCurrency(i) && (i.instrument?.symbol || i.instrument?.cusip || i.instrument?.description)) ??
     items.find((i) => i.instrument?.symbol)
   let symbol: string | undefined = security?.instrument?.symbol
   if (symbol && (symbol.toUpperCase() === 'CURRENCY_USD' || symbol.toUpperCase().startsWith('CURRENCY')))
@@ -696,6 +707,9 @@ function mapTxn(accountId: string, t: any): Transaction {
     date: String(t.tradeDate ?? t.time ?? '').slice(0, 10),
     type,
     symbol,
+    securityId: security && !isCurrency(security) && security.instrument?.cusip ? String(security.instrument.cusip) : undefined,
+    securityName: security && !isCurrency(security) ? security.instrument?.description : undefined,
+    symbolSource: symbol ? 'broker' : undefined,
     description: String(t.description ?? rawType),
     amount,
     units: units || 0,

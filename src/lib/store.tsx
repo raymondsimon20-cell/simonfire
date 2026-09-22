@@ -13,13 +13,15 @@ import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
 import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
 import { loadBalanceHistory, loadSharedPreferences, saveBackup, saveSharedPreferences, type SharedPreferences } from './api'
-import { dividendDescriptionKey, resolveDividendSymbols } from './dividend-symbol'
+import { dividendDescriptionKey, hasDividendIdentity, resolveDividendSymbols } from './dividend-symbol'
 import { applyRealizedPlOverrides, populateRealizedProfitLoss, realizedPlOverrideKey } from './realized-pl'
 import { summarizeSync } from './sync-summary'
 import { captureCsvAuthority, mergePositionAuthority, mergeTransactionAuthority, reconcileCsvAuthority } from './csv-authority'
 import { mergeHistoricalBalances } from './statement-history'
 import { createBalanceSnapshot, hydrateSnapshotFlows, mergeSnapshotMonths, snapshotMonth } from './balance-snapshots'
 import { applyTransactionOverrides, mergeTransactionOverrides, migrateTransactionOverrides, recordTransactionOverride } from './transaction-overrides'
+import { applyPositionBuckets } from './position-buckets'
+import { mergeLiveAccounts } from './live-accounts'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
 
@@ -110,7 +112,7 @@ function load(): AppData {
         if (!parsed.archivedTransactions) parsed.archivedTransactions = []
         if (!parsed.importHistory) parsed.importHistory = []
         parsed.freshnessThresholds = { ...DEFAULT_FRESHNESS, ...(parsed.freshnessThresholds ?? {}) }
-        for (const p of parsed.positions) p.allocationBucket = parsed.bucketOverrides[`${p.accountId}|${p.symbol}`]
+        applyPositionBuckets(parsed.positions, parsed.bucketOverrides)
         // Backfill sample analytics for datasets stored before these existed.
         if (parsed.source === 'sample' && (!parsed.twr || !parsed.insights)) {
           const s = buildSeed()
@@ -192,9 +194,7 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
     data.transactions = reconciled.transactions
   }
   classifyKnownOthers(data)
-  for (const position of data.positions) {
-    position.allocationBucket = data.bucketOverrides[`${position.accountId}|${position.symbol}`]
-  }
+  applyPositionBuckets(data.positions, data.bucketOverrides)
   const sold = new Set(data.soldSymbols)
   if (sold.size) data.positions = data.positions.filter((position) => !sold.has(soldKey(position.accountId, position.symbol)))
   applyRulesTo(data)
@@ -256,6 +256,7 @@ interface StoreCtx {
 }
 
 export interface ImportPayload {
+  accountSyncCoverage?: AppData['accountSyncCoverage']
   accounts: Account[]
   positions: Position[]
   transactions: Transaction[]
@@ -408,9 +409,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const transaction = d.transactions.find((item) => item.id === id)
       const symbol = rawSymbol.trim().toUpperCase()
       if (!transaction || !symbol) return d
+      d.transactionOverrides = recordTransactionOverride(d.transactions, d.accounts, d.transactionOverrides ?? {}, id, { symbol })
       transaction.symbol = symbol
+      transaction.symbolSource = 'manual'
       const contains = dividendDescriptionKey(transaction.description)
-      if (contains) {
+      if (contains && hasDividendIdentity(transaction.description)) {
         d.symbolRules = (d.symbolRules ?? []).filter((rule) => !(rule.accountId === transaction.accountId && rule.contains === contains))
         d.symbolRules.push({ id: uid(), contains, symbol, accountId: transaction.accountId })
         resolveDividendSymbols(d.positions, d.transactions, d.symbolRules)
@@ -427,8 +430,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const symbol = match.symbol.trim().toUpperCase()
         if (!transaction || !symbol) continue
         transaction.symbol = symbol
+        transaction.symbolSource = 'manual'
         const contains = dividendDescriptionKey(transaction.description)
-        if (!contains) continue
+        if (!contains || !hasDividendIdentity(transaction.description)) continue
         d.symbolRules = (d.symbolRules ?? []).filter((rule) => !(rule.accountId === transaction.accountId && rule.contains === contains))
         d.symbolRules.push({ id: uid(), contains, symbol, accountId: transaction.accountId })
       }
@@ -595,6 +599,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (result, mode, source = 'imported') => {
       const now = new Date().toISOString()
       mutate((d) => {
+        const wasSample = d.source === 'sample'
+        const previousPositions = d.positions
+        const previousTransactions = d.transactions
         let nextPositions = result.positions
         let nextTransactions = result.transactions
         let csvConflicts = 0
@@ -619,9 +626,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           csvConflicts = reconciled.conflicts
           csvConflictDetails = reconciled.conflictDetails
         }
-        const syncChanges = summarizeSync(d.positions, d.transactions, nextPositions, nextTransactions, now)
-        syncChanges.csvConflicts = csvConflicts
-        syncChanges.csvConflictDetails = csvConflictDetails
         d.source = source
         if (source === 'live') {
           const clientSnapshots = result.accounts
@@ -632,9 +636,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (result.snapshotStatus && (!d.snapshotStatus || result.snapshotStatus.attemptedAt >= d.snapshotStatus.attemptedAt)) d.snapshotStatus = result.snapshotStatus
         }
         if (mode === 'replace') {
-          d.accounts = result.accounts
-          d.positions = nextPositions
-          d.transactions = nextTransactions
+          const merged = source === 'live' ? mergeLiveAccounts(wasSample ? { accounts: [], positions: [], transactions: [] } : d, { ...result, positions: nextPositions, transactions: nextTransactions }) : { accounts: result.accounts, positions: nextPositions, transactions: nextTransactions }
+          if ('accountAliases' in merged) for (const [oldId, newId] of Object.entries(merged.accountAliases)) {
+            for (const [key, bucket] of Object.entries(d.bucketOverrides ?? {})) if (key.startsWith(`${oldId}|`)) {
+              const newKey = `${newId}|${key.slice(oldId.length + 1)}`
+              d.bucketOverrides ??= {}
+              d.bucketOverrides[newKey] ??= bucket
+              delete d.bucketOverrides[key]
+            }
+            for (const rule of d.symbolRules ?? []) if (rule.accountId === oldId) rule.accountId = newId
+            for (const connection of d.connections) connection.accountIds = connection.accountIds.map((id) => id === oldId ? newId : id)
+            d.soldSymbols = d.soldSymbols?.map((key) => key.startsWith(`${oldId}|`) ? `${newId}|${key.slice(oldId.length + 1)}` : key)
+          }
+          d.accounts = merged.accounts
+          d.positions = merged.positions
+          d.transactions = merged.transactions
         } else {
           const existingIds = new Set(d.accounts.map((a) => a.id))
           d.accounts.push(...result.accounts.filter((a) => !existingIds.has(a.id)))
@@ -643,13 +659,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           d.transactions.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         }
         d.bucketOverrides = d.bucketOverrides ?? {}
-        for (const p of d.positions) p.allocationBucket = d.bucketOverrides[`${p.accountId}|${p.symbol}`]
+        applyPositionBuckets(d.positions, d.bucketOverrides)
         // Keep positions marked sold in the tracker out of the synced set.
         const sold = new Set(d.soldSymbols ?? [])
         if (sold.size) d.positions = d.positions.filter((p) => !sold.has(soldKey(p.accountId, p.symbol)))
         // Daily value series for time-weighted return (from the live sync).
-        if (result.twr) d.twr = result.twr
+        if (result.twr) d.twr = d.accounts.length > result.accounts.length ? { ...result.twr, byAccount: { ...d.twr?.byAccount, ...result.twr.byAccount }, all: [], note: 'Some saved accounts were not returned by the latest sync; combined history is unavailable.' } : result.twr
         if (result.insights) d.insights = result.insights
+        if (source === 'live') d.accountSyncCoverage = result.accountSyncCoverage
         // Classify known Schwab descriptions, then let user rules take precedence.
         classifyKnownOthers(d)
         applyRulesTo(d)
@@ -666,11 +683,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             status: 'Active',
             accountIds: result.accounts.map((a) => a.id),
             lastSynced: now,
-            events: [{ at: now, kind: 'connect', message: `Imported ${result.accounts.length} account(s) from CSV` }],
+            events: [{ at: now, kind: source === 'live' ? 'sync' : 'connect', message: `${source === 'live' ? 'Synced' : 'Imported'} ${result.accounts.length} account(s) from ${source === 'live' ? 'Schwab API' : 'CSV'}` }],
           },
-          ...(mode === 'merge' ? d.connections : []),
+          ...(mode === 'merge' ? d.connections : source === 'live' && !wasSample ? d.connections.map((connection) => ({ ...connection, accountIds: connection.accountIds.filter((id) => !result.accounts.some((account) => account.id === id)) })).filter((connection) => connection.accountIds.length) : []),
         ]
         d.lastSyncAt = now
+        const syncChanges = summarizeSync(previousPositions, previousTransactions, d.positions, d.transactions, now)
+        syncChanges.csvConflicts = csvConflicts
+        syncChanges.csvConflictDetails = csvConflictDetails
         d.lastSyncChanges = syncChanges
         return d
       })
@@ -813,7 +833,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (accountId, symbol, bucket) => mutate((d) => {
       const key = `${accountId}|${symbol}`
       d.bucketOverrides = { ...(d.bucketOverrides ?? {}), [key]: bucket }
-      for (const p of d.positions) if (p.accountId === accountId && p.symbol === symbol) p.allocationBucket = bucket
+      applyPositionBuckets(d.positions, d.bucketOverrides)
       return d
     }), [mutate],
   )

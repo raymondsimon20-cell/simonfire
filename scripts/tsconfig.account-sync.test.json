@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.balance-snapshots.test.json",
+  "compilerOptions": { "outDir": "/tmp/simonfire-account-sync-tests" },
+  "include": ["test-account-sync.ts"]
+}

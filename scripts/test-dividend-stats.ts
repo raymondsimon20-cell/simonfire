@@ -129,7 +129,36 @@ const resolverTransactions: Transaction[] = [
 resolveDividendSymbols(resolverPositions, resolverTransactions)
 assert.equal(resolverTransactions.find((row) => row.id === 'learned')?.symbol, 'QQQI')
 assert.equal(resolverTransactions.find((row) => row.id === 'ticker')?.symbol, 'TSYY')
-assert.equal(resolverTransactions.find((row) => row.id === 'amount')?.symbol, 'QQQI')
+assert.equal(resolverTransactions.find((row) => row.id === 'amount')?.symbol, undefined, 'amount alone cannot identify a payer')
+
+const acrossAccounts: Transaction[] = [
+  txn({ date: '2026-08-01', id: 'known-global', accountId: 'old', type: 'Dividend', symbol: 'QQQI', description: 'QUALIFIED DIVIDEND NEOS NASDAQ 100 HIGH INCOME', amount: 60 }),
+  txn({ date: '2026-08-01', id: 'new-account', accountId: 'new', type: 'Dividend', description: 'CASH DIVIDEND NEOS NASDAQ 100 HIGH INCOME', amount: 12 }),
+  txn({ date: '2026-08-01', id: 'sold-trade', accountId: 'old', type: 'Sell', symbol: 'SOLD', securityId: '123456789', securityName: 'Distinctive Former Holding', description: 'Sale', amount: 500 }),
+  txn({ date: '2026-08-01', id: 'sold-dividend', accountId: 'new', type: 'Dividend', securityId: '123456789', description: 'Dividend', amount: 2 }),
+  txn({ date: '2026-08-01', id: 'sold-name', accountId: 'new', type: 'Dividend', description: 'DIVIDEND DISTINCTIVE FORMER HOLDING', amount: 3 }),
+  txn({ date: '2026-08-01', id: 'generic', accountId: 'new', type: 'Dividend', description: 'CASH DIVIDEND', amount: 60 }),
+  txn({ date: '2026-08-01', id: 'local-rule', accountId: 'new', type: 'Dividend', description: 'QUALIFIED DIVIDEND NEOS NASDAQ 100 HIGH INCOME', amount: 9 }),
+]
+resolveDividendSymbols([], acrossAccounts, [{ id: 'specific', accountId: 'new', contains: 'NEOS NASDAQ HIGH INCOME', symbol: 'MANUAL' }])
+assert.equal(acrossAccounts.find((row) => row.id === 'new-account')?.symbol, 'MANUAL', 'local explicit mapping wins over learned global description')
+assert.equal(acrossAccounts.find((row) => row.id === 'sold-dividend')?.symbol, 'SOLD')
+assert.equal(acrossAccounts.find((row) => row.id === 'sold-name')?.symbol, 'SOLD')
+assert.equal(acrossAccounts.find((row) => row.id === 'generic')?.symbol, undefined)
+const crossLearn = [acrossAccounts[0], txn({ date: '2026-08-01', id: 'cross-learn', accountId: 'third', type: 'Dividend', description: 'CASH DIVIDEND NEOS NASDAQ 100 HIGH INCOME', amount: 5 })]
+resolveDividendSymbols([], crossLearn)
+assert.equal(crossLearn[1].symbol, 'QQQI')
+const ambiguous = [acrossAccounts[0], { ...acrossAccounts[0], symbol: 'DIFFERENT', id: 'conflicting' }, { ...crossLearn[1], symbol: undefined }]
+resolveDividendSymbols([], ambiguous)
+assert.equal(ambiguous[2].symbol, undefined)
+const ruleOnly = [txn({ date: '2026-08-01', id: 'shared-rule', accountId: 'third', type: 'Dividend', description: 'CASH DIVIDEND DISTINCTIVE OLD FUND', amount: 8 })]
+resolveDividendSymbols([], ruleOnly, [{ id: 'old-rule', accountId: 'old', contains: 'DISTINCTIVE OLD FUND', symbol: 'OLD' }])
+assert.equal(ruleOnly[0].symbol, 'OLD')
+for (const description of ['CASH DIVIDEND', 'DIVIDEND PAID', 'SUBSTITUTE INCOME PAYMENT', 'UNIDENTIFIED PAYMENT']) {
+  const generic = [txn({ date: '2026-08-01', id: 'known', type: 'Dividend', description, symbol: 'QQQI', amount: 62 }), txn({ date: '2026-08-01', id: 'missing', type: 'Dividend', description, amount: 62 })]
+  resolveDividendSymbols(resolverPositions, generic)
+  assert.equal(generic[1].symbol, undefined, `generic wording must not identify a payer: ${description}`)
+}
 
 const importAccount = { id: 'csv-account', broker: 'Schwab', name: 'CSV', fullName: 'CSV', mask: '9391', type: 'Margin' as const, isMargin: true, cash: 0, marginBalance: 0 }
 const csvDividend = txn({ id: 'csv-dividend', accountId: importAccount.id, date: '2026-08-20', type: 'Dividend', symbol: 'TSYY', description: 'Cash dividend TSYY', amount: 19 })

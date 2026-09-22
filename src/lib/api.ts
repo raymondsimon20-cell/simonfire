@@ -91,6 +91,7 @@ export async function schwabSync(): Promise<SyncResult> {
         insights: d.insights,
         balanceSnapshots: d.balanceSnapshots,
         snapshotStatus: d.snapshotStatus,
+        accountSyncCoverage: d.accountSyncCoverage,
       },
     }
   } catch {

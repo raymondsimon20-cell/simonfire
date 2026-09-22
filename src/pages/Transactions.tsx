@@ -38,6 +38,7 @@ export default function Transactions() {
 
   const duplicateIds = useMemo(() => duplicateTransactionIds(transactions), [transactions])
   const missingPlCount = useMemo(() => transactions.filter((transaction) => isClosingSale(transaction) && transaction.pl == null).length, [transactions])
+  const missingSymbolCount = useMemo(() => transactions.filter((transaction) => transaction.type === 'Dividend' && !transaction.symbol).length, [transactions])
 
   const filtered = useMemo(
     () =>
@@ -45,6 +46,7 @@ export default function Transactions() {
         if (type !== 'all' && t.type !== type) return false
         if (deferredSymbol && !(t.symbol ?? '').toLowerCase().includes(deferredSymbol.toLowerCase())) return false
         if (review === 'missing-pl' && !(isClosingSale(t) && t.pl == null)) return false
+        if (review === 'missing-symbol' && !(t.type === 'Dividend' && !t.symbol)) return false
         if (review === 'duplicates' && !duplicateIds.has(t.id)) return false
         const globalFrom = dateRangeStart(dateRange)
         if ((from || globalFrom) && t.date < (from || globalFrom)) return false
@@ -153,7 +155,7 @@ export default function Transactions() {
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-2 text-sm text-muted">Review:<select value={review} onChange={(event) => setReview(event.target.value)} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none"><option value="all">All records</option><option value="missing-pl">Sales missing P/L ({missingPlCount})</option><option value="duplicates">Potential duplicates ({duplicateIds.size})</option></select></label>
+        <label className="flex items-center gap-2 text-sm text-muted">Review:<select aria-label="Transaction review" value={review} onChange={(event) => setReview(event.target.value)} className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-ink outline-none"><option value="all">All records</option><option value="missing-symbol">Dividends missing tickers ({missingSymbolCount})</option><option value="missing-pl">Sales missing P/L ({missingPlCount})</option><option value="duplicates">Potential duplicates ({duplicateIds.size})</option></select></label>
         <label className="flex items-center gap-2 text-sm text-muted">
           Symbol:
           <span className="relative">

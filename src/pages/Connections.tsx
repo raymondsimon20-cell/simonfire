@@ -171,6 +171,16 @@ export default function Connections() {
         )}
       </div>
 
+      <div className="card mb-6 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">Schwab account data</h2><p className="mt-1 text-xs text-faint">Sync requests one year of transactions for each authorized account. Older history and historical balances may still require statements or exports.</p></div><Button onClick={() => (window.location.href = schwabLoginUrl)}>Manage authorized accounts</Button></div>
+        <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[650px] text-sm"><thead><tr className="border-b border-border-soft text-left text-xs text-muted"><th className="py-2">Account</th><th>Last requested history</th><th>Returned positions / transactions</th><th>Dividends missing tickers</th></tr></thead><tbody>{data.accounts.map((account) => {
+          const coverage = data.accountSyncCoverage?.find((row) => row.accountId === account.id)
+          const missing = data.transactions.filter((row) => row.accountId === account.id && row.type === 'Dividend' && !row.symbol).length
+          return <tr key={account.id} className="border-b border-border-soft"><td className="py-3 font-medium">{account.name}</td><td className="text-xs text-muted">{coverage ? <>{coverage.from} – {coverage.to}<div className="mt-1 text-faint">{relTime(coverage.syncedAt)} · {coverage.method}</div></> : 'Not returned by the latest sync; saved data retained'}</td><td className="num">{coverage ? `${coverage.positionCount} / ${coverage.transactionCount}` : 'Sync to verify'}</td><td className={clsx('num', missing ? 'text-[#f0a94a]' : 'text-pos')}>{missing}</td></tr>
+        })}</tbody></table></div>
+        <p className="mt-3 text-xs text-faint">Counts show what Schwab returned, not a guarantee of all historical activity. Dividend matching uses security identifiers, known payer descriptions, and security names across accounts. Review remaining payments in Transactions → Review → Dividends missing tickers.</p>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {data.connections.map((c) => {
           const accts = accountsOf(c.accountIds)
@@ -315,8 +325,7 @@ export default function Connections() {
           ))}
         </div>
         <p className="mt-5 text-center text-xs text-faint">
-          With live sync, credentials are handled by SnapTrade — never seen or stored by this app. CSV import keeps
-          everything in your browser.
+          Schwab authorization happens on Schwab’s website. The app stores access tokens on the server. Imported records and preferences can be saved in shared storage and backups.
         </p>
       </Modal>
 

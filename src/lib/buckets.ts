@@ -64,9 +64,9 @@ export function bucketOf(p: Position): Bucket {
   return classifyByName(p.name || p.symbol)
 }
 
-export type BucketClassificationMethod = 'Manual override' | 'Ticker map' | 'Name heuristic' | 'Underlying ticker' | 'Growth fallback'
+export type BucketClassificationMethod = 'Manual override' | 'Shared ticker override' | 'Ticker map' | 'Name heuristic' | 'Underlying ticker' | 'Growth fallback'
 export function bucketClassification(p: Position): { bucket: Bucket; method: BucketClassificationMethod } {
-  if (p.allocationBucket) return { bucket: p.allocationBucket, method: 'Manual override' }
+  if (p.allocationBucket) return { bucket: p.allocationBucket, method: p.allocationBucketSource === 'shared' ? 'Shared ticker override' : 'Manual override' }
   const inherited = !!(p.isOption && p.underlying)
   const key = normTicker(inherited ? p.underlying! : p.symbol)
   if (MAP[key]) return { bucket: MAP[key], method: inherited ? 'Underlying ticker' : 'Ticker map' }

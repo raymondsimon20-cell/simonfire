@@ -10,6 +10,7 @@
     "test:dividends": "tsc -p scripts/tsconfig.dividends.test.json && node /tmp/simonfire-dividend-tests/scripts/test-dividend-stats.js",
     "test:margin": "tsc -p scripts/tsconfig.margin.test.json && node /tmp/simonfire-margin-tests/scripts/test-margin-capacity.js",
     "test:allocation": "tsc -p scripts/tsconfig.allocation.test.json && node /tmp/simonfire-allocation-tests/scripts/test-allocation.js",
+    "test:account-sync": "tsc -p scripts/tsconfig.account-sync.test.json && NODE_PATH=./node_modules node /tmp/simonfire-account-sync-tests/scripts/test-account-sync.js",
     "test:transactions": "tsc -p scripts/tsconfig.transactions.test.json && node /tmp/simonfire-transaction-tests/scripts/test-transaction-classification.js",
     "test:realized-pl": "tsc -p scripts/tsconfig.realized-pl.test.json && node /tmp/simonfire-realized-pl-tests/scripts/test-realized-pl.js",
     "test:spending": "tsc -p scripts/tsconfig.spending.test.json && node /tmp/simonfire-spending-tests/scripts/test-spending.js",

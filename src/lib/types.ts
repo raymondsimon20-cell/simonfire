@@ -26,6 +26,7 @@ export interface Account {
 }
 
 export interface Position {
+  securityId?: string // Broker-reported CUSIP, when available.
   id: string
   accountId: string
   symbol: string
@@ -44,6 +45,7 @@ export interface Position {
   expiration?: string // ISO yyyy-mm-dd
   underlying?: string
   allocationBucket?: 'Growth' | 'CEFs' | 'High Yield' | 'Leveraged'
+  allocationBucketSource?: 'account' | 'shared'
   // Schwab market-data fundamentals. annualDividend is the current indicated
   // annual distribution per share; these fields may be absent for unsupported
   // securities or when market data is temporarily unavailable.
@@ -69,6 +71,9 @@ export type TxnType =
   | 'Other'
 
 export interface Transaction {
+  securityId?: string
+  securityName?: string
+  symbolSource?: 'broker' | 'manual' | 'inferred'
   id: string
   brokerTransactionId?: string
   accountId: string
@@ -93,6 +98,7 @@ export interface Transaction {
 
 export interface TransactionOverride {
   updatedAt: string
+  symbol?: string
   type?: TxnType
   duplicateReviewed?: boolean
   tags?: string[]
@@ -128,6 +134,7 @@ export interface ConnectionEvent {
 }
 
 export interface AppData {
+  accountSyncCoverage?: AccountSyncCoverage[]
   version: number
   accounts: Account[]
   positions: Position[]
@@ -165,6 +172,16 @@ export interface AppData {
   transactionOverrides?: Record<string, TransactionOverride>
   balanceSnapshots?: MonthlyBalanceSnapshot[]
   snapshotStatus?: SnapshotStatus
+}
+
+export interface AccountSyncCoverage {
+  accountId: string
+  from: string
+  to: string
+  transactionCount: number
+  positionCount: number
+  method: 'single request' | 'smaller date windows'
+  syncedAt: string
 }
 
 export interface HistoricalBalance {

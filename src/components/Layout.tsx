@@ -229,6 +229,7 @@ export default function Layout() {
       setAutoSyncing(true)
       schwabSync().then((r) => {
         if (!cancelled && r.ok && r.payload) applyImport(r.payload, 'replace', 'live')
+        if (!cancelled && !r.ok) push('Schwab sync needs attention', 'error', r.error || 'Saved data was not changed. Retry from Connections.')
         if (!cancelled) setAutoSyncing(false)
       })
     })

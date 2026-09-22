@@ -81,3 +81,8 @@ assert.equal(freshLegacy[0].type, 'Dividend')
 assert.equal((freshLegacy[0] as Transaction).duplicateReviewed, true)
 assert.deepEqual(cleanTransactionOverrides({ invalid: { type: 'Fake', updatedAt: 'yesterday' } }), {})
 console.log('manual transaction persistence tests passed')
+
+// Schwab sometimes prints "SCHW AB BANK"; those are still bank transfers.
+assert.equal(classify({ rawType: 'JOURNAL', description: 'Deposit Journaled Funds TRANSFER FUNDS FROM SCHW AB BANK - 440054553142', amount: 1062.63 }), 'Contribution')
+assert.equal(classify({ rawType: 'JOURNAL', description: 'TRANSFER FUNDS TO SCHW AB BANK - 440054553142', amount: -500 }), 'Withdrawal')
+console.log('split Schwab Bank name tests passed')

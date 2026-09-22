@@ -63,7 +63,8 @@ export function classifySchwabTransaction({
 
   // Transfers between brokerage and a bank cross the portfolio boundary.
   // Cash/margin sub-account journals above remain internal.
-  if (/\bTRANSFER FUNDS (?:TO|FROM) SCHWAB BANK\b/.test(desc))
+  // Schwab's text sometimes splits the name ("SCHW AB BANK"), so allow a space.
+  if (/\bTRANSFER FUNDS (?:TO|FROM) SCHW\s?AB BANK\b/.test(desc))
     return amount < 0 ? 'Withdrawal' : 'Contribution'
 
   if (raw === 'TRADE' || /\b(?:BOUGHT|BUY|PURCHASED|REINVEST SHARES)\b/.test(raw))

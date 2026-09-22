@@ -63,8 +63,14 @@ assert.match(loanAssumption(idle), /no loan line.*\$0/)
 const kept = mergeHistoricalBalances([pdf], [{ ...pdf, marginLoanBalance: undefined, fileName: 'later.pdf' }], accounts)[0]
 assert.equal(kept.marginLoanBalance, 400)
 assert.equal(kept.fileName, 'later.pdf')
-const gap = statementHistory([{ ...pdf, month: '2025-12', marginLoanBalance: 900 }, { ...pdf, marginLoanBalance: undefined }], [account], 'a').find((row) => row.month === '2026-01')!
-assert.equal(gap.marginLoanBalance, undefined, 'a loan the month before makes a missing line unknown, not $0')
+// Loan starting next month (Oct 2025) or paid off this month (Apr 2026): $0.
+const startsNext = statementHistory([{ ...pdf, marginLoanBalance: undefined }, { ...pdf, month: '2026-02', marginLoanBalance: 900 }], [account], 'a').find((row) => row.month === '2026-01')!
+assert.equal(startsNext.marginLoanBalance, 0, 'borrowing that starts next month')
+const paidOff = statementHistory([{ ...pdf, month: '2025-12', marginLoanBalance: 900 }, { ...pdf, marginLoanBalance: undefined }], [account], 'a').find((row) => row.month === '2026-01')!
+assert.equal(paidOff.marginLoanBalance, 0, 'loan paid off this month')
+// Loan before AND after with no line in between: a parse miss, stays unknown.
+const gap = statementHistory([{ ...pdf, month: '2025-12', marginLoanBalance: 900 }, { ...pdf, marginLoanBalance: undefined }, { ...pdf, month: '2026-02', marginLoanBalance: 950 }], [account], 'a').find((row) => row.month === '2026-01')!
+assert.equal(gap.marginLoanBalance, undefined)
 assert.match(coverageGap(gap), /Margin debt unknown: the A statement/)
 // Missing statements are named so the user knows what to import.
 const partial = statementHistory([pdf], [account, ira], 'all')[0]
@@ -102,7 +108,7 @@ assert.equal(close.liabilities, 400, 'use historical debt, not current debt')
 assert.equal(close.assets, 1660)
 assert.equal(close.bridge.slice(0, -1).reduce((sum, row) => sum + row.value, 0), close.closing, 'statement bridge reconciles without adding transaction P/L again')
 assert.equal(monthClose(accounts, [], 'a', '2026-01', summary, [{ ...pdf, marginLoanBalance: undefined }]).liabilities, 0, 'margin-enabled, not borrowing')
-assert.equal(monthClose(accounts, [], 'a', '2026-01', summary, [{ ...pdf, month: '2025-12', marginLoanBalance: 900 }, { ...pdf, marginLoanBalance: undefined }]).debtAvailable, false, 'loan nearby: missing line stays unknown')
+assert.equal(monthClose(accounts, [], 'a', '2026-01', summary, [{ ...pdf, month: '2025-12', marginLoanBalance: 900 }, { ...pdf, marginLoanBalance: undefined }, { ...pdf, month: '2026-02', marginLoanBalance: 950 }]).debtAvailable, false, 'loan on both sides: missing line stays unknown')
 assert.equal(monthClose(accounts, [], 'a', '2026-01', summary, [{ ...pdf, openingEquity: undefined }]).historyAvailable, false)
 assert.equal(monthClose(accounts, [], 'b', '2026-01', summary, merged).balanceAvailable, false)
 const now = new Date(); const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`

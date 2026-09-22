@@ -45,9 +45,10 @@ export type StatementMonth = HistoricalBalance & {
 
 // Schwab prints a "Net Loan Balance" line only when an account is carrying a
 // loan. A cash/IRA account never has one, so it is $0. A margin-enabled account
-// with no line is also $0 (margin-enabled but not borrowing), UNLESS the same
-// account shows a loan in the month before or after. Then the missing line is
-// more likely a parse miss than a paid-off loan, and the figure stays unknown.
+// with no line is also $0: it hasn't started borrowing yet, or it paid the loan
+// off (both happen next to months that do show a loan). The only pattern that
+// points to a parse miss is a loan in the month BEFORE and the month AFTER with
+// no line in between; then the figure stays unknown.
 export type LoanBasis = 'statement' | 'no line · cash account' | 'no line · not borrowing' | 'unknown'
 
 export function statementMarginDebt(row: HistoricalBalance, accounts: Account[], all: HistoricalBalance[] = []): { value?: number; basis: LoanBasis } {
@@ -55,9 +56,8 @@ export function statementMarginDebt(row: HistoricalBalance, accounts: Account[],
   const account = statementAccount(row, accounts)
   if (!account) return { basis: 'unknown' }
   if (!account.isMargin) return { value: 0, basis: 'no line · cash account' }
-  const neighbors = [previousMonth(row.month), nextMonth(row.month)]
-  const borrowingNearby = all.some((other) => neighbors.includes(other.month) && statementAccount(other, accounts)?.id === account.id && (other.marginLoanBalance ?? 0) > 0)
-  return borrowingNearby ? { basis: 'unknown' } : { value: 0, basis: 'no line · not borrowing' }
+  const borrowedIn = (month: string) => all.some((other) => other.month === month && statementAccount(other, accounts)?.id === account.id && (other.marginLoanBalance ?? 0) > 0)
+  return borrowedIn(previousMonth(row.month)) && borrowedIn(nextMonth(row.month)) ? { basis: 'unknown' } : { value: 0, basis: 'no line · not borrowing' }
 }
 
 function nextMonth(month: string) {
@@ -145,7 +145,7 @@ export function coverageGap(row: StatementMonth) {
   }
   if (row.openingEquity == null && row.noOpening.length) parts.push(`No opening balance for ${row.noOpening.join(', ')}: import the ${monthLabel(previousMonth(row.month))} statement.`)
   const unknown = row.loanNotes.filter((note) => note.basis === 'unknown').map((note) => note.account)
-  if (unknown.length) parts.push(`Margin debt unknown: the ${unknown.join(', ')} statement has no Net Loan Balance line, but a neighboring month shows a loan. Re-import it or check the PDF.`)
+  if (unknown.length) parts.push(`Margin debt unknown: the ${unknown.join(', ')} statement has no Net Loan Balance line, but the months before and after both show a loan. Re-import it or check the PDF.`)
   return parts.join(' ')
 }
 

@@ -1,6 +1,6 @@
-import { monthEndDate, previousMonth } from './balance-snapshots'
+import { brokerageDate, monthEndDate, previousMonth } from './balance-snapshots'
 import { coverageGap, internalTransferIds, statementAccount, type StatementMonth } from './statement-history'
-import type { Account, Transaction } from './types'
+import type { Account, HistoricalBalance, Transaction } from './types'
 
 export interface EquityGrowth {
   value: number | null
@@ -20,11 +20,14 @@ export interface EquityGrowth {
 // Equity already includes spending, withholding, fees, interest and unrealized
 // changes. Subtract ONLY outside funding; adding withdrawals back would measure
 // investment performance instead of progress after funding the household.
-export function equityGrowth(rows: StatementMonth[], transactions: Transaction[], accounts: Account[], fromMonth = '', today = new Date().toISOString().slice(0, 10)): EquityGrowth {
+export function equityGrowth(rows: StatementMonth[], transactions: Transaction[], accounts: Account[], fromMonth = '', today = brokerageDate()): EquityGrowth {
   const window = rows.filter((r) => r.month >= fromMonth && r.month <= today.slice(0, 7)).sort((a, b) => a.month.localeCompare(b.month))
   const first = window[0]
   const last = window.at(-1)
-  const endDate = (row: StatementMonth) => row.asOf?.slice(0, 10) ?? monthEndDate(row.month)
+  // Date-only observations already express the brokerage day. Legacy records
+  // can contain a UTC timestamp; convert those instead of truncating them.
+  const endDate = (row: Pick<HistoricalBalance, 'asOf' | 'month'>) => !row.asOf ? monthEndDate(row.month)
+    : /^\d{4}-\d{2}-\d{2}$/.test(row.asOf) ? row.asOf : brokerageDate(row.asOf)
   const result: EquityGrowth = { value: null, reason: '', from: first ? `${first.month}-01` : '', to: last ? endDate(last) : '', beginning: first?.openingEquity ?? 0, ending: last?.closingEquity ?? 0, deposits: 0, internalDeposits: 0, outsideContributions: 0, estimated: false, notes: [], months: [] }
   const unavailable = (reason: string) => ({ ...result, reason })
   if (!first || !last) return unavailable('Import statements or sync balances to establish equity and funding for this period.')
@@ -33,8 +36,9 @@ export function equityGrowth(rows: StatementMonth[], transactions: Transaction[]
     if (!row.complete || row.openingEquity == null) return unavailable(`${row.month}: ${coverageGap(row) || 'Account balances are incomplete.'}`)
     if (row.flowsAvailable === false) return unavailable(`${row.month}: deposit history is unavailable. Sync or import this month’s statement.`)
     if (![row.openingEquity, row.closingEquity, row.deposits].every(Number.isFinite) || row.deposits < 0) return unavailable(`${row.month}: review the recorded balances and deposits.`)
-    const dates = new Set(row.statements.map((s) => s.asOf?.slice(0, 10) ?? monthEndDate(s.month)))
-    if (dates.size > 1 || endDate(row) > today) return unavailable(`${row.month}: account balances cover different dates or a future date. Sync all selected accounts together.`)
+    const dates = new Set(row.statements.map(endDate))
+    if (dates.size > 1) return unavailable(`${row.month}: account balances cover different reporting dates (${row.statements.map((s) => `${statementAccount(s, accounts)?.name ?? `····${s.accountMask}`}: ${endDate(s)}`).join('; ')}). Sync all selected accounts together.`)
+    if (endDate(row) > today) return unavailable(`${row.month}: the recorded balance date ${endDate(row)} is ahead of today’s brokerage date ${today}. Check your device clock and saved balance dates.`)
     const prior = window[i - 1]
     if (prior && (previousMonth(row.month) !== prior.month || endDate(prior) !== monthEndDate(prior.month))) return unavailable(`History is incomplete before ${row.month}. Import the intervening month-end statements.`)
     if (prior && Math.abs(row.openingEquity - prior.closingEquity) > .02) return unavailable(`${row.month}: opening equity does not match the previous close. Review account coverage and imported balances.`)

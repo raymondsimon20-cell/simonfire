@@ -94,6 +94,21 @@ console.log('income performance tests passed')
   assert.equal(mtd.to, '2026-09-22')
   assert.equal(mtd.estimated, true)
   assert.equal(equityGrowth([current], [], accounts, '', '2026-09-21').value, null)
+  const evening = { ...current, asOf: '2026-09-23T00:30:00Z', statements: current.statements.map((s) => ({ ...s, asOf: '2026-09-23T00:30:00Z' })) }
+  const eveningResult = equityGrowth([evening], [txn('Contribution', 9999, '2026-09-23')], accounts, '', '2026-09-22')
+  assert.equal(eveningResult.value, -500, 'fresh evening sync is not a future balance')
+  assert.equal(eveningResult.to, '2026-09-22')
+  const acrossMidnight = { ...multi[0], asOf: '2026-08-31T23:59:00Z', statements: multi[0].statements.map((s, i) => ({ ...s, asOf: i ? '2026-09-01T00:01:00Z' : '2026-08-31T23:59:00Z' })) }
+  const aligned = equityGrowth([acrossMidnight], transfer, accounts, '', '2026-08-31')
+  assert.equal(aligned.value, 1000, 'UTC midnight during sync does not split account reporting dates')
+  assert.equal(aligned.to, '2026-08-31')
+  const realMismatch = equityGrowth([mismatched], transfer, accounts, '', '2026-09-22')
+  assert.equal(realMismatch.value, null)
+  assert.match(realMismatch.reason, /different reporting dates/)
+  assert.match(realMismatch.reason, /a: 2026-08-31; b: 2026-08-30/)
+  const trueFuture = equityGrowth([evening], [], accounts, '', '2026-09-21')
+  assert.equal(trueFuture.value, null)
+  assert.match(trueFuture.reason, /2026-09-22 is ahead of today’s brokerage date 2026-09-21/)
   console.log('equity growth tests passed: funding, costs, transfers, scope, range, gaps and MTD coverage')
 }
 

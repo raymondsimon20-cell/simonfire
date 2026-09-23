@@ -102,7 +102,9 @@ export function automaticBalances(snapshots: MonthlyBalanceSnapshot[], statement
       marketChange: openingEquity != null && flowsAvailable ? latest.equity - openingEquity - f.deposits - f.withdrawals - f.dividendsInterest - f.expenses : 0,
       closingEquity: latest.equity, marginLoanBalance: latest.marginDebt,
       source: 'Automatic snapshot', fileName: latest.source === 'scheduled' ? 'Nightly Schwab capture' : 'Schwab sync', importedAt: latest.capturedAt,
-      asOf: latest.capturedAt, monthEnd: latest.monthEnd, flowsAvailable, coverageNote: notes.join(' '),
+      // Balance and cash-flow coverage use the brokerage calendar date, not
+      // the UTC capture date (which rolls over during the US evening).
+      asOf: latest.date, monthEnd: latest.monthEnd, flowsAvailable, coverageNote: notes.join(' '),
     }
   })
 }

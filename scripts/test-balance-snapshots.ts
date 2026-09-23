@@ -17,6 +17,11 @@ const snapshots = [snapshotMonth(august), snapshotMonth(september)]
 async function main() {
   assert.equal(brokerageDate('2026-09-01T00:30:00Z'), '2026-08-31', 'UTC midnight must not shift the brokerage month')
   assert.equal(capture('2026-09-01T00:30:00Z').monthEnd, true)
+  const lateMonthEnd = automaticBalances([snapshotMonth(capture('2026-09-01T00:30:00Z'))], [])[0]
+  assert.equal(lateMonthEnd.month, '2026-08')
+  assert.equal(lateMonthEnd.asOf, '2026-08-31', 'month-end labels must use the same date as balances and flows')
+  assert.equal(automaticBalances([snapshotMonth(capture('2026-09-23T00:30:00Z'))], [])[0].asOf, '2026-09-22', 'evening captures must not appear to be tomorrow')
+  assert.equal(automaticBalances([snapshotMonth(capture('2026-01-23T04:30:00Z'))], [])[0].asOf, '2026-01-22', 'winter standard time also uses the brokerage day')
   assert.equal(capture('2026-08-31T16:00:00Z').monthEnd, false, 'intraday capture is not a month close')
   assert.equal(capture('2028-02-29T23:50:00Z').monthEnd, true, 'leap-year close')
   assert.equal(capture('2026-05-31T23:50:00Z').monthEnd, true, 'calendar month can end on a weekend')

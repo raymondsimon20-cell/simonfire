@@ -71,6 +71,7 @@ export type TxnType =
   | 'Other'
 
 export interface Transaction {
+  dividendLookupState?: 'resolved' | 'deferred' | 'unavailable' | 'unmatched'
   statement?: { key: string; fileName: string; page: number; row: number; date: string }
   price?: number
   securityId?: string

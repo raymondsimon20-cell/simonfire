@@ -9,7 +9,8 @@ import { brokerageDate, createBalanceSnapshot } from '../../../src/lib/balance-s
 import type { BalanceSnapshot, Transaction } from '../../../src/lib/types'
 import type { AccountSyncCoverage } from '../../../src/lib/types'
 import { fetchTransactionHistory } from './transaction-history'
-import { resolveDividendSymbolsFromApi } from './dividend-api'
+import { resolveDividendSymbolsFromApi, type DividendLookupCache } from './dividend-api'
+import { applySavedDividendIdentities, type DividendPreferences } from './dividend-preferences'
 
 const TOKEN_URL = 'https://api.schwabapi.com/v1/oauth/token'
 const AUTH_URL = 'https://api.schwabapi.com/v1/oauth/authorize'
@@ -497,7 +498,7 @@ async function buildTwrSeries(
   return { twr, insights }
 }
 
-export async function fetchPortfolio(token: string) {
+export async function fetchPortfolio(token: string, context: { preferences?: DividendPreferences; lookupCache?: DividendLookupCache } = {}) {
   const accountsRaw: any[] = await api('/accounts?fields=positions', token)
   const hashList: any[] = await api('/accounts/accountNumbers', token)
   if (!Array.isArray(accountsRaw) || !accountsRaw.length || !Array.isArray(hashList)) throw new Error('Schwab did not return an account list. Reconnect and select all intended accounts; saved data was not replaced.')
@@ -648,7 +649,8 @@ export async function fetchPortfolio(token: string) {
     }
   }
   resolveDividendSymbols(positions, transactions)
-  const dividendLookups = await resolveDividendSymbolsFromApi({ token, transactions, accountHashes, mapTransaction: mapTxn })
+  applySavedDividendIdentities(accounts, positions, transactions, context.preferences)
+  const dividendLookups = await resolveDividendSymbolsFromApi({ token, transactions, accountHashes, mapTransaction: mapTxn, lookupCache: context.lookupCache })
   for (const coverage of accountSyncCoverage) coverage.dividendLookup = dividendLookups.get(coverage.accountId)
 
   // Backfill lifetime dividends per position from transactions.

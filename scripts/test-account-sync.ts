@@ -5,9 +5,11 @@ import { applyPositionBuckets } from '../src/lib/position-buckets'
 import { mergeLiveAccounts } from '../src/lib/live-accounts'
 import type { Account, Position, Transaction } from '../src/lib/types'
 import { testDividendApi } from './test-dividend-api'
+import { testDividendSyncProgress } from './test-dividend-sync-progress'
 
 async function main() {
   await testDividendApi()
+  await testDividendSyncProgress()
   const position = (accountId: string): Position => ({ id: accountId, accountId, symbol: 'ABC', name: 'ABC', shares: 1, avgCost: 1, lastPrice: 1, prevClose: 1, dividendsReceived: 0 })
   const positions = [position('one'), position('two'), position('three')]
   applyPositionBuckets(positions, { 'one|ABC': 'High Yield' })
@@ -79,6 +81,9 @@ async function main() {
     assert.equal(instrumentCalls, 1, 'one lookup resolves missing symbols across three accounts')
     assert.ok(enriched.transactions.every((row) => row.symbol === 'ABC' && row.symbolSource === 'broker'))
     assert.ok(enriched.accountSyncCoverage.every((row) => row.dividendLookup?.resolved === 1))
+    const saved = await fetchPortfolio('test-token', { preferences: { transactionOverrides: { [JSON.stringify(['Schwab:1111', '1111'])]: { symbol: 'SAVED', updatedAt: '2026-09-22T12:00:00Z' } } } })
+    assert.ok(saved.transactions.every((row) => row.symbol === 'SAVED'), 'server sync reuses saved identity before API enrichment')
+    assert.equal(instrumentCalls, 1, 'saved matches do not spend lookup requests')
     detailOnly = true
     const detailed = await fetchPortfolio('test-token')
     assert.equal(detailCalls, 3, 'cash-only payments request individual transaction details for each account')

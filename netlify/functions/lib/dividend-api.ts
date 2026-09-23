@@ -1,5 +1,6 @@
 import type { Transaction } from '../../../src/lib/types'
 import { hasDividendIdentity } from '../../../src/lib/dividend-symbol'
+import { createHash } from 'node:crypto'
 
 const MARKET = 'https://api.schwabapi.com/marketdata/v1'
 const TRADER = 'https://api.schwabapi.com/trader/v1'
@@ -30,6 +31,9 @@ function uniqueInstrument(rows: Instrument[], matches: (row: Instrument) => bool
 }
 
 export interface DividendLookupSummary { resolved: number; failed: number; limited: number }
+type SecurityDetail = Pick<Transaction, 'brokerTransactionId' | 'type' | 'units' | 'symbol' | 'securityId' | 'securityName'>
+type LookupResult = { instruments?: Instrument[]; detail?: SecurityDetail; failed?: boolean; limited?: boolean }
+export type DividendLookupCache = Record<string, { expiresAt: number; result: LookupResult }>
 interface Options {
   token: string
   transactions: Transaction[]
@@ -38,37 +42,60 @@ interface Options {
   request?: typeof fetch
   maxRequests?: number
   timeoutMs?: number
+  lookupCache?: DividendLookupCache
 }
 
 // All requests stay on Schwab, share a deadline, and are deduplicated across
 // accounts. Enrichment failures never discard the successfully fetched ledger.
 export async function resolveDividendSymbolsFromApi(options: Options): Promise<Map<string, DividendLookupSummary>> {
-  const { token, transactions, accountHashes, mapTransaction, request = fetch, maxRequests = 80, timeoutMs = 8_000 } = options
+  const { token, transactions, accountHashes, mapTransaction, request = fetch, maxRequests = 80, timeoutMs = 8_000, lookupCache = {} } = options
   const missing = transactions.filter((row) => row.type === 'Dividend' && !row.symbol)
   const summaries = new Map<string, DividendLookupSummary>()
   if (!missing.length) return summaries
   const signal = AbortSignal.timeout(timeoutMs)
   const failed = new Set<Transaction>(), limited = new Set<Transaction>()
-  type Result = { body?: unknown; failed?: boolean; limited?: boolean }
-  const cache = new Map<string, Promise<Result>>()
+  const cache = new Map<string, Promise<LookupResult>>()
   const blocked = new Set<string>()
   let requests = 0
-  async function get(url: string, row: Transaction): Promise<unknown> {
+  async function get(url: string, row: Transaction): Promise<LookupResult | undefined> {
+    const key = createHash('sha256').update(url).digest('hex')
+    const cached = lookupCache[key]
+    if (cached?.expiresAt > Date.now()) return cached.result
     let pending = cache.get(url)
     if (!pending) {
       const service = url.startsWith(MARKET) ? MARKET : TRADER
       if (blocked.has(service)) { failed.add(row); return undefined }
       if (signal.aborted || requests >= maxRequests) { limited.add(row); return undefined }
       requests++
-      pending = (async (): Promise<Result> => {
+      pending = (async (): Promise<LookupResult> => {
         try {
           const response = await request(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, signal })
-          if (response.status === 404) return { body: { instruments: [] } }
+          if (response.status === 404) {
+            const result = { instruments: [] }
+            lookupCache[key] = { expiresAt: Date.now() + 7 * 86_400_000, result }
+            return result
+          }
           if (!response.ok) {
             if ([401, 403, 429].includes(response.status)) blocked.add(service)
             return { failed: true }
           }
-          return { body: await response.json() }
+          const body: unknown = await response.json()
+          let result: LookupResult
+          if (service === MARKET) {
+            const rows = instruments(body)
+            if (!rows) return { failed: true }
+            result = { instruments: rows.map(({ symbol, cusip, description, assetType }) => ({ symbol, cusip, description, assetType })) }
+          } else {
+            if (!body || typeof body !== 'object' || Array.isArray(body)) return { failed: true }
+            const detail = mapTransaction(row.accountId, body)
+            if (!detail.brokerTransactionId) return { failed: true }
+            const { brokerTransactionId, type, units, symbol, securityId, securityName } = detail
+            result = { detail: { brokerTransactionId, type, units, symbol, securityId, securityName } }
+          }
+          // Cache completed empty results too, so subsequent syncs reach the
+          // unattempted tail of a large history. Never cache failures or tokens.
+          lookupCache[key] = { expiresAt: Date.now() + 7 * 86_400_000, result }
+          return result
         } catch { return signal.aborted ? { limited: true } : { failed: true } }
       })()
       cache.set(url, pending)
@@ -76,7 +103,7 @@ export async function resolveDividendSymbolsFromApi(options: Options): Promise<M
     const result = await pending
     if (result.failed) failed.add(row)
     if (result.limited) limited.add(row)
-    return result.body
+    return result
   }
   async function each(work: (row: Transaction) => Promise<void>) {
     let index = 0
@@ -102,10 +129,9 @@ export async function resolveDividendSymbolsFromApi(options: Options): Promise<M
     if (!validCusip(id) && (!hasDividendIdentity(name) || name.length < 6 || name.length > 160)) return
     const url = validCusip(id) ? `${MARKET}/instruments/${encodeURIComponent(id)}`
       : `${MARKET}/instruments?${new URLSearchParams({ symbol: name, projection: 'desc-search' })}`
-    const body = await get(url, row)
-    if (body === undefined) return
-    const rows = instruments(body)
-    if (!rows) { failed.add(row); return }
+    const result = await get(url, row)
+    const rows = result?.instruments
+    if (!rows) return
     const match = uniqueInstrument(rows, validCusip(id)
       ? (candidate) => typeof candidate.cusip === 'string' && cusip(candidate.cusip) === id
       : (candidate) => typeof candidate.description === 'string' && nameKey(candidate.description) === nameKey(name))
@@ -117,10 +143,9 @@ export async function resolveDividendSymbolsFromApi(options: Options): Promise<M
   await each(async (row) => {
     const hash = accountHashes.get(row.accountId)
     if (!hash || !row.brokerTransactionId) return
-    const body = await get(`${TRADER}/accounts/${encodeURIComponent(hash)}/transactions/${encodeURIComponent(row.brokerTransactionId)}`, row)
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return
-    let detail: Transaction
-    try { detail = mapTransaction(row.accountId, body) } catch { failed.add(row); return }
+    const result = await get(`${TRADER}/accounts/${encodeURIComponent(hash)}/transactions/${encodeURIComponent(row.brokerTransactionId)}`, row)
+    const detail = result?.detail
+    if (!detail) return
     if (detail.brokerTransactionId !== row.brokerTransactionId || detail.type !== 'Dividend' || detail.units !== 0) return
     if (row.securityId && detail.securityId && cusip(row.securityId) !== cusip(detail.securityId)) return
     if (detail.securityId) row.securityId = detail.securityId
@@ -133,6 +158,7 @@ export async function resolveDividendSymbolsFromApi(options: Options): Promise<M
     if (row.symbol) summary.resolved++
     else if (limited.has(row)) summary.limited++
     else if (failed.has(row)) summary.failed++
+    row.dividendLookupState = row.symbol ? 'resolved' : limited.has(row) ? 'deferred' : failed.has(row) ? 'unavailable' : 'unmatched'
     summaries.set(row.accountId, summary)
   }
   return summaries

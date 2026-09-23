@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { incomePerformance, incomeAndRealizedGains, internalTransferIds, recordedIncomePerformance } from '../src/lib/income-performance'
 import { statementHistory } from '../src/lib/statement-history'
+import { equityGrowth } from '../src/lib/equity-growth'
 import type { Account } from '../src/lib/types'
 import type { Transaction, TxnType } from '../src/lib/types'
 
@@ -42,6 +43,59 @@ assert.equal(incomePerformance([points[0]], transactions), null)
 assert.equal(incomePerformance([points[0], points[0]], transactions), null)
 assert.equal(incomePerformance([points[0], { ...points[1], value: NaN }], transactions), null)
 console.log('income performance tests passed')
+
+// Primary plan metric: keep spending and taxes deducted, remove only funding.
+{
+  const account = (id: string, mask: string): Account => ({ id, mask, broker: 'Schwab', name: id, fullName: id, type: 'Margin', isMargin: true, cash: 0, marginBalance: 0 })
+  const accounts = [account('a', '1111'), account('b', '2222')]
+  const statement = (month: string, openingEquity: number, closingEquity: number, deposits: number, accountMask = '1111') => ({ id: `${month}-${accountMask}`, month, openingEquity, closingEquity, deposits, accountMask, withdrawals: -800, dividendsInterest: 100, expenses: -50, marketChange: 0, source: 'Schwab statement' as const, fileName: 'fixture', importedAt: '2026-09-22' })
+  const calculate = (balances: ReturnType<typeof statement>[], txns: Transaction[] = [], scope = 'a', from = '') => equityGrowth(statementHistory(balances, accounts, scope), txns, accounts, from, '2026-09-22')
+  const base = [statement('2026-07', 10000, 12500, 3000), statement('2026-08', 12500, 15000, 3000)]
+  const r = calculate(base, [txn('Tax Withholding', -500, '2026-08-15')])
+  assert.equal(r.value, -1000, 'paychecks cannot masquerade as growth; spending and taxes stay deducted')
+  assert.equal(r.outsideContributions, 6000)
+  assert.equal(r.estimated, false)
+  assert.equal(r.months.reduce((n, m) => n + m.value, 0), r.value)
+  assert.equal(calculate([statement('2026-08', 15000, 15100, 0)]).value, 100)
+  assert.equal(calculate([statement('2026-08', 15000, 15000, 0)]).value, 0)
+  assert.equal(calculate([statement('2026-08', 0, 1000, 900)]).value, 100, 'new account can begin at zero')
+  assert.equal(calculate(base, [], 'a', '2026-08').value, -500)
+  assert.equal(calculate([], []).value, null)
+  assert.equal(calculate(base, [], 'all').value, null, 'missing second account must not yield a whole-portfolio result')
+  assert.equal(calculate([base[0], statement('2026-09', 12500, 15000, 3000)]).value, null)
+  assert.equal(calculate([base[0], statement('2026-08', 14000, 15000, 3000)]).value, null, 'opening discontinuity is not investment growth')
+  assert.equal(calculate([{ ...base[0], closingEquity: NaN }]).value, null)
+  const rows = statementHistory(base, accounts, 'a')
+  assert.equal(equityGrowth([{ ...rows[0], flowsAvailable: false }], [], accounts).value, null)
+  assert.equal(equityGrowth([{ ...rows[0], openingEquity: undefined }], [], accounts).value, null)
+  const balances = [statement('2026-08', 10000, 5000, 0), statement('2026-08', 2000, 11000, 8000, '2222')]
+  const transfer = [
+    { ...txn('Withdrawal', -5000, '2026-08-10'), id: 'out' },
+    { ...txn('Contribution', 5000, '2026-08-11'), id: 'in', accountId: 'b' },
+    { ...txn('Contribution', 3000, '2026-08-15'), id: 'paycheck', accountId: 'b' },
+  ]
+  const internal = calculate(balances, transfer, 'all')
+  assert.equal(internal.value, 1000)
+  assert.equal(internal.internalDeposits, 5000)
+  assert.equal(internal.outsideContributions, 3000)
+  assert.equal(internal.estimated, true, 'transfer matching is an estimate')
+  assert.equal(calculate(balances, transfer, 'b').value, 1000, 'single account treats inbound transfer as outside its scope')
+  const unknown = calculate(balances, [], 'all')
+  assert.equal(unknown.value, -4000)
+  assert.equal(unknown.estimated, true)
+  assert.match(unknown.notes.join(' '), /Deposit details are incomplete/)
+  assert.equal(calculate(balances, [...transfer, { ...transfer[0], date: '2026-08-20', id: 'out2' }, { ...transfer[1], date: '2026-08-21', id: 'in2' }], 'all').value, null, 'duplicate transfer details cannot exceed statement deposits')
+  const multi = statementHistory(balances, accounts, 'all')
+  const mismatched = { ...multi[0], statements: multi[0].statements.map((s, i) => ({ ...s, asOf: `2026-08-${i ? '30' : '31'}` })) }
+  assert.equal(equityGrowth([mismatched], transfer, accounts).value, null, 'account endpoints must align')
+  const current = { ...rows[1], month: '2026-09', asOf: '2026-09-22', statements: rows[1].statements.map((s) => ({ ...s, month: '2026-09', asOf: '2026-09-22', source: 'Automatic snapshot' as const })) }
+  const mtd = equityGrowth([current], [], accounts, '', '2026-09-22')
+  assert.equal(mtd.value, -500)
+  assert.equal(mtd.to, '2026-09-22')
+  assert.equal(mtd.estimated, true)
+  assert.equal(equityGrowth([current], [], accounts, '', '2026-09-21').value, null)
+  console.log('equity growth tests passed: funding, costs, transfers, scope, range, gaps and MTD coverage')
+}
 
 // Earnings use inclusive selected dates, independent of available value history.
 const earnings = incomeAndRealizedGains([

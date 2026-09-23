@@ -9,6 +9,8 @@ import { computeTwr, flowsByDate, seriesForScope, sliceFrom, coveredSeries } fro
 import { statementHistory, statementTwr, flowContext } from '../lib/statement-history'
 import { incomeAndRealizedGains } from '../lib/income-performance'
 import { IncomePerformance } from './IncomePerformance'
+import { EquityGrowth } from './EquityGrowth'
+import { equityGrowth } from '../lib/equity-growth'
 import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
 import type { Account, IncomePlan, Transaction } from '../lib/types'
 import { averagePortfolioSpending, spendingExclusionKey } from '../lib/spending'
@@ -79,6 +81,7 @@ export function PlanHealth() {
   // deposits and withdrawals as Schwab reported them. The price-history series
   // is only a fallback when no measurable month exists.
   const recorded = useMemo(() => statementHistory(data.historicalBalances ?? [], accounts, scope, data.balanceSnapshots, data.accountOpenMonths), [data.historicalBalances, data.balanceSnapshots, data.accountOpenMonths, accounts, scope])
+  const growth = useMemo(() => equityGrowth(recorded, transactions, accounts, dateRangeStart(dateRange, localToday()).slice(0, 7), localToday()), [recorded, transactions, accounts, dateRange])
   const performance = useMemo(() => {
     const cutoff = dateRangeStart(dateRange, localToday())
     const monthLabelShort = (month: string) => new Date(`${month}-01T12:00:00`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
@@ -108,9 +111,10 @@ export function PlanHealth() {
   return <section className="mb-6 overflow-hidden rounded-[24px] border border-[#c7a96b]/20 bg-[linear-gradient(135deg,#171a20_0%,#10151d_65%,#1d180d_100%)] shadow-[0_24px_80px_rgba(0,0,0,.22)]">
     <div className="p-5 sm:p-7">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.18em] text-[#d8bd7a]"><Target size={13}/> Today · Plan health</div><h1 className="mt-3 max-w-3xl text-2xl font-semibold tracking-[-.035em] sm:text-3xl">{`Income + Realized Gains: ${usd(earnings.gross, { sign: true })}`}</h1><p className="mt-2 text-xs text-faint">Portfolio data synced {relTime(lastSyncAt)} · projections are estimates, not guaranteed income.</p></div>
+        <div><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[.18em] text-[#d8bd7a]"><Target size={13}/> Your path to income independence</div><p className="mt-2 text-xs text-faint">Portfolio data synced {relTime(lastSyncAt)}</p></div>
         <button id="plan-settings" onClick={() => setEditing((value) => !value)} className="flex items-center gap-2 rounded-xl border border-[#c7a96b]/25 bg-[#c7a96b]/5 px-3.5 py-2 text-sm text-[#e1c887] hover:bg-[#c7a96b]/10"><Settings2 size={15}/> Plan assumptions <ChevronDown size={14} className={clsx('transition-transform', editing && 'rotate-180')}/></button>
       </div>
+      <EquityGrowth result={growth} sample={data.source === 'sample'}/>
       <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-2xl border border-white/[.07] bg-black/15 sm:grid-cols-4 lg:grid-cols-5">
         <SnapshotMetric label="Net portfolio equity" value={usd(model.summary.net)} source="Schwab reported"/>
         <SnapshotMetric label="Gross portfolio value" value={usd(model.summary.gross)} source="Schwab reported"/>

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { buildPutCloseOrder, buildPutPreviewOrder, isActiveProtectivePut, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, putRollTiming, rankProtectivePut, recommendPutRoll } from '../src/lib/hedge'
+import { putPlanMatchesContract, buildPutCloseOrder, buildPutPreviewOrder, isActiveProtectivePut, portfolioPutHedge, protectivePutOutcome, protectivePutPlan, putRollTiming, rankProtectivePut, recommendPutRoll } from '../src/lib/hedge'
 
 const optionOrder = buildPutPreviewOrder('QQQ   260918P00425000', 3, 8.126)
 assert.deepEqual(optionOrder, {
@@ -87,4 +87,21 @@ assert.equal(portfolioHedge.grossPremium, 9600)
 assert.equal(portfolioHedge.monthlyGrossDebitBudget, 1250)
 assert.equal(portfolioHedge.overMonthlyBudget, true)
 
+// Overhedging has its worst payoff at the strike, rather than zero.
+assert.equal(full.maxLoss, 4350)
+assert.equal(full.maxLoss, -protectivePutOutcome(full, full.strike).pnl)
+for (const price of [0, 20, 85, 100, 150]) assert.ok(protectivePutOutcome(full, price).pnl >= -full.maxLoss)
+const noAsk = rankProtectivePut({ strike: 85, ask: null, mark: 2, bid: 1, last: 2, daysToExpiration: 60, openInterest: 500, volume: 50 }, 100, 15, 60)
+assert.equal(noAsk.eligible, false)
+const crossed = rankProtectivePut({ strike: 85, ask: 1, mark: 2, bid: 3, last: 2, daysToExpiration: 60, openInterest: 500, volume: 50 }, 100, 15, 60)
+assert.equal(crossed.eligible, false)
+assert.equal(rankProtectivePut({ strike: 85, ask: 2, mark: 2, bid: 1.9, last: 2, daysToExpiration: 0, openInterest: 500, volume: 50 }, 100, 15, 60).eligible, false)
+assert.equal(buildPutPreviewOrder('QQQ261218C00425000', 1, 2), null)
 console.log('protective put tests passed')
+
+const queuedPlan = { optionSymbol: 'QQQ261218P00425000', proxy: 'QQQ', strike: 425, expiration: '2026-12-18', contracts: 2, premiumPerShare: 8 }
+assert.equal(putPlanMatchesContract(queuedPlan, '2026-10-15'), true)
+assert.equal(putPlanMatchesContract({ ...queuedPlan, strike: 420 }, '2026-10-15'), false)
+assert.equal(putPlanMatchesContract({ ...queuedPlan, expiration: '2026-11-20' }, '2026-10-15'), false)
+assert.equal(putPlanMatchesContract({ ...queuedPlan, proxy: 'SPY' }, '2026-10-15'), false)
+assert.equal(putPlanMatchesContract(queuedPlan, '2026-12-18'), false)

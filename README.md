@@ -23,7 +23,9 @@ Global controls include account scope, date range, sync, and balance privacy. Da
 
 ## Protective puts and orders
 
-Allocation includes individual-position protective-put scenarios and a portfolio proxy-hedge planner. The tools model contract coverage, premium cost, expiration payoff, scenario loss offsets, premium budgets, and roll timing. Available option-chain data supports contract ranking and order previews. Proxy beta and crash scenarios are planning assumptions; proxy protection does not guarantee a portfolio loss floor.
+Allocation starts with a goal chooser for adding money, rebalancing, reviewing holdings, or managing protection. Plan explanations show how the sizing rule assigns money and why funds remain unassigned. Protective puts separates existing-position management, portfolio protection, and individual-holding scenarios; advanced portfolio assumptions are expandable.
+
+Allocation includes individual-position protective-put scenarios and a portfolio proxy-hedge planner. The tools model contract coverage, premium cost, expiration payoff, scenario loss offsets, premium budgets, and roll timing. Available option-chain data supports contract ranking and order previews. Ranking requires a positive ask, an uncrossed bid/ask, and a future expiration. Contract identity must match the displayed strike and expiry before a portfolio plan can enter the queue. Replacement rolls preserve the existing contract quantity and account. Submitted orders become active hedges only after fill confirmation. Proxy beta and crash scenarios are planning assumptions; proxy protection does not guarantee a portfolio loss floor.
 
 Equity and option order requests go through Netlify Functions. Live placement is disabled unless `SCHWAB_ORDER_PLACEMENT_ENABLED` is exactly `true`. Planning a trade or copying a ticket does not submit it. Review account, contract, quantity, price, and broker preview before explicitly submitting an order.
 

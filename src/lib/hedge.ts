@@ -32,7 +32,7 @@ export function isActiveProtectivePut(position: PutPosition, asOf = new Date().t
 function buildPutOrder(optionSymbol: string, contracts: number, premiumPerShare: number, instruction: 'BUY_TO_OPEN' | 'SELL_TO_CLOSE') {
   const symbol = optionSymbol.trim().toUpperCase()
   const optionKey = symbol.replace(/\s+/g, '')
-  if (!osiOptionSymbolPattern.test(optionKey)) return null
+  if (!osiOptionSymbolPattern.test(optionKey) || !/P\d{8}$/.test(optionKey)) return null
   if (!Number.isSafeInteger(contracts) || contracts < 1 || contracts > 100) return null
   if (!Number.isFinite(premiumPerShare) || premiumPerShare <= 0 || premiumPerShare > 1_000_000) return null
   return {
@@ -80,7 +80,8 @@ export function protectivePutPlan(input: ProtectivePutInput) {
   const protectedNotional = strike * coveredShares
   const positionValue = shares * sharePrice
   const floorValueAtZero = contractShares * strike
-  const maxLoss = Math.max(0, positionValue + premiumCost - floorValueAtZero)
+  const minimumTerminalValue = Math.min(floorValueAtZero, shares * strike)
+  const maxLoss = Math.max(0, positionValue + premiumCost - minimumTerminalValue)
   return {
     shares,
     sharePrice,
@@ -130,7 +131,12 @@ export function rankProtectivePut<T extends PutQuoteCandidate>(
   targetDrawdownPct: number,
   targetDays: number,
 ) {
-  const premium = quote.ask ?? quote.mark ?? quote.last ?? quote.bid ?? 0
+  const eligible = Number.isFinite(sharePrice) && sharePrice > 0
+    && Number.isFinite(quote.strike) && quote.strike > 0
+    && Number.isFinite(quote.ask) && (quote.ask ?? 0) > 0
+    && Number.isFinite(quote.bid) && (quote.bid ?? -1) >= 0 && quote.bid! <= quote.ask!
+    && Number.isFinite(quote.daysToExpiration) && (quote.daysToExpiration ?? 0) > 0
+  const premium = Number.isFinite(quote.ask) && (quote.ask ?? 0) > 0 ? quote.ask! : 0
   const bid = quote.bid ?? 0
   const ask = quote.ask ?? premium
   const midpoint = Math.max((bid + ask) / 2, 0.01)
@@ -151,11 +157,11 @@ export function rankProtectivePut<T extends PutQuoteCandidate>(
   const score = Math.max(0, Math.round(100 - floorPenalty - spreadPenalty - dtePenalty - liquidityPenalty - volumePenalty - premiumPenalty))
   const protectionPct = sharePrice > 0 ? (1 - effectiveFloor / sharePrice) * 100 : 0
   const reasons = [
-    `${protectionPct.toFixed(1)}% effective protection floor`,
+    `${protectionPct.toFixed(1)}% downside to after-premium floor`,
     spreadPct <= 0.12 ? 'tight spread' : spreadPct <= 0.3 ? 'moderate spread' : 'wide spread',
     oi >= 500 ? 'strong open interest' : oi >= 100 ? 'useful open interest' : 'thin open interest',
   ]
-  return { score, premium, effectiveFloor, targetFloor, floorGapPct, spreadPct, reasons }
+  return { eligible, score: eligible ? score : 0, premium, effectiveFloor, targetFloor, floorGapPct, spreadPct, reasons: eligible ? reasons : ['Unavailable: a valid future contract and uncrossed bid/ask are required'] }
 }
 
 export function recommendPutRoll<T extends PutQuoteCandidate & { symbol: string; expiration: string }>(
@@ -171,6 +177,7 @@ export function recommendPutRoll<T extends PutQuoteCandidate & { symbol: string;
   const ranked = candidates
     .filter((quote) => quote.symbol !== current.symbol && quote.expiration > current.expiration && (quote.daysToExpiration ?? 0) >= 30 && (quote.daysToExpiration ?? 0) <= 240 && (quote.ask ?? 0) > 0)
     .map((quote) => ({ quote, fit: rankProtectivePut(quote, underlyingPrice, targetDrawdownPct, forwardTargetDays) }))
+    .filter(({ fit }) => fit.eligible)
     .sort((a, b) => b.fit.score - a.fit.score)
   const best = ranked[0]
   if (!best || closeCredit <= 0 || contracts < 1) return null
@@ -227,4 +234,15 @@ export function portfolioPutHedge(input: PortfolioPutHedgeInput) {
     monthlyGrossDebitBudget, overMonthlyBudget: grossPremium > monthlyGrossDebitBudget,
     residualLoss: Math.max(0, modeledPortfolioLoss - modeledNetOffset),
   }
+}
+
+// Edited display fields must still describe the selected broker contract.
+export function putPlanMatchesContract(plan: { optionSymbol?: string; proxy: string; strike: number; expiration: string; contracts: number; premiumPerShare: number }, asOf: string) {
+  const symbol = (plan.optionSymbol ?? '').replace(/\s+/g, '').toUpperCase()
+  const match = /^([A-Z]{1,6})(\d{6})P(\d{8})$/.exec(symbol)
+  return !!match && match[1] === plan.proxy
+    && match[2] === plan.expiration.replaceAll('-', '').slice(2)
+    && Number(match[3]) / 1000 === plan.strike
+    && plan.expiration > asOf
+    && !!buildPutPreviewOrder(symbol, plan.contracts, plan.premiumPerShare)
 }

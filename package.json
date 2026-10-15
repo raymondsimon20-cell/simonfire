@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:review": "tsc -p scripts/tsconfig.review.test.json && node /tmp/simonfire-review-tests/scripts/test-transaction-review-status.js",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",

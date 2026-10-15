@@ -22,7 +22,7 @@ import { usd, num, shortDate, posNeg } from '../lib/format'
 import { Badge } from './ui'
 import clsx from 'clsx'
 import { spendingExclusionKey } from '../lib/spending'
-import { isClosingSale } from '../lib/transaction-review'
+import { isTransactionReviewed, isClosingSale } from '../lib/transaction-review'
 
 function Tile({
   icon,
@@ -134,13 +134,14 @@ function RealizedPlEditor({ txn }: { txn: Transaction }) {
 }
 
 export function TransactionDrawer({
-  txn,
+  txn: selectedTxn,
   onClose,
 }: {
   txn: Transaction | null
   onClose: () => void
 }) {
-  const { data, toggleSpendingExclusion } = useStore()
+  const { data, toggleSpendingExclusion, setTransactionsReviewed } = useStore()
+  const txn = selectedTxn ? data.transactions.find((t) => t.id === selectedTxn.id) ?? selectedTxn : null
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -191,6 +192,11 @@ export function TransactionDrawer({
               </button>
             </div>
 
+            <div className="my-4 rounded-xl border border-border-soft p-3 text-xs">
+              <div className="flex items-center justify-between gap-3"><span className={isTransactionReviewed(txn) ? 'text-pos' : 'text-muted'}>{isTransactionReviewed(txn) ? 'Reviewed' : txn.review ? 'Changed since review · Needs review' : 'Needs review'}</span><button className="font-semibold text-brand" onClick={() => setTransactionsReviewed([txn.id], !isTransactionReviewed(txn))}>{isTransactionReviewed(txn) ? 'Undo review' : 'Mark reviewed'}</button></div>
+              {txn.review && <div className="mt-2 text-faint">Last reviewed {new Date(txn.review.reviewedAt).toLocaleString()}</div>}
+              <div className="mt-2 text-faint">Review confirms you checked this transaction. Data-quality warnings remain until corrected.</div>
+            </div>
             <div className="mb-3 mt-7 text-sm font-semibold text-muted">Transaction Details</div>
             <div className="grid grid-cols-2 gap-3">
               <Tile icon={<Calendar size={13} />} label={txn.statement && !txn.brokerTransactionId ? "Recorded Date" : "Trade Date"} value={shortDate(txn.date)} />

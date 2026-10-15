@@ -1,6 +1,7 @@
 import { brokerageDate, monthEndDate, previousMonth } from './balance-snapshots'
 import { coverageGap, statementAccount, type StatementMonth } from './statement-history'
 import type { Account, HistoricalBalance, Transaction } from './types'
+import { fundingTransfers, isFundingJournal as journal } from './funding-review'
 
 export interface EquityGrowth {
   totalGrowth: number | null
@@ -36,27 +37,6 @@ interface FundingAudit {
   internalDeposits: number
   issues: string[]
   transactions: Transaction[]
-}
-
-const journal = (t: Transaction) => t.type === 'Transfer' && /\bTYPE ?[12]\b/i.test(t.description)
-
-// Match only mutually unique cash legs. A classified bill is household spending,
-// not transfer evidence. Keep ambiguous equal payments for review rather than
-// letting transaction order decide which deposit to exclude.
-function fundingTransfers(txns: Transaction[]) {
-  const incoming = txns.filter((t) => !journal(t) && t.units === 0 && t.amount > 0 && ['Contribution', 'Transfer'].includes(t.type))
-  const outgoing = txns.filter((t) => !journal(t) && t.units === 0 && t.amount < 0 && ['Withdrawal', 'Transfer'].includes(t.type))
-  const matches = (a: Transaction, b: Transaction) => a.accountId !== b.accountId && Math.abs(a.amount + b.amount) < .01 && Math.abs(Date.parse(a.date) - Date.parse(b.date)) <= 4 * 86_400_000
-  const candidates = new Map(incoming.map((t) => [t.id, outgoing.filter((out) => matches(t, out))]))
-  const pairs: { incoming: Transaction; outgoing: Transaction }[] = []
-  const ambiguous = new Set<string>()
-  for (const deposit of incoming) {
-    const options = candidates.get(deposit.id)!
-    if (!options.length) continue
-    if (options.length === 1 && incoming.filter((t) => matches(t, options[0])).length === 1) pairs.push({ incoming: deposit, outgoing: options[0] })
-    else { ambiguous.add(deposit.id); options.forEach((t) => ambiguous.add(t.id)) }
-  }
-  return { pairs, ambiguous, ids: new Set(pairs.flatMap((p) => [p.incoming.id, p.outgoing.id])) }
 }
 
 // Accumulation progress is ending equity minus starting equity, including W-2
@@ -115,10 +95,11 @@ export function equityGrowth(rows: StatementMonth[], transactions: Transaction[]
       if (selectedAccounts.size > 1 && Math.abs(ledgerWithdrawals + statement.withdrawals) > .01) issues.push('Withdrawal transactions do not reconcile; internal transfer matching may be incomplete.')
       if (proposed > statement.deposits + .01) issues.push('Matched transfers exceed recorded deposits. Check transaction classifications and repeated records.')
       const matched = proposed <= statement.deposits + .01 ? proposed : 0
+      if (monthly.some((t) => internal.invalid.has(t.id))) issues.push('A saved transfer pair is missing or changed. Include both accounts and dates, import the missing leg, or revise the saved decision.')
       if (monthly.some((t) => internal.ambiguous.has(t.id))) issues.push('Multiple equal cash movements could be transfer matches. Review these records.')
       if (monthly.some((t) => t.type === 'Transfer' && !journal(t) && (t.amount !== 0 || t.units !== 0) && !internal.ids.has(t.id))) issues.push('Unmatched transfers need an outside-funding or internal-transfer classification.')
       if (monthly.some((t) => t.type === 'Other' && (t.amount !== 0 || t.units !== 0))) issues.push('Unclassified activity may change outside funding.')
-      result.funding.push({ accountId: account?.id ?? statement.accountMask, account: account?.name ?? `····${statement.accountMask}`, month: row.month, deposits: statement.deposits, ledgerDeposits, withdrawals: -statement.withdrawals, ledgerWithdrawals, internalDeposits: matched, issues, transactions: monthly.filter((t) => ['Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Other'].includes(t.type) && !journal(t)) })
+      result.funding.push({ accountId: account?.id ?? statement.accountMask, account: account?.name ?? `····${statement.accountMask}`, month: row.month, deposits: statement.deposits, ledgerDeposits, withdrawals: -statement.withdrawals, ledgerWithdrawals, internalDeposits: matched, issues, transactions: monthly.filter((t) => (['Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Other'].includes(t.type) && !journal(t)) || t.fundingReview?.kind === 'internal') })
       internalDeposits += matched
     }
     result.deposits += row.deposits
@@ -133,6 +114,6 @@ export function equityGrowth(rows: StatementMonth[], transactions: Transaction[]
   result.reason = result.fundingNeedsReview ? 'Outside contributions are not reconciled yet. Review the account-by-month funding details below before interpreting this as growth or decline.' : ''
   result.estimated = snapshots || result.fundingNeedsReview || internal.pairs.length > 0
   if (snapshots) result.notes.push('Includes saved API balances and recorded cash flows; statements take precedence when imported.')
-  if (internal.pairs.length > 0) result.notes.push('Internal transfers are estimated from unique equal cash movements across selected accounts within four days. Review the matched pairs in the funding audit.')
+  if (internal.pairs.some((p) => p.incoming.fundingReview?.kind !== 'internal')) result.notes.push('Automatic internal transfers are estimated from unique equal cash movements across selected accounts within four days. Confirm or correct matched pairs in the funding audit.')
   return result
 }

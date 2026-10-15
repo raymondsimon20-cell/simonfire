@@ -120,6 +120,24 @@ client also caches it locally and preserves it when the network is unavailable.
 Run `npm run test:balance-snapshots` for rollover, reconciliation, source priority,
 account scoping, concurrent persistence, and broker-failure regression checks.
 
+### Funding reviews
+
+On the Dashboard, expand **Review funding by account and month**. The review
+shows differences between recorded deposits/withdrawals and transaction totals.
+Use **Import missing records** for gaps, or open a transaction to correct its
+category. **Review funding** lets you mark outside deposits/withdrawals or confirm
+an internal transfer by selecting its equal, opposite cash movement in another
+selected account. Include both accounts and dates when reviewing transfers.
+
+Decisions persist through sync using transaction overrides. **Clear funding
+decision** restores automatic transfer matching while keeping category edits.
+Missing or changed transfer legs and unreconciled statement totals remain flagged;
+confirming a transfer does not dismiss unrelated differences. The main net-equity
+growth figure remains based on recorded balances.
+
+Run `npm run test:income-performance` and `npm run test:transactions` for funding
+reconciliation and saved-decision checks.
+
 ## Upgrade path: cloud persistence (Supabase)
 
 The store is intentionally isolated. To move from `localStorage` to real accounts + cloud sync:

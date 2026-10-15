@@ -2,6 +2,9 @@ import { strict as assert } from 'node:assert'
 import { incomePerformance, incomeAndRealizedGains, internalTransferIds, recordedIncomePerformance } from '../src/lib/income-performance'
 import { statementHistory } from '../src/lib/statement-history'
 import { equityGrowth } from '../src/lib/equity-growth'
+import { fundingTransfers, saveFundingReview } from '../src/lib/funding-review'
+import { applyTransactionOverrides, cleanTransactionOverrides } from '../src/lib/transaction-overrides'
+import type { AppData } from '../src/lib/types'
 import type { Account } from '../src/lib/types'
 import type { Transaction, TxnType } from '../src/lib/types'
 
@@ -141,6 +144,42 @@ console.log('income performance tests passed')
   const unclassified = calculate([base[1]], [txn('Other', 1000, '2026-08-25')])
   assert.equal(unclassified.value, null)
   assert.match(unclassified.funding[0].issues.join(' '), /Unclassified activity/)
+  // Explicit decisions disambiguate equal cash movements without hiding a
+  // statement mismatch, and persist when sync replaces transaction IDs.
+  const reviewData = { accounts, transactions: [...transfer.map((t) => ({ ...t })), { ...transfer[1], id: 'other-income', date: '2026-08-12' }] } as AppData
+  const reviewBalances = balances.map((s) => s.accountMask === '2222' ? { ...s, deposits: 13000 } : s)
+  assert.equal(calculate(reviewBalances, reviewData.transactions, 'all').value, null)
+  assert.equal(saveFundingReview(reviewData, 'in', 'internal', 'out', 'pair-one'), true)
+  assert.equal(calculate(reviewBalances, reviewData.transactions, 'all').fundingNeedsReview, false)
+  assert.equal(calculate(reviewBalances, reviewData.transactions, 'all').internalDeposits, 5000)
+  assert.equal(calculate(balances, reviewData.transactions, 'all').value, null, 'confirming a pair cannot dismiss a deposit mismatch')
+  const durable = cleanTransactionOverrides(JSON.parse(JSON.stringify(reviewData.transactionOverrides)))
+  const synced = reviewData.transactions.map(({ fundingReview: _review, ...t }) => ({ ...t, id: `synced-${t.id}` }))
+  applyTransactionOverrides(synced, accounts, durable)
+  assert.equal(calculate(reviewBalances, synced, 'all').internalDeposits, 5000)
+  assert.equal(fundingTransfers(synced).pairs[0].incoming.id, 'synced-in')
+  assert.equal(saveFundingReview(reviewData, 'in', 'external'), true)
+  assert.equal(reviewData.transactions.find((t) => t.id === 'out')?.fundingReview?.kind, 'auto', 'changing one leg releases the old partner')
+  assert.equal(fundingTransfers(reviewData.transactions).pairs[0].incoming.id, 'other-income')
+  saveFundingReview(reviewData, 'other-income', 'external')
+  assert.equal(fundingTransfers(reviewData.transactions).pairs.length, 0, 'outside decisions prevent accidental equal-amount matches')
+  assert.equal(calculate(reviewBalances, reviewData.transactions, 'all').outsideContributions, 13000)
+  saveFundingReview(reviewData, 'in', 'auto')
+  assert.equal(fundingTransfers(reviewData.transactions).pairs[0].incoming.id, 'in', 'clearing a decision restores automatic matching')
+  const beforeInvalid = JSON.stringify(reviewData)
+  assert.equal(saveFundingReview(reviewData, 'in', 'internal', 'paycheck'), false, 'same-account and unequal pairs are rejected')
+  assert.equal(JSON.stringify(reviewData), beforeInvalid)
+  saveFundingReview(reviewData, 'in', 'internal', 'out', 'pair-two')
+  const missingLeg = calculate(reviewBalances, reviewData.transactions.filter((t) => t.id !== 'out'), 'all')
+  assert.equal(missingLeg.value, null)
+  assert.match(missingLeg.funding.flatMap((f) => f.issues).join(' '), /saved transfer pair is missing or changed/)
+  const editedLeg = reviewData.transactions.map((t) => t.id === 'out' ? { ...t, amount: -4999 } : t)
+  assert.equal(fundingTransfers(editedLeg).pairs.length, 0)
+  assert.equal(fundingTransfers(editedLeg).invalid.size, 2)
+  const delayedLeg = reviewData.transactions.map((t) => t.id === 'in' ? { ...t, date: '2026-08-25' } : t)
+  assert.equal(fundingTransfers(delayedLeg).pairs.length, 1, 'confirmed pairs can span more than the automatic four-day window')
+  assert.deepEqual([...internalTransferIds(reviewData.transactions)].sort(), ['in', 'out'], 'other income reports honor the same review decisions')
+  assert.deepEqual(cleanTransactionOverrides({ bad: { updatedAt: '2026-09-22', fundingReview: { kind: 'internal', pairId: '' } } }), {})
   // Fully invest $5,000 wages: assets go from $10,000 to $15,000. Pay
   // $2,000 bills + $100 interest on margin: debt $2,100, equity $12,900.
   const accumulation = calculate([{ ...statement('2026-08', 10000, 15000 - 2100, 5000), withdrawals: -2000, expenses: -100 }])

@@ -1,3 +1,4 @@
+import { transactionReviewFingerprint } from './transaction-review'
 import {
   createContext,
   useCallback,
@@ -20,8 +21,9 @@ import { captureCsvAuthority, mergePositionAuthority, mergeTransactionAuthority,
 import { mergeHistoricalBalances, statementAccount } from './statement-history'
 import { mergeStatementTransactions, reconcileStatementTransactions } from './statement-transactions'
 import { createBalanceSnapshot, hydrateSnapshotFlows, mergeSnapshotMonths, snapshotMonth } from './balance-snapshots'
-import { applyTransactionOverrides, mergeTransactionOverrides, migrateTransactionOverrides, recordTransactionOverride } from './transaction-overrides'
+import { transactionOverrideKeys, applyTransactionOverrides, mergeTransactionOverrides, migrateTransactionOverrides, recordTransactionOverride } from './transaction-overrides'
 import { applyPositionBuckets } from './position-buckets'
+import { saveFundingReview } from './funding-review'
 import { mergeLiveAccounts } from './live-accounts'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
@@ -219,7 +221,9 @@ interface StoreCtx {
   dateRange: GlobalDateRange
   setDateRange: (range: GlobalDateRange) => void
   addTransaction: (t: Omit<Transaction, 'id' | 'tags'> & { tags?: string[] }) => void
+  setTransactionsReviewed: (ids: string[], reviewed: boolean) => void
   updateTransaction: (id: string, patch: Partial<Transaction>) => void
+  reviewFunding: (id: string, kind: 'auto' | 'external' | 'internal', partnerId?: string) => void
   assignTransactionSymbol: (id: string, symbol: string) => void
   enrichDividendSymbols: (matches: { transactionId: string; symbol: string }[]) => void
   applyRealizedPlMatches: (matches: { transactionId: string; pl: number }[], fileName?: string) => void
@@ -410,6 +414,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [mutate],
   )
+
+  const setTransactionsReviewed: StoreCtx['setTransactionsReviewed'] = useCallback((ids, reviewed) => mutate((d) => {
+    const selected = new Set(ids)
+    const reviewedAt = new Date().toISOString()
+    const keys = transactionOverrideKeys(d.transactions, d.accounts)
+    d.transactionOverrides = d.transactionOverrides ?? {}
+    for (const [index, row] of d.transactions.entries()) {
+      if (!selected.has(row.id)) continue
+      row.review = reviewed ? { reviewedAt, fingerprint: transactionReviewFingerprint(row) } : null
+      const { primary, statement, legacy } = keys[index]
+      const previous = [d.transactionOverrides[primary], d.transactionOverrides[statement], d.transactionOverrides[legacy]]
+        .filter((value) => !!value).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+      const edit = { ...previous, review: row.review, updatedAt: reviewedAt }
+      d.transactionOverrides[primary] = edit
+      if (statement) d.transactionOverrides[statement] = edit
+    }
+    return d
+  }, reviewed ? 'Mark transactions reviewed' : 'Undo transaction review'), [mutate])
+
+  const reviewFunding: StoreCtx['reviewFunding'] = useCallback((id, kind, partnerId) => mutate((d) => {
+    if (saveFundingReview(d, id, kind, partnerId)) {
+      applyRulesTo(d)
+      d.balanceSnapshots = hydrateSnapshotFlows(d.balanceSnapshots ?? [], d.accounts, d.transactions)
+    }
+    return d
+  }, 'Funding review'), [mutate])
 
   const assignTransactionSymbol: StoreCtx['assignTransactionSymbol'] = useCallback(
     (id, rawSymbol) => mutate((d) => {
@@ -915,7 +945,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       dateRange,
       setDateRange,
       addTransaction,
+      setTransactionsReviewed,
       updateTransaction,
+      reviewFunding,
       assignTransactionSymbol,
       enrichDividendSymbols,
       applyRealizedPlMatches,
@@ -961,7 +993,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       dateRange,
       setDateRange,
       addTransaction,
+      setTransactionsReviewed,
       updateTransaction,
+      reviewFunding,
       assignTransactionSymbol,
       enrichDividendSymbols,
       applyRealizedPlMatches,

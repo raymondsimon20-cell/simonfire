@@ -45,3 +45,15 @@ export function isClosingSale(transaction: Transaction) {
   if (/^[A-Z]{1,6}\d{6}[CP]\d{8}$/.test(symbol)) return false
   return true
 }
+
+// Store the exact material facts approved by the user. Derived status reopens
+// automatically after edits or sync without discarding the original review date.
+export function transactionReviewFingerprint(t: Transaction) {
+  return JSON.stringify([t.accountId, t.date, t.type, t.symbol ?? '', t.amount, t.units,
+    t.fee ?? null, t.pl ?? null, t.plEstimated ?? false, t.positionEffect ?? '',
+    t.strike ?? null, t.exp ?? '', t.description, t.fundingReview ?? null])
+}
+
+export function isTransactionReviewed(t: Transaction) {
+  return !!t.review && t.review.fingerprint === transactionReviewFingerprint(t)
+}

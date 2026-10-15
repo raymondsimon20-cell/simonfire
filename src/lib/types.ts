@@ -70,7 +70,13 @@ export type TxnType =
   | 'Corporate Action'
   | 'Other'
 
+export type FundingReview = { kind: 'auto' | 'external' } | { kind: 'internal'; pairId: string }
+
+export type TransactionReview = { reviewedAt: string; fingerprint: string }
+
 export interface Transaction {
+  review?: TransactionReview | null
+  fundingReview?: FundingReview
   dividendLookupState?: 'resolved' | 'deferred' | 'unavailable' | 'unmatched'
   statement?: { key: string; fileName: string; page: number; row: number; date: string }
   price?: number
@@ -110,6 +116,8 @@ export interface StatementTransactions {
 }
 
 export interface TransactionOverride {
+  review?: TransactionReview | null
+  fundingReview?: FundingReview
   updatedAt: string
   symbol?: string
   type?: TxnType

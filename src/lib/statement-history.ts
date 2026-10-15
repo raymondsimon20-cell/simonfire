@@ -1,6 +1,7 @@
 import type { Account, HistoricalBalance, MonthlyBalanceSnapshot, Transaction } from './types'
 import { automaticBalances, previousMonth } from './balance-snapshots'
 import { monthLabel } from './format'
+import { fundingTransfers } from './funding-review'
 
 export function statementAccount(balance: Pick<HistoricalBalance, 'accountMask'>, accounts: Account[]) {
   const mask = balance.accountMask.replace(/\D/g, '')
@@ -193,22 +194,10 @@ export interface FlowContext {
 
 export const EMPTY_FLOWS: FlowContext = { withheld: new Map(), daily: new Map() }
 
-// A withdrawal from one of your accounts that lands as a deposit in another of
-// your accounts (same amount, within a few days) is money moving between your
-// accounts, not money leaving to you. Each deposit pairs once.
+// Use the same saved decisions and mutually unique cash matches as the funding
+// audit. Equal bill payments alone are not evidence of an internal transfer.
 export function internalTransferIds(pool: Transaction[], windowDays = 4) {
-  const ids = new Set<string>()
-  const deposits = pool.filter((t) => t.type === 'Contribution' && t.amount > 0).sort((a, b) => a.date.localeCompare(b.date))
-  const used = new Set<string>()
-  const day = (date: string) => new Date(`${date}T12:00:00Z`).getTime() / 86_400_000
-  for (const out of pool.filter((t) => (t.type === 'Withdrawal' || t.type === 'Bill Payment') && t.amount < 0).sort((a, b) => a.date.localeCompare(b.date))) {
-    const match = deposits.find((d) => !used.has(d.id) && d.accountId !== out.accountId && Math.abs(d.amount + out.amount) < 0.01 && Math.abs(day(d.date) - day(out.date)) <= windowDays)
-    if (!match) continue
-    used.add(match.id)
-    ids.add(out.id)
-    ids.add(match.id)
-  }
-  return ids
+  return fundingTransfers(pool, windowDays).ids
 }
 
 export function flowContext(transactions: Transaction[]): FlowContext {

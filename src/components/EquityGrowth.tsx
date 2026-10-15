@@ -6,6 +6,7 @@ import { monthLabel, posNeg, shortDate, usd } from '../lib/format'
 import type { EquityGrowth as Growth } from '../lib/equity-growth'
 import type { Transaction } from '../lib/types'
 import { TransactionDrawer } from './TransactionDrawer'
+import { FundingAudit } from './FundingAudit'
 
 export function EquityGrowth({ result: r, sample }: { result: Growth; sample: boolean }) {
   const available = r.totalGrowth != null
@@ -39,17 +40,7 @@ export function EquityGrowth({ result: r, sample }: { result: Growth; sample: bo
         {r.fundingNeedsReview && <p className="mt-2 text-xs text-[#e1c887]">Funding details are incomplete. This affects the secondary diagnostic, not the change in recorded net equity.</p>}
         {r.provisionalValue != null && <details className="mt-3 text-xs text-muted"><summary className="cursor-pointer">{r.fundingNeedsReview ? 'View provisional funding calculation' : 'View contribution adjustment'}</summary><p className="num mt-2">{usd(r.totalGrowth!)} equity growth − {usd(r.outsideContributions)} {r.fundingNeedsReview ? 'unverified' : 'outside'} funding = {usd(r.provisionalValue, { sign: true })}</p><p className="mt-2">Funding = recorded deposits {usd(r.deposits)} − matched internal deposits {usd(r.internalDeposits)}.</p></details>}
       </div>
-      <details className="mt-3 rounded-xl border border-white/[.07] p-4">
-        <summary className="cursor-pointer text-sm text-[#e1c887]">Review funding by account and month{r.fundingNeedsReview ? ` · ${r.funding.filter((f) => f.issues.length).length} need review` : ''}</summary>
-        <p className="mt-3 text-xs leading-5 text-muted">Compare recorded totals with transaction details. Import missing statement transactions or open a record below to correct its classification. Matched transfers are counted once across the selected accounts.</p>
-        <div className="mt-3 space-y-2">{[...r.funding].sort((a, b) => Number(b.issues.length > 0) - Number(a.issues.length > 0)).map((f) => <details key={`${f.accountId}-${f.month}`} className="rounded-lg border border-white/[.07] p-3">
-          <summary className="cursor-pointer text-xs">{f.account} · {monthLabel(f.month)} <span className={f.issues.length ? 'text-[#e1c887]' : 'text-muted'}>· {f.issues.length ? 'Needs review' : 'Totals reconciled'}</span></summary>
-          <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">{([['Recorded deposits', f.deposits], ['Deposit transaction total', f.ledgerDeposits], ['Recorded withdrawals', f.withdrawals], ['Withdrawal transaction total', f.ledgerWithdrawals], ['Internal deposits excluded', f.internalDeposits]] as const).map(([label, amount]) => <div key={label} className="flex flex-wrap justify-between gap-2"><dt className="text-muted">{label}</dt><dd className="num">{usd(amount)}</dd></div>)}</dl>
-          {f.issues.map((issue) => <p key={issue} className="mt-2 text-xs text-[#e1c887]">{issue}</p>)}
-          <div className="mt-3 max-h-64 overflow-y-auto">{f.transactions.length ? f.transactions.map((t) => <button key={t.id} onClick={() => setSelected(t)} className="flex w-full flex-wrap justify-between gap-2 border-t border-white/[.06] py-2 text-left text-xs hover:text-[#e1c887]"><span className="min-w-0 flex-1"><span className="block">{shortDate(t.date)} · {t.type}</span><span className="block break-words text-faint">{t.description}</span></span><span className="num">{usd(t.amount, { sign: true })}</span></button>) : <p className="text-xs text-muted">No funding transaction details for this account and month.</p>}</div>
-        </details>)}</div>
-        {r.transferMatches.length > 0 && <details className="mt-3 text-xs"><summary className="cursor-pointer text-muted">Matched internal transfers · {r.transferMatches.length} pairs</summary>{r.transferMatches.map((pair) => <div key={pair.incoming.id} className="mt-2 rounded-lg border border-white/[.07] p-3">{[pair.outgoing, pair.incoming].map((t) => <button key={t.id} onClick={() => setSelected(t)} className="flex w-full flex-wrap justify-between gap-2 py-1 text-left hover:text-[#e1c887]"><span>{shortDate(t.date)} · {r.funding.find((f) => f.accountId === t.accountId)?.account ?? t.accountId}</span><span className="num">{usd(t.amount, { sign: true })}</span></button>)}</div>)}</details>}
-      </details>
+      <FundingAudit result={r} onSelect={setSelected}/>
       {r.notes.map((note) => <p key={note} className="mt-2 text-xs leading-5 text-[#d8bd7a]">{note}</p>)}
     </> : null}
     <Link to="/history" className="mt-3 inline-flex items-center gap-1 text-xs text-[#e1c887] hover:underline">{r.balancesAvailable ? 'Review historical balances' : 'Complete historical balances'}<ArrowUpRight size={13}/></Link>

@@ -1,154 +1,119 @@
 # SimonFIRE
 
-A personal clone of **Paycheck to Portfolio** (app.paycheck2portfolio.com) — a dark-themed
-portfolio & income tracker for dividend/options-income investors. Rebuilt from scratch as a
-Netlify-ready single-page app.
+SimonFIRE is a personal portfolio, income, and allocation tracker for Schwab accounts. It combines live brokerage data, imported accounting records, saved balance history, and review tools to explain portfolio equity, income, spending, and funding.
 
-## Features (all 8 pages, fully working)
+## Pages and workflows
 
-- **Dashboard** — gross/net value, margin used, equity %, day change, total gain/return, account cards.
-- **Positions** — sortable holdings table (day change, total gain, total return, value, weight), KPIs, CSV export, symbol search.
-- **Transactions** — all activity with Type/Symbol/Date filters, "Totals by Type", **Add Contribution** modal, CSV export, delete.
-- **Cash Flow** — income/expense/margin/contribution KPIs, daily net-operating bar chart, transaction detail table, date-range + category filters.
-- **Dividends** — trailing 12M income, monthly average, projections (annual/monthly, yield on cost, forward yield), 12-month projected-payments chart, income-by-symbol table.
-- **Month Close** — saved monthly equity, margin debt, cash flows, and an interactive reconciliation bridge. Statements verify automatic snapshots.
-- **Historical Value** — recorded monthly equity and margin history, with separate daily estimates and source/coverage indicators.
-- **Ledger** — complete transaction ledger grouped by month with running summaries, cash-impact coloring, and an inline **tag editor**.
-- **Connections** — brokerage connections, sync status, account expanders, a **Connect a Brokerage** flow (SnapTrade-style broker list), and a connection event log.
+- **Today** — plan health, net equity, margin, income coverage, equity growth, transaction changes, account summaries, and funding review by account and month.
+- **Positions** — holdings, cost basis, gains, source information, sorting, and CSV export.
+- **Transactions** — account-scoped activity, category/symbol/date filters, saved views, CSV export, manual corrections, and recoverable archiving. Mark individual or selected records reviewed, undo a review, and filter by review status. Reviews record a timestamp and reopen when material transaction details change; they do not dismiss data-quality warnings.
+- **Cash Flow** — income, spending, contributions, margin costs, and transaction details.
+- **Dividends** — historical distributions, current-share income estimates, payment projections, and income by symbol.
+- **Allocation** — bucket targets, contribution sizing, holdings review, protective-put planning, and order review. Targets use Growth, CEFs, High Yield, and Leveraged buckets. Contribution plans support gap filling, equal allocation, trend tilting, and trend priority, with account capacity and expense-reserve checks.
+- **Month Close** — recorded monthly equity, debt, cash flows, coverage gaps, and a reconciliation bridge.
+- **Historical Value** — recorded equity and margin history, daily estimates, time-weighted returns, and source/coverage indicators. Return displays include the investment gain in dollars for the measured window.
+- **Ledger** — monthly transaction groups, running summaries, tags, and progressive loading.
+- **Account Detail** — account balances, holdings, activity, and return breakdowns.
+- **Reports** — portfolio and income summaries, including protective-put information.
+- **Data Quality** — missing information, potential duplicates, import history, and backup/restore tools.
+- **Connections** — Schwab authorization, synchronization, CSV/PDF imports, and connection status.
+- **Preferences** — freshness thresholds, privacy, density, notification state, and backup status.
 
-Global: account-scope selector, Sync All (re-prices holdings), and a reset-to-sample-data button.
+Global controls include account scope, date range, sync, and balance privacy. Date-range behavior is page-specific; some pages have their own range controls.
 
-## Tech stack
+## Protective puts and orders
 
-- **Vite + React + TypeScript + Tailwind CSS v4**
-- **react-router-dom** for routing, **recharts** for charts, **lucide-react** for icons.
-- **Data layer**: everything runs against a swappable store in `src/lib/store.tsx`, persisted to
-  the browser's `localStorage`. Ships with a realistic, deterministic sample dataset
-  (`src/lib/seed.ts`) — ~160 holdings across 3 Schwab accounts and ~13 months of transactions.
-  All derived metrics live in `src/lib/calc.ts`.
+Allocation includes individual-position protective-put scenarios and a portfolio proxy-hedge planner. The tools model contract coverage, premium cost, expiration payoff, scenario loss offsets, premium budgets, and roll timing. Available option-chain data supports contract ranking and order previews. Proxy beta and crash scenarios are planning assumptions; proxy protection does not guarantee a portfolio loss floor.
 
-## Run locally
+Equity and option order requests go through Netlify Functions. Live placement is disabled unless `SCHWAB_ORDER_PLACEMENT_ENABLED` is exactly `true`. Planning a trade or copying a ticket does not submit it. Review account, contract, quantity, price, and broker preview before explicitly submitting an order.
+
+## Data and persistence
+
+The React store caches app data in browser `localStorage`. Sample data is available without a backend. A production deployment also uses Netlify Blobs for Schwab tokens, shared preferences and transaction overrides, balance history, and rotating backups.
+
+Shared records include transaction classifications and reviews, funding decisions, allocation settings, imported accounting authorities, and other preferences. Device display settings and some temporary planning inputs remain local. The app is a personal deployment; it does not currently provide a multi-user sign-in and per-user storage model.
+
+CSV/PDF parsing occurs in the browser. Imported records and preferences can subsequently be saved to the configured backend or included in backups; imports should not be treated as browser-only storage.
+
+### Accounting and source coverage
+
+- Imported statement balances take precedence over automatic snapshots for the same account/month.
+- Recorded equity growth includes contributions and recorded spending. Funding-adjusted diagnostics separately estimate investment results.
+- Missing coverage and unresolved funding differences remain visible rather than being treated as zero.
+- Income projections use available distribution information and current holdings; they are estimates.
+- TWR neutralizes classified external cash flows. Its accompanying dollar gain uses the same accepted sub-periods, and is not simply the return percentage multiplied by the starting balance. Option-trade cash is neutralized where historical option values are unavailable.
+
+### Funding review
+
+On Today, expand **Review funding by account and month** to compare recorded deposits/withdrawals with transaction totals. Import missing records or open a transaction to correct its category. **Review funding** can classify outside funding or confirm an internal transfer by selecting an equal, opposite cash movement in another account.
+
+Decisions persist through sync. Clearing a funding decision restores automatic transfer matching while keeping category edits. Missing or changed transfer legs and unreconciled statement totals remain flagged. Include both accounts and dates when reviewing transfers.
+
+### Automatic balance history
+
+Every successful Schwab sync captures reported equity, margin debt, cash, and month-to-date cash flows. The scheduled `capture-month-close` function runs at **23:50 UTC** on production Netlify deployments, including weekends. It does not run automatically in Vite or preview deployments.
+
+The balance archive retains first/latest observations per account/month, with conditional writes for concurrent captures. Month boundaries use `America/New_York`. A capture after 4 p.m. on the calendar month's final day is a recorded month-end checkpoint, not an official statement. Missed closes are not filled using a later month's balance. Imported statements can verify closes and fill older gaps.
+
+An expired brokerage connection pauses captures. Saved history remains available, with stale/reconnect status. Reconnect through Connections.
+
+### Backups
+
+Data Quality supports local backup/restore and server checkpoints. The client attempts a daily server backup after live data is available; the server retains seven rotating restore points. This backup attempt depends on the client running and is separate from scheduled balance capture. Preferences shows the last recorded automatic-backup status.
+
+## Development
+
+Built with Vite, React, TypeScript, Tailwind CSS, React Router, Recharts, and Netlify Functions/Blobs.
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # production build → dist/
-npm run preview  # preview the build
+npm run dev      # UI development server
+npm run build    # TypeScript checks and production build in dist/
+npm run preview  # Preview the built UI
+npm run lint
 ```
 
-## Deploy to Netlify
+Use `netlify dev` with a separately installed Netlify CLI to run the UI and functions together. Vite alone does not run brokerage, preference, backup, or scheduled functions.
 
-This repo is Netlify-ready. Either:
+Key implementation areas:
 
-1. **Static preview only**: run `npm run build` and drop `dist/` onto app.netlify.com. This does not deploy the Schwab or scheduled functions.
-2. **Git integration**: connect the repo; Netlify reads `netlify.toml`:
-   - Build command: `npm run build`
-   - Publish directory: `dist`
-   - SPA redirect (`/* → /index.html`) is configured for client-side routing.
+- `src/lib/store.tsx` — app state, persistence, imports, and shared preferences.
+- `src/lib/calc.ts` and other modules in `src/lib/` — accounting and planning calculations.
+- `src/lib/allocation-engine.ts` — contribution sizing and projections.
+- `src/lib/hedge.ts` — put scenarios, ranking, sizing, and roll helpers.
+- `src/lib/transaction-review.ts` and `transaction-overrides.ts` — review status and durable transaction edits.
+- `netlify/functions/` — brokerage access, orders, preferences, snapshots, and backups.
 
-## Loading your real data (CSV import)
+### Tests
 
-The app ships with sample data, but you can load your actual portfolio with no backend:
+Tests are grouped by module. Run the suites relevant to a change, for example:
 
-1. In **Schwab**, export your data as CSV:
-   - **Positions**: Accounts → Positions → **Export** (top-right).
-   - **Transactions**: Accounts → History → Transactions → **Export**.
-2. In the app, go to **Connections → Import CSV** (or Connect New Broker → pick your broker).
-3. Upload the positions and/or transactions CSV, preview the parsed counts, and click **Replace with imported data** (or add alongside the sample data).
+```bash
+npm run test:review
+npm run test:transactions
+npm run test:income-performance
+npm run test:allocation
+npm run test:hedge
+npm run test:twr
+npm run test:balance-snapshots
+```
 
-Everything is parsed in your browser and stored in `localStorage` — nothing is uploaded anywhere.
-The importer (`src/lib/import.ts`) tolerates Schwab's title rows, per-account sections,
-`$`-formatted numbers, and maps Schwab actions (dividends, buys/sells, transfers, margin interest)
-to the app's transaction types. Multi-account exports are split automatically.
+Additional suites cover dividends, account sync, margin, realized P/L, spending, historical balances, equity reconciliation, and other workflows. See `package.json` for the complete command list. A production build does not run these test suites automatically.
 
-Live auto-sync via **SnapTrade** (what the original app uses) is the planned phase 2 — see below.
+## Production setup
 
-## Live Schwab sync (official Schwab API)
+Connect the repository to Netlify. `netlify.toml` configures the build, `dist/` publishing, functions, SPA routing, and asset caching. Uploading only `dist/` provides a static UI without the backend functions.
 
-The app can pull your real portfolio directly from **Schwab's Trader API** (Accounts and
-Trading) — no third-party aggregator. OAuth and all API calls happen server-side in
-**Netlify Functions**, so your App Key/Secret never reach the browser; tokens are stored in
-**Netlify Blobs** (no database needed).
+Configure the variables listed in `.env.example`:
 
-**Functions** (`netlify/functions/`): `schwab-login` (redirect to Schwab consent),
-`schwab-callback` (code→token exchange, stores tokens), `schwab-sync` (accounts + positions +
-12 months of transactions → app model), `schwab-status`, `schwab-disconnect`. Token refresh is
-automatic; Schwab refresh tokens expire after ~7 days, after which you re-connect.
+- `SCHWAB_APP_KEY` and `SCHWAB_APP_SECRET` — Schwab application credentials, used server-side.
+- `SCHWAB_CALLBACK_URL` — must exactly match the callback registered with Schwab, normally `https://YOUR-SITE.netlify.app/.netlify/functions/schwab-callback`.
+- `APP_URL` — the exact public origin used for order-request checks.
+- `SCHWAB_ORDER_PLACEMENT_ENABLED` — keep `false` until live order placement is intentionally enabled.
+- `NODE_VERSION` — the example uses `22`.
 
-### One-time setup
+After deployment, use Connections to authorize Schwab and sync. Expired authorization requires reconnection. Keep credentials and exported personal financial records out of Git.
 
-1. **Deploy to Netlify** first so you have your site URL (e.g. `https://simonfire.netlify.app`).
-2. On **developer.schwab.com**, open your Accounts-and-Trading app and set its **Callback URL** to
-   exactly: `https://YOUR-SITE.netlify.app/.netlify/functions/schwab-callback`
-3. In **Netlify → Site configuration → Environment variables**, add (see `.env.example`):
-   - `SCHWAB_APP_KEY` and `SCHWAB_APP_SECRET` (from your Schwab app)
-   - `SCHWAB_CALLBACK_URL` = the same callback URL as step 2
-   - `NODE_VERSION` = `22`
-4. **Redeploy**, then in the app go to **Connections → Connect Schwab** (or Connect New Broker →
-   Charles Schwab). You'll authorize on Schwab's site and land back with your real data synced.
-   Use **Sync Now** to refresh; reconnect weekly when the token expires.
+## Limitations
 
-Local dev with functions: `netlify dev` (Netlify CLI) runs the Vite app and the functions
-together; without it, the Vite dev/preview build shows the UI but live sync falls back to CSV import.
-
-## Automatic balance history
-
-Every successful Schwab sync captures broker-reported equity, margin debt, cash,
-and month-to-date cash-flow totals. `capture-month-close` also captures them nightly
-at **23:50 UTC**, including weekends. This runs without an open browser after a
-production deploy; [Netlify scheduled functions](https://docs.netlify.com/build/functions/scheduled-functions/)
-do not run automatically in Vite, previews, or branch deploys.
-
-The `simonfire-balance-history` Netlify Blobs store retains the first and latest
-observation per account/month. Conditional writes protect concurrent captures.
-`balance-history` restores that archive on another browser and on refresh. The
-client also caches it locally and preserves it when the network is unavailable.
-
-- Month boundaries use `America/New_York`. A capture after 4 p.m. on the calendar
-  month's final day is a recorded month-end checkpoint, not an official statement.
-- The next month uses that checkpoint (or the prior month's imported statement)
-  as its opening. A missed close is never filled using a later month's balance.
-- Investment results are estimates from recorded equity less net funding. The
-  market/other residual includes trading gains and losses; realized P/L is not
-  added twice. Missing transaction coverage or ambiguous transfers suppress the
-  estimated result rather than turn unknown amounts into zero.
-- PDF/CSV statement balances take precedence for their account/month and verify
-  the next opening. Existing statements can fill older gaps.
-- An expired Schwab connection pauses captures. The pages show reconnect or
-  stale-data status while retaining saved history. Reconnect through Connections.
-
-Run `npm run test:balance-snapshots` for rollover, reconciliation, source priority,
-account scoping, concurrent persistence, and broker-failure regression checks.
-
-### Funding reviews
-
-On the Dashboard, expand **Review funding by account and month**. The review
-shows differences between recorded deposits/withdrawals and transaction totals.
-Use **Import missing records** for gaps, or open a transaction to correct its
-category. **Review funding** lets you mark outside deposits/withdrawals or confirm
-an internal transfer by selecting its equal, opposite cash movement in another
-selected account. Include both accounts and dates when reviewing transfers.
-
-Decisions persist through sync using transaction overrides. **Clear funding
-decision** restores automatic transfer matching while keeping category edits.
-Missing or changed transfer legs and unreconciled statement totals remain flagged;
-confirming a transfer does not dismiss unrelated differences. The main net-equity
-growth figure remains based on recorded balances.
-
-Run `npm run test:income-performance` and `npm run test:transactions` for funding
-reconciliation and saved-decision checks.
-
-## Upgrade path: cloud persistence (Supabase)
-
-The store is intentionally isolated. To move from `localStorage` to real accounts + cloud sync:
-
-1. Create a Supabase project; add tables mirroring `src/lib/types.ts` (accounts, positions, transactions, connections).
-2. Replace the `load`/`save`/mutation functions in `src/lib/store.tsx` with Supabase queries (`@supabase/supabase-js`), keeping the same `StoreCtx` interface — no page changes needed.
-3. Add Supabase Auth for sign-in; put keys in Netlify env vars.
-4. If moving balance history to Supabase, preserve the existing nightly schedule,
-   source precedence, month-boundary rules, and concurrency protections.
-
-## Notes
-
-All figures are illustrative sample data generated locally — nothing here is real financial data or
-advice.
+Historical prices, incomplete transaction history, missing cost basis, option valuation, and proxy assumptions can affect estimates. Source labels and coverage warnings explain these gaps. Review broker records before relying on a calculation or submitting a trade.

@@ -86,3 +86,19 @@ console.log('manual transaction persistence tests passed')
 assert.equal(classify({ rawType: 'JOURNAL', description: 'Deposit Journaled Funds TRANSFER FUNDS FROM SCHW AB BANK - 440054553142', amount: 1062.63 }), 'Contribution')
 assert.equal(classify({ rawType: 'JOURNAL', description: 'TRANSFER FUNDS TO SCHW AB BANK - 440054553142', amount: -500 }), 'Withdrawal')
 console.log('split Schwab Bank name tests passed')
+
+// Same-day statement events can share cash and description while retaining
+// different broker statement line identities. The overview must use this same
+// check as Data Quality rather than treating those rows as duplicate imports.
+const statementRows: Transaction[] = Array.from({ length: 80 }, (_, index) => ({
+  ...duplicateBase, id: `statement-${index}`, amount: Math.floor(index / 2) + 1,
+  statement: { key: `2026-09-line-${index}`, fileName: 'synthetic.pdf', page: 1, row: index, date: '2026-09-01' },
+}))
+assert.equal(statementRows.length - new Set(statementRows.map((t) => `${t.accountId}|${t.date}|${t.amount}|${t.description}`)).size, 40,
+  'reproduces the old overview warning for 40 legitimate matching-looking entries')
+assert.equal(duplicateTransactionIds(statementRows).size, 0, 'separate statement lines are not duplicate imports')
+assert.deepEqual([...duplicateTransactionIds([...statementRows, { ...statementRows[0], id: 'extra-copy' }])], ['extra-copy'],
+  'an extra copy of the same statement line still needs review')
+assert.equal(duplicateTransactionIds([...statementRows, { ...statementRows[0], id: 'kept-copy', duplicateReviewed: true }]).size, 0,
+  'a saved keep-both decision must clear the overview warning too')
+console.log('Statement duplicate warning regression checks passed')

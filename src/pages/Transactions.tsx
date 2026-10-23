@@ -1,5 +1,6 @@
+import { useSearchParams } from 'react-router-dom'
 import { AiCategorization } from '../components/AiCategorization'
-import { useDeferredValue, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { Plus, Download, Search, ChevronRight, Trash2, BookmarkPlus } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
 import { TXN_TYPES } from '../lib/seed'
@@ -29,6 +30,17 @@ export default function Transactions() {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null)
   const [showArchived, setShowArchived] = useState(false)
   const [review, setReview] = usePersistentState('simonfire.transactions.review', 'all')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedReview = searchParams.get('review')
+  useEffect(() => {
+    if (requestedReview !== 'duplicates') return
+    setReview('duplicates')
+    setType('all')
+    setSymbol('')
+    setFrom('')
+    setTo('')
+    setSearchParams((params) => { const next = new URLSearchParams(params); next.delete('review'); return next }, { replace: true })
+  }, [requestedReview, setReview, setType, setSymbol, setFrom, setTo, setSearchParams])
   const savedViews = data.savedTransactionViews ?? []
   const setSavedViews = setSavedTransactionViews
   const [visibleCount, setVisibleCount] = useState(200)
@@ -53,14 +65,15 @@ export default function Transactions() {
         if (review === 'missing-pl' && !(isClosingSale(t) && t.pl == null)) return false
         if (review === 'missing-symbol' && !(t.type === 'Dividend' && !t.symbol)) return false
         if (review === 'duplicates' && !duplicateIds.has(t.id)) return false
-        const globalFrom = dateRangeStart(dateRange)
+        const globalFrom = review === 'duplicates' ? '' : dateRangeStart(dateRange)
         if ((from || globalFrom) && t.date < (from || globalFrom)) return false
-        if ((to || localISODate()) && t.date > (to || localISODate())) return false
+        if ((to || (review === 'duplicates' ? '' : localISODate())) && t.date > (to || localISODate())) return false
         return true
       }),
     [transactions, type, deferredSymbol, review, duplicateIds, from, to, dateRange],
   )
 
+  const filteredDuplicateIds = filtered.filter((t) => duplicateIds.has(t.id)).map((t) => t.id)
   const selectedVisible = filtered.filter((t) => selectedIds.has(t.id)).map((t) => t.id)
   const toggleSelected = (id: string) => setSelectedIds((old) => { const next = new Set(old); if (next.has(id)) next.delete(id); else next.add(id); return next })
   const reviewSelected = (reviewed: boolean) => { setTransactionsReviewed(selectedVisible, reviewed); setSelectedIds(new Set()) }
@@ -193,7 +206,7 @@ export default function Transactions() {
             className="rounded-lg border border-border bg-surface-2 px-2 py-2 text-sm outline-none [color-scheme:dark]"
           />
         </label>
-        {review === 'duplicates' && duplicateIds.size > 0 && <><Button onClick={() => dismissDuplicateFlags([...duplicateIds])}>Clear duplicate flags</Button><Button onClick={async () => { if (await dialogs.confirm('Archive duplicate records', `${duplicateIds.size} potential duplicate record${duplicateIds.size === 1 ? '' : 's'} will be archived. One copy remains and archived records can be restored.`, 'Archive duplicates')) archiveTransactions([...duplicateIds]) }}><Trash2 size={14}/> Archive shown duplicates</Button></>}
+        {review === 'duplicates' && filteredDuplicateIds.length > 0 && <><Button onClick={() => dismissDuplicateFlags(filteredDuplicateIds)}>Keep both · clear shown flags</Button><Button onClick={async () => { if (await dialogs.confirm('Archive duplicate records', `${filteredDuplicateIds.length} potential duplicate record${filteredDuplicateIds.length === 1 ? '' : 's'} will be archived. One copy remains and archived records can be restored.`, 'Archive duplicates')) archiveTransactions(filteredDuplicateIds) }}><Trash2 size={14}/> Archive shown duplicates</Button></>}
         <span className="ml-auto text-xs text-faint">{filtered.length} transactions</span>
       </div>
 

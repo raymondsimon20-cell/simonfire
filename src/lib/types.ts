@@ -109,6 +109,7 @@ export interface Transaction {
 }
 
 export interface StatementTransactions {
+  noActivity?: boolean
   accountMask: string
   month: string
   fileName: string
@@ -219,6 +220,9 @@ export interface StatementHolding {
   option?: { underlying: string; expiration: string; strike: number; type: 'Put' | 'Call' }
 }
 export interface StatementSnapshot {
+  cashOnly?: boolean; equity?: number
+  cashInvestments?: { symbol: string; name: string; quantity: number; price: number; marketValue: number; page: number }[]
+
   sourceFile?: string; importedAt?: string
   costBasisEnabled?: boolean
   summaryCostBasis?: number; summaryUnrealized?: number

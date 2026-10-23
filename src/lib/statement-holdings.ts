@@ -1,3 +1,4 @@
+import { statementCashSummary } from './statement-cash-summary'
 import type { Account, HistoricalBalance, Position, CsvPositionAuthority, StatementHolding, StatementSnapshot } from './types'
 import type { PdfTextItem, PdfTextPage } from './statement-transactions'
 import { statementAccount } from './statement-history'
@@ -26,9 +27,17 @@ export function parseStatementHoldings(pages: PdfTextPage[], month: string, clos
       if (!title || title.y-header.y>45) continue
       const category = title.str.replace(/^Positions - /,'').replace(/\s*\(continued\)/,'').trim()
       const find = (s: string) => items.find(t => t.str === s && Math.abs(t.y-header.y)<4)
-      const desc=find('Description'), qty=find('Quantity'), price=find('Price($)'), value=find('Market Value($)'), cost=find('Cost Basis($)'), gain=find('Gain/(Loss)($)'), yieldCol=find('Yield'), annual=find('Income($)')
+      const desc=find('Description'), qty=find('Quantity'), price=find('Price($)'), value=find('Market Value($)'), cost=find('Cost Basis($)'), annual=find('Income($)')
+      let gain=items.find(t=>t.str.includes('Gain/(Loss)($)')&&Math.abs(t.y-header.y)<4)
+      let yieldCol=find('Yield')
+      if(gain?.str.includes('Est. Yield')) {
+        yieldCol={...gain}
+        // Joined labels span two columns. The first data row supplies the gain column's actual right edge.
+        const gainEdge=items.filter(t=>t.y<header.y-5&&t.y>header.y-40&&(numeric(t.str)!=null||t.str==='N/A')&&t.x+t.width>(cost?cost.x+cost.width+5:0)&&t.x+t.width<(annual?annual.x:Infinity)).sort((a,b)=>(a.x+a.width)-(b.x+b.width))[0]
+        if(gainEdge)gain={...gain,x:gainEdge.x,width:gainEdge.width}
+      }
       if (!desc || !qty || !price || !value || !cost || !gain) {result.issues.push(`Page ${page.page}: holding columns were not recognized.`);continue}
-      const ends=[qty,price,value,cost,gain,yieldCol,annual].map(t => t ? t.x+t.width+3 : Infinity)
+      const ends=[qty,price,value,cost,gain,yieldCol,annual].map(t => t ? t.x+t.width+3 : null)
       const columns = (line: PdfTextItem[]) => {
         const cells=['','','','','','','','','']
         for (const t of line) {
@@ -36,7 +45,7 @@ export function parseStatementHoldings(pages: PdfTextPage[], month: string, clos
           let col: number
           if(t.x<desc.x-3) col=0
           else if(t.x+ t.width < qty.x-8) col=1
-          else { const index=ends.findIndex(end=>t.x+t.width<=end); col=index<0?-1:index+2 }
+          else { const index=ends.findIndex(end=>end!=null&&t.x+t.width<=end); col=index<0?-1:index+2 }
           if(col>=0&&col<cells.length) cells[col]+=' '+t.str
         }
         return cells.map(c=>c.trim())
@@ -77,7 +86,7 @@ export function parseStatementHoldings(pages: PdfTextPage[], month: string, clos
     if(!total||Math.abs(holdings.reduce((s,h)=>s+Math.round(h.marketValue*100),0)-Math.round(total.marketValue*100))>2)result.issues.push(`${category}: holding values do not reconcile to the printed category total.`)
     if(total?.costBasis!=null&&holdings.every(h=>h.costBasis!=null)&&Math.abs(holdings.reduce((s,h)=>s+Math.round(h.costBasis!*100),0)-Math.round(total.costBasis*100))>2)result.issues.push(`${category}: cost basis does not reconcile to the printed category total.`)
   }
-  if(!result.holdings.length)result.issues.push('No supported holding table found.')
+
   if(new Set(result.holdings.map(h=>h.symbol)).size!==result.holdings.length)result.issues.push('Repeated holding symbols need review.')
   const combined=pages.flatMap(p=>p.items.map(i=>i.str)).join(' ')
   const pending=combined.match(/Total Pending Transactions\s+(\(?\$?[\d,]+\.\d{2}\)?)/)
@@ -89,14 +98,20 @@ export function parseStatementHoldings(pages: PdfTextPage[], month: string, clos
     if(summary){const values=linesOf(items.filter(t=>t.y<summary.y&&t.y>summary.y-65)).find(l=>l.filter(t=>numeric(t.str)!=null).length>=8)?.filter(t=>numeric(t.str)!=null);if(values){result.summaryCostBasis=numeric(values[6].str);result.summaryUnrealized=numeric(values[7].str)}}
     const gains=items.find(t=>t.str==='Gain or (Loss) Summary')
     if(gains){const values=linesOf(items.filter(t=>t.x<gains.x+380&&t.y<gains.y&&t.y>gains.y-75)).find(l=>l.filter(t=>numeric(t.str)!=null).length===6)?.filter(t=>numeric(t.str)!=null);if(values?.length===6){result.realizedShortTerm=numeric(values[2].str);result.realizedLongTerm=numeric(values[5].str)}}
-    const cash=items.find(t=>t.str==='Transactions - Summary')
-    if(cash){const lines=linesOf(items.filter(t=>t.y<cash.y&&t.y>cash.y-95));const values=lines.find(l=>l.filter(t=>numeric(t.str)!=null).length>=8)?.filter(t=>numeric(t.str)!=null);if(values){result.cashBeginning=numeric(values[0].str);result.cashEnding=numeric(values[7].str)}}
     const margin=items.find(t=>t.str==='Margin Loan Information')
     if(margin){const lines=linesOf(items.filter(t=>t.y<margin.y&&t.y>margin.y-150));const rate=lines.find(l=>l.some(t=>/^\d+\.\d+%$/.test(t.str)));if(rate){const values=rate.filter(t=>numeric(t.str.replace('%',''))!=null);result.marginRate=numeric(values[0]?.str.replace('%','')??'');result.marginInterest=numeric(values[1]?.str??'')}const loans=lines.find(l=>l.filter(t=>numeric(t.str)!=null).length>=4);if(loans){result.marginLoanClosing=numeric(loans.filter(t=>numeric(t.str)!=null)[1].str)}}
   }
-  if(closingEquity!=null && (result.cashEnding==null || Math.abs(result.holdings.reduce((sum,h)=>sum+h.marketValue,0)+(result.cashEnding??0)-closingEquity)>.05))result.issues.push('Holdings plus ending cash/debt do not reconcile to account equity. Snapshot held for review.')
+  const cashSummary=statementCashSummary(pages)
+  if(cashSummary){result.cashBeginning=cashSummary.beginning;result.cashEnding=cashSummary.ending}
+  result.cashInvestments=parseStatementCashInvestments(pages,result.issues)
+  const cashAssets=result.cashInvestments.reduce((sum,h)=>sum+h.marketValue,0)
+  const hasSecuritiesTable=pages.some(p=>p.items.some(t=>/^Positions - (?!Summary)/.test(t.str)))
+  const cashOnly=!result.holdings.length&&!hasSecuritiesTable&&result.summaryCostBasis===0&&result.summaryUnrealized===0&&closingEquity!=null&&result.cashEnding!=null&&Math.abs(result.cashEnding+cashAssets-closingEquity)<.02
+  if(cashOnly){result.cashOnly=true;result.equity=closingEquity}
+  else if(!result.holdings.length)result.issues.push('No supported holding table found.')
+  if(closingEquity!=null && (result.cashEnding==null || Math.abs(result.holdings.reduce((sum,h)=>sum+h.marketValue,0)+cashAssets+(result.cashEnding??0)-closingEquity)>.05))result.issues.push('Holdings plus ending cash/debt do not reconcile to account equity. Snapshot held for review.')
   if(result.summaryCostBasis!=null && result.holdings.every(h=>h.costBasis!=null) && Math.abs(result.holdings.reduce((sum,h)=>sum+h.costBasis!,0)-result.summaryCostBasis)>.05)result.issues.push('Holding cost basis does not reconcile to the positions summary.')
-  result.complete=result.holdings.length>0&&result.issues.length===0&&/^20\d{2}-(0[1-9]|1[0-2])$/.test(month)
+  result.complete=(result.holdings.length>0||cashOnly)&&result.issues.length===0&&/^20\d{2}-(0[1-9]|1[0-2])$/.test(month)
   return result
 }
 const symbolKey=(s:string)=>s.replace(/\s+/g,'').toUpperCase()
@@ -122,9 +137,58 @@ export function cleanStatementSnapshot(raw: unknown): StatementSnapshot | undefi
   if(s.holdings.some(h=>!h || typeof h.symbol!=='string' || h.symbol.length>80 || typeof h.name!=='string' || h.name.length>500 || typeof h.category!=='string' || h.category.length>100 || ![h.quantity,h.price,h.marketValue,h.page].every(Number.isFinite) || h.quantity===0 || !Number.isInteger(h.page) || h.page<1 || [h.costBasis,h.unrealized,h.yieldPct,h.annualIncome].some(n=>n!=null&&!Number.isFinite(n))))return undefined
   if(s.categoryTotals.some(t=>!t||typeof t.category!=='string'||t.category.length>100||!Number.isFinite(t.marketValue)||(t.costBasis!=null&&!Number.isFinite(t.costBasis))))return undefined
   const holdings=s.holdings.map(h=>({symbol:h.symbol,name:h.name,category:h.category,quantity:h.quantity,price:h.price,marketValue:h.marketValue,page:h.page,...(h.costBasis!=null?{costBasis:h.costBasis}:{}),...(h.unrealized!=null?{unrealized:h.unrealized}:{}),...(h.yieldPct!=null?{yieldPct:h.yieldPct}:{}),...(h.annualIncome!=null?{annualIncome:h.annualIncome}:{}),...(h.option&&typeof h.option.underlying==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(h.option.expiration)&&Number.isFinite(h.option.strike)&&['Put','Call'].includes(h.option.type)?{option:{underlying:h.option.underlying.slice(0,30),expiration:h.option.expiration,strike:h.option.strike,type:h.option.type}}:{})}))
-  const result: StatementSnapshot={...(typeof s.sourceFile==='string'?{sourceFile:s.sourceFile.slice(0,240)}:{}),...(typeof s.importedAt==='string'&&Number.isFinite(Date.parse(s.importedAt))?{importedAt:s.importedAt}:{}),holdings,categoryTotals:s.categoryTotals.map(t=>({category:t.category,marketValue:t.marketValue,...(t.costBasis!=null?{costBasis:t.costBasis}:{})})),complete:s.complete===true,costBasisEnabled:s.costBasisEnabled!==false,issues:s.issues.filter(i=>typeof i==='string').map(i=>i.slice(0,500))}
+  const cashInvestments=Array.isArray(s.cashInvestments)&&s.cashInvestments.length<=100?s.cashInvestments.filter(h=>h&&typeof h.symbol==='string'&&typeof h.name==='string'&&[h.quantity,h.price,h.marketValue,h.page].every(Number.isFinite)&&Math.abs(h.quantity*h.price-h.marketValue)<.03).map(h=>({symbol:h.symbol.slice(0,80),name:h.name.slice(0,500),quantity:h.quantity,price:h.price,marketValue:h.marketValue,page:h.page})):[]
+  if(s.cashInvestments!=null && (!Array.isArray(s.cashInvestments)||s.cashInvestments.length!==cashInvestments.length))return undefined
+  const result: StatementSnapshot={cashInvestments,...(typeof s.sourceFile==='string'?{sourceFile:s.sourceFile.slice(0,240)}:{}),...(typeof s.importedAt==='string'&&Number.isFinite(Date.parse(s.importedAt))?{importedAt:s.importedAt}:{}),holdings,categoryTotals:s.categoryTotals.map(t=>({category:t.category,marketValue:t.marketValue,...(t.costBasis!=null?{costBasis:t.costBasis}:{})})),complete:s.complete===true,costBasisEnabled:s.costBasisEnabled!==false,issues:s.issues.filter(i=>typeof i==='string').map(i=>i.slice(0,500))}
   const totalsValid=result.categoryTotals.length>0 && new Set(holdings.map(h=>h.symbol)).size===holdings.length && holdings.every(h=>result.categoryTotals.some(t=>t.category===h.category)) && result.categoryTotals.every(t=>Math.abs(holdings.filter(h=>h.category===t.category).reduce((sum,h)=>sum+h.marketValue,0)-t.marketValue)<.03)
-  result.complete=result.complete&&holdings.length>0&&!result.issues.length&&totalsValid
+  const verifiedCashOnly=s.cashOnly===true&&!holdings.length&&s.summaryCostBasis===0&&s.summaryUnrealized===0&&Number.isFinite(s.equity)&&Number.isFinite(s.cashEnding)&&Math.abs(s.cashEnding!+cashInvestments.reduce((sum,h)=>sum+h.marketValue,0)-s.equity!)<.02
+  if(verifiedCashOnly){result.cashOnly=true;result.equity=s.equity}
+  result.complete=result.complete&&!result.issues.length&&((holdings.length>0&&totalsValid)||verifiedCashOnly)
   for(const k of ['summaryCostBasis','summaryUnrealized','cashBeginning','cashEnding','marginRate','marginInterest','marginLoanClosing','realizedShortTerm','realizedLongTerm','pendingActivity'] as const)if(Number.isFinite(s[k]))result[k]=s[k]
   return result
+}
+
+// Non-sweep money funds live in the cash table, but are excluded from the cash
+// transaction summary and the securities cost-basis summary. Keep them separate.
+function parseStatementCashInvestments(pages: PdfTextPage[], issues: string[]): NonNullable<StatementSnapshot['cashInvestments']> {
+  const funds: NonNullable<StatementSnapshot['cashInvestments']>=[]
+  for(const page of pages){
+    const items=page.items.filter(t=>t.str.trim()), title=items.find(t=>t.str==='Cash and Cash Investments')
+    if(!title)continue
+    const header=items.find(t=>t.str==='Symbol'&&t.y<title.y&&t.y>title.y-45)
+    if(!header)continue
+    const near=(label:string)=>items.find(t=>t.str===label&&Math.abs(t.y-header.y)<3)
+    const qty=near('Quantity'),price=near('Price($)'),desc=near('Description'),ending=items.find(t=>t.str==='Ending'&&Math.abs(t.y-header.y)<14)
+    if(!qty||!price||!desc||!ending){if(items.some(t=>/Money Fund/.test(t.str)))issues.push(`Page ${page.page}: cash investment columns need review.`);continue}
+    const next=items.filter(t=>(/^Positions - |^Transactions - /.test(t.str))&&t.y<header.y).sort((a,b)=>b.y-a.y)[0]
+    const lines=linesOf(items.filter(t=>t.y<header.y-5&&t.y>Math.max(30,next?.y??0)))
+    let current: {kind:string;symbol:string;name:string;quantity?:number;price?:number;value?:number}|undefined
+    const flush=()=>{
+      if(!current)return
+      const c=current;current=undefined
+      if(!/Money Fund/.test(c.kind))return
+      if(!/Non-Sweep/.test(c.kind)||!c.symbol||c.quantity==null||c.price==null||c.value==null||Math.abs(c.quantity*c.price-c.value)>.02){issues.push(`Page ${page.page}: a money-market investment needs review.`);return}
+      funds.push({symbol:c.symbol,name:c.name.trim(),quantity:c.quantity,price:c.price,marketValue:c.value,page:page.page})
+    }
+    for(const line of lines){
+      if(line.some(t=>/^Total Cash and Cash Investments/.test(t.str))){flush();break}
+      const left=line.filter(t=>t.x<header.x-3).map(t=>t.str).join(' ')
+      if(/^(?:Cash|Bank Sweep|Money Fund)/.test(left)){flush();current={kind:left,symbol:'',name:''}}
+      if(!current)continue
+      if(left&&!/^(?:Cash|Bank Sweep|Money Fund)/.test(left))current.kind+=' '+left
+      for(const t of line){
+        const right=t.x+t.width
+        if(t.x>=header.x-3&&t.x<desc.x-3)current.symbol+=' '+t.str
+        else if(t.x>=desc.x-3&&right<qty.x-8&&!/^\(M\),?$|^[,⁺†‡]+$/.test(t.str))current.name+=' '+t.str
+        else if(numeric(t.str)!=null){
+          if(right<=qty.x+qty.width+3&&t.x>=qty.x-30)current.quantity=numeric(t.str)
+          else if(right<=price.x+price.width+3&&right>qty.x+qty.width+3)current.price=numeric(t.str)
+          else if(right<=ending.x+ending.width+3&&right>ending.x-30)current.value=numeric(t.str)
+        }
+      }
+      current.symbol=current.symbol.trim()
+    }
+    flush()
+  }
+  return funds
 }

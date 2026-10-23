@@ -1,3 +1,4 @@
+import { statementCashSummary } from './statement-cash-summary'
 import type { Account, StatementTransactions, Transaction, TxnType } from './types'
 import { statementAccount } from './statement-history'
 
@@ -119,6 +120,8 @@ export function parseStatementTransactions(pages: PdfTextPage[], month: string, 
     }
   }
   flush()
+  const summary = !found ? statementCashSummary(pages) : undefined
+  if (summary && summary.other === 0 && summary.activity.every(n=>n===0) && Math.abs(summary.beginning-summary.ending)<.01) { result.complete=true; result.noActivity=true; return result }
   if (!found) result.issues.push('No transaction-detail table found. This PDF can supply balances only.')
   const actual = result.transactions.reduce((sum, row) => sum + Math.round(row.amount * 100), 0)
   if (found && total == null) result.issues.push('Could not verify the Total Transactions amount. Transaction import is held for review.')
@@ -142,7 +145,7 @@ export function reconcileStatementTransactions(accounts: Account[], existing: Tr
   const transactions = existing.map((row) => ({ ...row }))
   const used = new Set<number>()
   let added = 0, matched = 0, ambiguous = 0
-  const pending: { fileName: string; page: number; date: string; symbol?: string; amount: number }[] = []
+  const pending: { fileName: string; page: number; date: string; symbol?: string; amount: number; reason: string }[] = []
   const cents = (value: number) => Math.round(value * 100)
   for (const group of groups) {
     if (!group.complete) continue
@@ -176,7 +179,7 @@ export function reconcileStatementTransactions(accounts: Account[], existing: Tr
         return !used.has(index) && old.accountId === account.id && old.type === row.type && normalize(old.symbol ?? '') === normalize(row.symbol ?? '') && gap >= 0 && gap <= 7 && Math.sign(old.amount) === Math.sign(row.amount) && Math.abs(old.units) <= Math.abs(row.units)
       })
       const uncertain = possibleFills || best.length > 0 && (signatures.size > 1 || (competing && best[0].score < 4))
-      if (uncertain) { ambiguous++; pending.push({ fileName: group.fileName, page: row.statement?.page ?? 0, date: row.date, symbol: row.symbol, amount: row.amount }); continue }
+      if (uncertain) { ambiguous++; pending.push({ fileName: group.fileName, page: row.statement?.page ?? 0, date: row.date, symbol: row.symbol, amount: row.amount, reason: possibleFills ? 'Possible overlap with individual trade fills; compare the broker records.' : signatures.size > 1 ? 'Multiple saved records share matching cash and security details; their identity is uncertain.' : 'Other statement payments have the same amount and date, but the saved security identity is missing.' }); continue }
       const index = best[0]?.index
       const old = index == null ? undefined : transactions[index]
       const merged: Transaction = { ...old, ...row, id: old?.id ?? `statement-${row.statement!.key}`, accountId: account.id,

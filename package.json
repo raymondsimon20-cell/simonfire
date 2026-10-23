@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:funding-cleanup": "tsc -p scripts/tsconfig.funding-cleanup.test.json && node /tmp/simonfire-funding-cleanup-tests/scripts/test-funding-cleanup.js",
     "test:statement-holdings": "tsc -p scripts/tsconfig.statement-holdings.test.json && node /tmp/simonfire-statement-holdings-tests/scripts/test-statement-holdings.js",
     "test:account-import": "tsc -p scripts/tsconfig.account-import.test.json && node /tmp/simonfire-account-import-tests/scripts/test-account-import.js",
     "test:ai-funding": "tsc -p scripts/tsconfig.ai-funding.test.json && NODE_PATH=./node_modules node /tmp/simonfire-ai-funding-tests/scripts/test-ai-funding.js",

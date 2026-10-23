@@ -1,6 +1,7 @@
+import { fundingLedger } from './funding-cleanup'
 import { brokerageDate, monthEndDate, previousMonth } from './balance-snapshots'
 import { coverageGap, statementAccount, type StatementMonth } from './statement-history'
-import type { Account, HistoricalBalance, Transaction } from './types'
+import type { Account, HistoricalBalance, StatementTransactions, Transaction } from './types'
 import { fundingTransfers, isFundingJournal as journal } from './funding-review'
 
 export interface EquityGrowth {
@@ -35,6 +36,7 @@ interface FundingAudit {
   withdrawals: number
   ledgerWithdrawals: number
   internalDeposits: number
+  statementVerified?: boolean
   issues: string[]
   transactions: Transaction[]
 }
@@ -43,7 +45,7 @@ interface FundingAudit {
 // contributions and all recorded spending. Equity already nets margin debt,
 // withholding, fees, interest and unrealized changes. Removing outside funding
 // is a separate diagnostic; funding gaps must not hide valid balance growth.
-export function equityGrowth(rows: StatementMonth[], transactions: Transaction[], accounts: Account[], fromMonth = '', today = brokerageDate()): EquityGrowth {
+export function equityGrowth(rows: StatementMonth[], transactions: Transaction[], accounts: Account[], fromMonth = '', today = brokerageDate(), statements: StatementTransactions[] = []): EquityGrowth {
   const window = rows.filter((r) => r.month >= fromMonth && r.month <= today.slice(0, 7)).sort((a, b) => a.month.localeCompare(b.month))
   const first = window[0]
   const last = window.at(-1)
@@ -70,7 +72,8 @@ export function equityGrowth(rows: StatementMonth[], transactions: Transaction[]
   result.balanceEstimated = window.some((r) => r.statements.some((s) => s.source === 'Automatic snapshot'))
   if (window.some((r) => ![r.deposits, r.withdrawals].every(Number.isFinite) || r.deposits < 0)) return { ...result, fundingNeedsReview: true, reason: 'Recorded funding totals need review. Total equity growth is still available from balances.' }
   const selectedAccounts = new Set(window.flatMap((r) => r.statements.map((s) => statementAccount(s, accounts)?.id)).filter((id): id is string => !!id))
-  const txns = transactions.filter((t) => selectedAccounts.has(t.accountId) && t.date >= result.from && t.date <= result.to)
+  const ledger = fundingLedger(window, transactions, accounts, statements)
+  const txns = ledger.transactions.filter((t) => selectedAccounts.has(t.accountId) && t.date >= result.from && t.date <= result.to)
   // Match within the measured span: an in-flight transfer crossing an endpoint
   // cannot be removed safely from that endpoint's recorded equity.
   const internal = fundingTransfers(txns)
@@ -80,6 +83,7 @@ export function equityGrowth(rows: StatementMonth[], transactions: Transaction[]
     for (const statement of row.statements) {
       const account = statementAccount(statement, accounts)
       const monthly = txns.filter((t) => t.accountId === account?.id && t.date.slice(0, 7) === row.month)
+      const statementVerified = ledger.verifiedMonths.has(`${account?.id}|${row.month}`)
       const automatic = statement.source === 'Automatic snapshot'
       // Snapshots sum Contribution rows only; statements can include transfers
       // in their deposit/withdrawal totals. Never subtract an internal transfer
@@ -90,16 +94,16 @@ export function equityGrowth(rows: StatementMonth[], transactions: Transaction[]
       const ledgerWithdrawals = -outflows.reduce((n, t) => n + t.amount, 0)
       const proposed = deposits.filter((t) => internal.ids.has(t.id)).reduce((n, t) => n + t.amount, 0)
       const issues: string[] = []
-      if (row.flowsAvailable === false || statement.flowsAvailable === false) issues.push('Funding history was unavailable at capture. Sync or import statement transactions.')
-      if (selectedAccounts.size > 1 && Math.abs(ledgerDeposits - statement.deposits) > .01) issues.push('Deposit transactions do not reconcile to the recorded total.')
-      if (selectedAccounts.size > 1 && Math.abs(ledgerWithdrawals + statement.withdrawals) > .01) issues.push('Withdrawal transactions do not reconcile; internal transfer matching may be incomplete.')
+      if ((row.flowsAvailable === false || statement.flowsAvailable === false) && !statementVerified) issues.push('Funding history was unavailable at capture. Sync or import statement transactions.')
+      if ((selectedAccounts.size > 1 || statementVerified) && Math.abs(ledgerDeposits - statement.deposits) > .01) issues.push('Deposit transactions do not reconcile to the recorded total.')
+      if ((selectedAccounts.size > 1 || statementVerified) && Math.abs(ledgerWithdrawals + statement.withdrawals) > .01) issues.push('Withdrawal transactions do not reconcile; internal transfer matching may be incomplete.')
       if (proposed > statement.deposits + .01) issues.push('Matched transfers exceed recorded deposits. Check transaction classifications and repeated records.')
       const matched = proposed <= statement.deposits + .01 ? proposed : 0
       if (monthly.some((t) => internal.invalid.has(t.id))) issues.push('A saved transfer pair is missing or changed. Include both accounts and dates, import the missing leg, or revise the saved decision.')
       if (monthly.some((t) => internal.ambiguous.has(t.id))) issues.push('Multiple equal cash movements could be transfer matches. Review these records.')
-      if (monthly.some((t) => t.type === 'Transfer' && !journal(t) && (t.amount !== 0 || t.units !== 0) && !internal.ids.has(t.id))) issues.push('Unmatched transfers need an outside-funding or internal-transfer classification.')
+      if (monthly.some((t) => t.type === 'Transfer' && !journal(t) && (t.amount !== 0 || t.units !== 0) && !internal.ids.has(t.id) && t.fundingReview?.kind !== 'external')) issues.push('Unmatched transfers need an outside-funding or internal-transfer classification.')
       if (monthly.some((t) => t.type === 'Other' && (t.amount !== 0 || t.units !== 0))) issues.push('Unclassified activity may change outside funding.')
-      result.funding.push({ accountId: account?.id ?? statement.accountMask, account: account?.name ?? `····${statement.accountMask}`, month: row.month, deposits: statement.deposits, ledgerDeposits, withdrawals: -statement.withdrawals, ledgerWithdrawals, internalDeposits: matched, issues, transactions: monthly.filter((t) => (['Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Other'].includes(t.type) && !journal(t)) || t.fundingReview?.kind === 'internal') })
+      result.funding.push({ accountId: account?.id ?? statement.accountMask, account: account?.name ?? `····${statement.accountMask}`, month: row.month, statementVerified: ledger.verifiedMonths.has(`${account?.id}|${row.month}`), deposits: statement.deposits, ledgerDeposits, withdrawals: -statement.withdrawals, ledgerWithdrawals, internalDeposits: matched, issues, transactions: monthly.filter((t) => (['Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Other'].includes(t.type) && !journal(t) && (t.amount !== 0 || t.units !== 0)) || t.fundingReview?.kind === 'internal') })
       internalDeposits += matched
     }
     result.deposits += row.deposits
@@ -113,6 +117,7 @@ export function equityGrowth(rows: StatementMonth[], transactions: Transaction[]
   result.value = result.fundingNeedsReview ? null : result.provisionalValue
   result.reason = result.fundingNeedsReview ? 'Outside contributions are not reconciled yet. Review the account-by-month funding details below before interpreting this as growth or decline.' : ''
   result.estimated = snapshots || result.fundingNeedsReview || internal.pairs.length > 0
+  if (ledger.verifiedMonths.size) result.notes.push(`Verified statement transaction details support funding for ${ledger.verifiedMonths.size} account-months. Extra saved API activity is not counted again in those months.`)
   if (snapshots) result.notes.push('Includes saved API balances and recorded cash flows; statements take precedence when imported.')
   if (internal.pairs.some((p) => p.incoming.fundingReview?.kind !== 'internal')) result.notes.push('Automatic internal transfers are estimated from unique equal cash movements across selected accounts within four days. Confirm or correct matched pairs in the funding audit.')
   return result

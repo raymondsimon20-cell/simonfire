@@ -1,8 +1,10 @@
 import type { AppData, FundingReview, Transaction } from './types'
 import { applyTransactionOverrides, recordTransactionOverride } from './transaction-overrides'
 
-export const isFundingJournal = (t: Transaction) => t.type === 'Transfer' && /\bTYPE ?[12]\b/i.test(t.description)
+export const isFundingJournal = (t: Transaction) => t.type === 'Transfer' && (/\bTYPE ?[12]\b/i.test(t.description) || (t.units === 0 && /^(?:BROKERAGE SWEEP TO BANK|BANK SWEEP FR(?:OM)? BROKERAGE|OBATCH SMA ADJ[A-Z]*)\b/i.test(t.description.trim())))
 export const isFundingCash = (t: Transaction) => !isFundingJournal(t) && t.units === 0 && Number.isFinite(t.amount) && t.amount !== 0 && ['Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Other'].includes(t.type)
+
+export const isKnownBankFunding = (t: Transaction) => t.units === 0 && ((t.amount > 0 && /\bTRANSFER FUNDS FROM SCHW\s?AB BANK\b/i.test(t.description)) || (t.amount < 0 && /\bTRANSFER FUNDS TO SCHW\s?AB BANK\b/i.test(t.description)))
 
 export function canPairFunding(a: Transaction, b: Transaction) {
   return isFundingCash(a) && isFundingCash(b) && a.accountId !== b.accountId && a.amount * b.amount < 0 && Math.abs(a.amount + b.amount) < .01
@@ -23,7 +25,7 @@ export function fundingTransfers(txns: Transaction[], windowDays = 4) {
       pairs.push({ incoming: group.find((t) => t.amount > 0)!, outgoing: group.find((t) => t.amount < 0)! })
     } else group.forEach((t) => invalid.add(t.id))
   }
-  const eligible = txns.filter((t) => isFundingCash(t) && (!t.fundingReview || t.fundingReview.kind === 'auto'))
+  const eligible = txns.filter((t) => isFundingCash(t) && !isKnownBankFunding(t) && (!t.fundingReview || t.fundingReview.kind === 'auto'))
   const incoming = eligible.filter((t) => t.amount > 0 && ['Contribution', 'Transfer'].includes(t.type))
   const outgoing = eligible.filter((t) => t.amount < 0 && ['Withdrawal', 'Transfer'].includes(t.type))
   const matches = (a: Transaction, b: Transaction) => canPairFunding(a, b) && Math.abs(Date.parse(a.date) - Date.parse(b.date)) <= windowDays * 86_400_000

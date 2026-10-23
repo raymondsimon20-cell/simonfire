@@ -1,3 +1,4 @@
+import { saveBankFundingBatch, type BankFundingCandidate } from './funding-cleanup'
 import { applyStatementCostBasis, restoreStatementBasis } from './statement-holdings'
 import { planAccountImport } from './account-import'
 import { transactionReviewFingerprint } from './transaction-review'
@@ -227,6 +228,7 @@ interface StoreCtx {
   addTransaction: (t: Omit<Transaction, 'id' | 'tags'> & { tags?: string[] }) => void
   setTransactionsReviewed: (ids: string[], reviewed: boolean) => void
   updateTransaction: (id: string, patch: Partial<Transaction>) => void
+  confirmBankFunding: (candidates: BankFundingCandidate[]) => void
   reviewFunding: (id: string, kind: 'auto' | 'external' | 'internal', partnerId?: string) => void
   assignTransactionSymbol: (id: string, symbol: string) => void
   enrichDividendSymbols: (matches: { transactionId: string; symbol: string }[]) => void
@@ -445,6 +447,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     return d
   }, 'Funding review'), [mutate])
+
+  const confirmBankFunding: StoreCtx['confirmBankFunding'] = useCallback((candidates) => mutate(d => {
+    if (saveBankFundingBatch(d, candidates)) {
+      applyRulesTo(d)
+      d.balanceSnapshots = hydrateSnapshotFlows(d.balanceSnapshots ?? [], d.accounts, d.transactions)
+    }
+    return d
+  }, 'Confirm bank transfers as outside funding'), [mutate])
 
   const assignTransactionSymbol: StoreCtx['assignTransactionSymbol'] = useCallback(
     (id, rawSymbol) => mutate((d) => {
@@ -978,6 +988,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setTransactionsReviewed,
       updateTransaction,
       reviewFunding,
+      confirmBankFunding,
       assignTransactionSymbol,
       enrichDividendSymbols,
       applyRealizedPlMatches,
@@ -1027,6 +1038,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setTransactionsReviewed,
       updateTransaction,
       reviewFunding,
+      confirmBankFunding,
       assignTransactionSymbol,
       enrichDividendSymbols,
       applyRealizedPlMatches,

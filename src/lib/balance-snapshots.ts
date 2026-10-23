@@ -1,3 +1,4 @@
+import { isFundingJournal } from './funding-review'
 import type { Account, BalanceSnapshot, HistoricalBalance, MonthlyBalanceSnapshot, SnapshotFlows, Transaction } from './types'
 
 export function brokerageDate(at: string | Date = new Date()) {
@@ -25,7 +26,7 @@ export function snapshotFlows(transactions: Transaction[], accountId: string, da
     else if (row.type === 'Interest' || row.type === 'Fee' || row.type === 'Tax Withholding') totals.expenses += row.amount
     // Cash/margin journals stay inside one account. Other transfers may cross
     // the portfolio boundary or move securities; do not label them profit.
-    else if (row.type === 'Transfer' && !/\bTYPE ?[12]\b/i.test(row.description)) totals.reviewRequired = true
+    else if (row.type === 'Transfer' && !isFundingJournal(row)) totals.reviewRequired = true
     else if (row.type === 'Other' && (row.amount !== 0 || row.units !== 0)) totals.reviewRequired = true
   }
   return totals

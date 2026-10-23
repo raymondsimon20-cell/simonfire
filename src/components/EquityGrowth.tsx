@@ -33,15 +33,15 @@ export function EquityGrowth({ result: r, sample }: { result: Growth; sample: bo
           <div className="mt-3 divide-y divide-white/[.06]">{r.months.map((m) => <div key={m.month} className="flex flex-wrap justify-between gap-x-4 py-2"><span>{monthLabel(m.month)}</span><span className={clsx('num', posNeg(m.totalGrowth))}>{usd(m.totalGrowth, { sign: true })}</span></div>)}</div>
         </div>
       </details>
-      <div className="mt-4 rounded-xl border border-white/[.07] bg-black/15 p-4">
-        <div className="text-xs text-muted">Secondary diagnostic · result excluding contributions</div>
+      <details className="mt-4 rounded-xl border border-white/[.07] bg-black/15 p-4">
+        <summary className="cursor-pointer text-sm text-muted">Cash contribution adjustment · optional diagnostic</summary>
         <div className={clsx('num mt-2 text-lg font-medium', r.value != null ? posNeg(r.value) : 'text-[#e1c887]')} data-testid="contribution-excluded-result">{r.value != null ? usd(r.value, { sign: true }) : 'Funding needs review'}</div>
-        <p className="mt-2 text-xs leading-5 text-muted">Separates outside funding from the result after spending. A negative figure here does not mean accumulation stopped; your contribution-inclusive equity growth is shown above.</p>
+        <p className="mt-2 text-xs leading-5 text-muted">Separates outside cash funding from the result after spending. A negative figure here does not mean accumulation stopped; your contribution-inclusive equity growth is shown above.</p>
         {r.fundingNeedsReview && <p className="mt-2 text-xs text-[#e1c887]">Funding details are incomplete. This affects the secondary diagnostic, not the change in recorded net equity.</p>}
         {r.provisionalValue != null && <details className="mt-3 text-xs text-muted"><summary className="cursor-pointer">{r.fundingNeedsReview ? 'View provisional funding calculation' : 'View contribution adjustment'}</summary><p className="num mt-2">{usd(r.totalGrowth!)} equity growth − {usd(r.outsideContributions)} {r.fundingNeedsReview ? 'unverified' : 'outside'} funding = {usd(r.provisionalValue, { sign: true })}</p><p className="mt-2">Funding = recorded deposits {usd(r.deposits)} − matched internal deposits {usd(r.internalDeposits)}.</p></details>}
-      </div>
+      </details>
       <FundingAudit result={r} onSelect={setSelected}/>
-      {r.notes.map((note) => <p key={note} className="mt-2 text-xs leading-5 text-[#d8bd7a]">{note}</p>)}
+      {r.notes.length>0&&<details className="mt-3 text-xs text-muted"><summary className="cursor-pointer">Source and matching notes</summary>{r.notes.map(note=><p key={note} className="mt-2 leading-5">{note}</p>)}</details>}
     </> : null}
     <Link to="/history" className="mt-3 inline-flex items-center gap-1 text-xs text-[#e1c887] hover:underline">{r.balancesAvailable ? 'Review historical balances' : 'Complete historical balances'}<ArrowUpRight size={13}/></Link>
     {selected && <TransactionDrawer txn={selected} onClose={() => setSelected(null)}/>}

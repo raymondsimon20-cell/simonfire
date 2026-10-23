@@ -82,7 +82,7 @@ export function PlanHealth() {
   // deposits and withdrawals as Schwab reported them. The price-history series
   // is only a fallback when no measurable month exists.
   const recorded = useMemo(() => statementHistory(data.historicalBalances ?? [], accounts, scope, data.balanceSnapshots, data.accountOpenMonths), [data.historicalBalances, data.balanceSnapshots, data.accountOpenMonths, accounts, scope])
-  const growth = useMemo(() => equityGrowth(recorded, transactions, accounts, dateRangeStart(dateRange, brokerageDate()).slice(0, 7), brokerageDate()), [recorded, transactions, accounts, dateRange])
+  const growth = useMemo(() => equityGrowth(recorded, transactions, accounts, dateRangeStart(dateRange, brokerageDate()).slice(0, 7), brokerageDate(), data.statementTransactions), [recorded, transactions, accounts, dateRange, data.statementTransactions])
   const performance = useMemo(() => {
     const cutoff = dateRangeStart(dateRange, localToday())
     const monthLabelShort = (month: string) => new Date(`${month}-01T12:00:00`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })

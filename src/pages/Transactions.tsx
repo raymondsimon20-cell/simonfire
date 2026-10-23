@@ -11,7 +11,7 @@ import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Transaction } from '../lib/types'
 import { usePersistentState } from '../lib/persistent-state'
 import { dateRangeStart, localISODate } from '../lib/date-range'
-import { isTransactionReviewed, duplicateTransactionIds, isClosingSale } from '../lib/transaction-review'
+import { automaticReviewCutoff, isTransactionAutoReviewed, isTransactionReviewed, duplicateTransactionIds, isClosingSale } from '../lib/transaction-review'
 import { SourceBadge } from '../components/SourceBadge'
 import { useConfirmDialog } from '../components/ConfirmDialog'
 
@@ -38,7 +38,7 @@ export default function Transactions() {
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
 
   const duplicateIds = useMemo(() => duplicateTransactionIds(transactions), [transactions])
-  const reviewedCount = transactions.filter(isTransactionReviewed).length
+  const reviewedCount = transactions.filter((t) => isTransactionReviewed(t)).length
   const missingPlCount = useMemo(() => transactions.filter((transaction) => isClosingSale(transaction) && transaction.pl == null).length, [transactions])
   const missingSymbolCount = useMemo(() => transactions.filter((transaction) => transaction.type === 'Dividend' && !transaction.symbol).length, [transactions])
 
@@ -196,6 +196,7 @@ export default function Transactions() {
         <span className="ml-auto text-xs text-faint">{filtered.length} transactions</span>
       </div>
 
+      <p className="mb-3 text-xs text-muted">Transactions before {shortDate(automaticReviewCutoff())} are automatically reviewed to keep your queue focused on the last four months. Data-quality warnings still apply. Undo review to bring an older record back into the queue.</p>
       <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
         <label className="flex items-center gap-2"><input type="checkbox" aria-label="Select all filtered transactions" checked={filtered.length > 0 && selectedVisible.length === filtered.length} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((t) => t.id)) : new Set())}/> Select all {filtered.length} filtered transactions</label>
         <span className="text-faint">{selectedVisible.length} selected</span>
@@ -224,7 +225,7 @@ export default function Transactions() {
             {filtered.slice(0, visibleCount).map((t) => (
               <tr key={t.id} onClick={() => setSelectedTransaction(t)} className="group cursor-pointer border-b border-border-soft hover:bg-surface-2/40">
                 <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={`Select transaction ${t.date} ${t.description}`} checked={selectedIds.has(t.id)} onChange={() => toggleSelected(t.id)}/></td>
-                <td className="whitespace-nowrap px-4 py-3 text-xs"><span className={isTransactionReviewed(t) ? 'text-pos' : 'text-faint'} title={t.review ? `Last reviewed ${new Date(t.review.reviewedAt).toLocaleString()}` : undefined}>{isTransactionReviewed(t) ? 'Reviewed' : t.review ? 'Changed · Needs review' : 'Needs review'}</span></td>
+                <td className="whitespace-nowrap px-4 py-3 text-xs"><span className={isTransactionReviewed(t) ? 'text-pos' : 'text-faint'} title={t.review ? `Last reviewed ${new Date(t.review.reviewedAt).toLocaleString()}` : undefined}>{isTransactionAutoReviewed(t) ? 'Automatically reviewed' : isTransactionReviewed(t) ? 'Reviewed' : t.review ? 'Changed · Needs review' : 'Needs review'}</span></td>
                 <td className="whitespace-nowrap px-4 py-3 text-muted">{shortDate(t.date)}</td>
                 <td className="px-4 py-3"><Badge>{t.type}</Badge></td>
                 <td className="px-4 py-3 font-semibold"><span className="flex items-center gap-1.5">{t.symbol ?? '—'}<SourceBadge source={t.dataSource === 'statement' ? 'statement' : t.dataSource === 'csv' ? 'csv' : t.dataSource === 'manual' ? 'manual' : 'api'}/></span></td>
@@ -259,7 +260,7 @@ export default function Transactions() {
           </div>
         )}
       </div>
-      <div className="space-y-2 md:hidden">{filtered.slice(0, 400).map((t) => <div key={t.id} className="card p-4"><label className="mb-3 flex items-center gap-2 text-xs"><input type="checkbox" aria-label={`Select transaction ${t.date} ${t.description}`} checked={selectedIds.has(t.id)} onChange={() => toggleSelected(t.id)}/><span className={isTransactionReviewed(t) ? 'text-pos' : 'text-faint'}>{isTransactionReviewed(t) ? 'Reviewed' : t.review ? 'Changed · Needs review' : 'Needs review'}</span></label><button onClick={() => setSelectedTransaction(t)} className="w-full text-left"><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><strong>{t.symbol ?? t.type}</strong><SourceBadge source={t.dataSource === 'statement' ? 'statement' : t.dataSource === 'csv' ? 'csv' : t.dataSource === 'manual' ? 'manual' : 'api'}/></div><div className="mt-1 text-xs text-faint">{shortDate(t.date)} · {accName(t.accountId)}</div></div><span className={clsx('num text-sm font-semibold', t.amount >= 0 ? 'text-pos' : 'text-neg')}>{usd(t.amount, { sign: true })}</span></div><div className="mt-2 truncate text-xs text-muted">{t.description}</div>{isClosingSale(t) && <div className="mt-2 flex justify-between text-xs"><span className="text-faint">Realized P/L</span><span className={t.pl == null ? 'text-[#e1c887]' : t.pl >= 0 ? 'text-pos' : 'text-neg'}>{t.pl == null ? 'Needs cost basis' : usd(t.pl, { sign: true })}</span></div>}</button></div>)}</div>
+      <div className="space-y-2 md:hidden">{filtered.slice(0, 400).map((t) => <div key={t.id} className="card p-4"><label className="mb-3 flex items-center gap-2 text-xs"><input type="checkbox" aria-label={`Select transaction ${t.date} ${t.description}`} checked={selectedIds.has(t.id)} onChange={() => toggleSelected(t.id)}/><span className={isTransactionReviewed(t) ? 'text-pos' : 'text-faint'}>{isTransactionAutoReviewed(t) ? 'Automatically reviewed' : isTransactionReviewed(t) ? 'Reviewed' : t.review ? 'Changed · Needs review' : 'Needs review'}</span></label><button onClick={() => setSelectedTransaction(t)} className="w-full text-left"><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><strong>{t.symbol ?? t.type}</strong><SourceBadge source={t.dataSource === 'statement' ? 'statement' : t.dataSource === 'csv' ? 'csv' : t.dataSource === 'manual' ? 'manual' : 'api'}/></div><div className="mt-1 text-xs text-faint">{shortDate(t.date)} · {accName(t.accountId)}</div></div><span className={clsx('num text-sm font-semibold', t.amount >= 0 ? 'text-pos' : 'text-neg')}>{usd(t.amount, { sign: true })}</span></div><div className="mt-2 truncate text-xs text-muted">{t.description}</div>{isClosingSale(t) && <div className="mt-2 flex justify-between text-xs"><span className="text-faint">Realized P/L</span><span className={t.pl == null ? 'text-[#e1c887]' : t.pl >= 0 ? 'text-pos' : 'text-neg'}>{t.pl == null ? 'Needs cost basis' : usd(t.pl, { sign: true })}</span></div>}</button></div>)}</div>
 
       {(data.archivedTransactions?.length ?? 0) > 0 && <div className="card mt-4"><button onClick={() => setShowArchived((value) => !value)} className="flex w-full items-center justify-between text-sm font-semibold"><span>Archived transactions ({data.archivedTransactions!.length})</span><ChevronRight size={15} className={showArchived ? 'rotate-90' : ''}/></button>{showArchived && <div className="mt-3 divide-y divide-border-soft">{data.archivedTransactions!.map((transaction) => <div key={transaction.id} className="flex items-center gap-3 py-2 text-xs"><span className="text-faint">{transaction.date}</span><span className="min-w-0 flex-1 truncate">{transaction.description}</span><span className="num">{usd(transaction.amount)}</span><button onClick={() => restoreTransaction(transaction.id)} className="font-semibold text-brand">Restore</button></div>)}</div>}</div>}
       <AddContributionModal open={modal} onClose={() => setModal(false)} />

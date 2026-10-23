@@ -54,6 +54,32 @@ export function transactionReviewFingerprint(t: Transaction) {
     t.strike ?? null, t.exp ?? '', t.description, t.fundingReview ?? null])
 }
 
-export function isTransactionReviewed(t: Transaction) {
-  return !!t.review && t.review.fingerprint === transactionReviewFingerprint(t)
+const reviewDateFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' })
+
+function reviewToday() {
+  const parts = reviewDateFormatter.formatToParts(new Date())
+  const part = (type: string) => parts.find((p) => p.type === type)!.value
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+export function automaticReviewCutoff(asOf = reviewToday()) {
+  const date = new Date(`${asOf}T12:00:00Z`)
+  const day = date.getUTCDate()
+  date.setUTCDate(1)
+  date.setUTCMonth(date.getUTCMonth() - 4)
+  const end = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate()
+  date.setUTCDate(Math.min(day, end))
+  return date.toISOString().slice(0, 10)
+}
+
+export function isTransactionAutoReviewed(t: Transaction, asOf?: string) {
+  // Explicit undo and manual approvals take precedence over the age policy.
+  if (t.review !== undefined || !/^\d{4}-\d{2}-\d{2}$/.test(t.date)) return false
+  const parsed = new Date(`${t.date}T12:00:00Z`)
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === t.date
+    && t.date < automaticReviewCutoff(asOf)
+}
+
+export function isTransactionReviewed(t: Transaction, asOf?: string) {
+  return isTransactionAutoReviewed(t, asOf) || (!!t.review && t.review.fingerprint === transactionReviewFingerprint(t))
 }

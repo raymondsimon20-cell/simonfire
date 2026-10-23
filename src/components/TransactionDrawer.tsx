@@ -22,7 +22,7 @@ import { usd, num, shortDate, posNeg } from '../lib/format'
 import { Badge } from './ui'
 import clsx from 'clsx'
 import { spendingExclusionKey } from '../lib/spending'
-import { isTransactionReviewed, isClosingSale } from '../lib/transaction-review'
+import { isTransactionAutoReviewed, isTransactionReviewed, isClosingSale } from '../lib/transaction-review'
 
 function Tile({
   icon,
@@ -193,7 +193,7 @@ export function TransactionDrawer({
             </div>
 
             <div className="my-4 rounded-xl border border-border-soft p-3 text-xs">
-              <div className="flex items-center justify-between gap-3"><span className={isTransactionReviewed(txn) ? 'text-pos' : 'text-muted'}>{isTransactionReviewed(txn) ? 'Reviewed' : txn.review ? 'Changed since review · Needs review' : 'Needs review'}</span><button className="font-semibold text-brand" onClick={() => setTransactionsReviewed([txn.id], !isTransactionReviewed(txn))}>{isTransactionReviewed(txn) ? 'Undo review' : 'Mark reviewed'}</button></div>
+              <div className="flex items-center justify-between gap-3"><span className={isTransactionReviewed(txn) ? 'text-pos' : 'text-muted'}>{isTransactionAutoReviewed(txn) ? 'Automatically reviewed · Older than four months' : isTransactionReviewed(txn) ? 'Reviewed' : txn.review ? 'Changed since review · Needs review' : 'Needs review'}</span><button className="font-semibold text-brand" onClick={() => setTransactionsReviewed([txn.id], !isTransactionReviewed(txn))}>{isTransactionReviewed(txn) ? 'Undo review' : 'Mark reviewed'}</button></div>
               {txn.review && <div className="mt-2 text-faint">Last reviewed {new Date(txn.review.reviewedAt).toLocaleString()}</div>}
               <div className="mt-2 text-faint">Review confirms you checked this transaction. Data-quality warnings remain until corrected.</div>
             </div>

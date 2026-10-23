@@ -1,3 +1,5 @@
+import { applyStatementCostBasis, restoreStatementBasis } from './statement-holdings'
+import { planAccountImport } from './account-import'
 import { transactionReviewFingerprint } from './transaction-review'
 import {
   createContext,
@@ -194,11 +196,13 @@ function applySharedPreferences(data: AppData, preferences: SharedPreferences) {
   if (preferences.historicalBalances?.length) {
     data.historicalBalances = mergeHistoricalBalances(data.historicalBalances ?? [], preferences.historicalBalances, data.accounts)
   }
+  data.positions = restoreStatementBasis(data.positions)
   if (data.csvPositionAuthority.length || data.csvTransactionAuthority.length) {
     const reconciled = reconcileCsvAuthority(data.accounts, data.positions, data.transactions, data.csvPositionAuthority, data.csvTransactionAuthority, data.source !== 'live')
     data.positions = reconciled.positions
     data.transactions = reconciled.transactions
   }
+  data.positions = applyStatementCostBasis(data.accounts, data.positions, data.historicalBalances ?? [], data.csvPositionAuthority)
   data.statementTransactions = mergeStatementTransactions(data.statementTransactions, preferences.statementTransactions)
   data.transactions = reconcileStatementTransactions(data.accounts, data.transactions, data.statementTransactions).transactions
   classifyKnownOthers(data)
@@ -239,6 +243,7 @@ interface StoreCtx {
   syncConnection: (id: string) => void
   addConnection: (broker: string) => void
   removeConnection: (id: string) => void
+  updateAccountImport: (result: ImportPayload, accountId: string, fingerprint: string) => void
   applyImport: (result: ImportPayload, mode: 'replace' | 'merge', source?: 'imported' | 'live') => void
   rollbackImport: (id: string) => void
   clearCsvAuthority: (accountMask: string, kind: 'positions' | 'transactions' | 'realizedPl') => void
@@ -632,6 +637,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [mutate],
   )
 
+  const updateAccountImport: StoreCtx['updateAccountImport'] = useCallback((result, accountId, fingerprint) => {
+    mutate(d => {
+      // A sync or edit after preview must never silently change the approved plan.
+      if (JSON.stringify([d.accounts, d.positions, d.transactions, d.archivedTransactions]) !== fingerprint) return d
+      const account = d.accounts.find(a => a.id === accountId)
+      if (!account) return d
+      const plan = planAccountImport(account, d.positions, d.transactions, result, d.archivedTransactions)
+      d.positions = plan.positions
+      d.transactions = plan.transactions
+      const importedAt = new Date().toISOString(), batchId = uid()
+      const accepted = plan.authorityTransactions
+      const captured = captureCsvAuthority(d.accounts, plan.positionUpdates, accepted, importedAt, batchId)
+      d.csvPositionAuthority = mergePositionAuthority(d.csvPositionAuthority ?? [], captured.positions)
+      d.csvTransactionAuthority = mergeTransactionAuthority(d.csvTransactionAuthority ?? [], captured.transactions)
+      d.importHistory = [{id: batchId, importedAt, files: result.importFiles ?? ['Account CSV update'], positions: plan.positionUpdates.length, transactions: accepted.length, realizedPl: accepted.filter(t => t.plSource === 'csv').length, status: 'active' as const}, ...(d.importHistory ?? [])].slice(0, 100)
+      applyTransactionOverrides(d.transactions, d.accounts, d.transactionOverrides ?? {})
+      applyRulesTo(d)
+      applyRealizedPlOverrides(d.transactions, d.realizedPlOverrides)
+      if (d.balanceSnapshots?.length) d.balanceSnapshots = hydrateSnapshotFlows(d.balanceSnapshots, d.accounts, d.transactions)
+      return d
+    }, 'Update existing account from CSV')
+  }, [mutate])
+
   const applyImport: StoreCtx['applyImport'] = useCallback(
     (result, mode, source = 'imported') => {
       const now = new Date().toISOString()
@@ -663,6 +691,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           csvConflicts = reconciled.conflicts
           csvConflictDetails = reconciled.conflictDetails
         }
+        nextPositions = applyStatementCostBasis(result.accounts, nextPositions, d.historicalBalances ?? [], d.csvPositionAuthority)
         d.source = source
         if (source === 'live') {
           const clientSnapshots = result.accounts
@@ -743,6 +772,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const accountMask = statementAccount(group, d.accounts)?.mask ?? group.accountMask
         return { ...group, accountMask, transactions: group.transactions.map((row) => ({ ...row, statement: row.statement ? { ...row.statement, key: `${accountMask}|${row.statement.key.split('|').slice(1).join('|')}` } : undefined })) }
       })
+      d.positions = applyStatementCostBasis(d.accounts, d.positions, d.historicalBalances ?? [], d.csvPositionAuthority)
       d.statementTransactions = mergeStatementTransactions(d.statementTransactions, canonical)
       d.transactions = reconcileStatementTransactions(d.accounts, d.transactions, d.statementTransactions).transactions
       applyRulesTo(d)
@@ -964,6 +994,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addConnection,
       removeConnection,
       applyImport,
+      updateAccountImport,
       rollbackImport,
       clearCsvAuthority,
       applyHistoricalBalances,
@@ -1012,6 +1043,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addConnection,
       removeConnection,
       applyImport,
+      updateAccountImport,
       rollbackImport,
       clearCsvAuthority,
       setFreshnessThresholds,

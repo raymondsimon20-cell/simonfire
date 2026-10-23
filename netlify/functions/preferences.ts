@@ -1,3 +1,6 @@
+import { mergeHistoricalBalances } from '../../src/lib/statement-history'
+import type { HistoricalBalance } from '../../src/lib/types'
+import { cleanStatementSnapshot } from '../../src/lib/statement-holdings'
 import { getStore } from '@netlify/blobs'
 import { json } from './lib/schwab'
 import { cleanTransactionOverrides, mergeTransactionOverrides } from '../../src/lib/transaction-overrides'
@@ -102,6 +105,8 @@ function clean(input: any): SharedPreferences {
     .filter((row: any) => row && typeof row.id === 'string' && typeof row.accountMask === 'string' && typeof row.month === 'string' && typeof row.source === 'string' && Number.isFinite(Number(row.closingEquity)))
     .slice(0, 500)
     .map((row: any) => ({
+      ...(typeof row.statementSnapshotWarning==='string'?{statementSnapshotWarning:row.statementSnapshotWarning.slice(0,300)}:{}),
+      ...(cleanStatementSnapshot(row.statementSnapshot) ? {statementSnapshot: cleanStatementSnapshot(row.statementSnapshot)} : {}),
       id: row.id.slice(0, 160), accountMask: row.accountMask.slice(0, 80), month: row.month.slice(0, 10),
       ...(Number.isFinite(Number(row.openingEquity)) ? { openingEquity: Number(row.openingEquity) } : {}),
       deposits: Number.isFinite(Number(row.deposits)) ? Number(row.deposits) : 0,
@@ -159,7 +164,7 @@ export default async (request: Request) => {
       const existing = await storage.getWithMetadata(KEY, { type: 'json' })
       // Tabs from before open months existed omit the field; keep the saved value.
       const accountOpenMonths = 'accountOpenMonths' in body ? incoming.accountOpenMonths : existing?.data.accountOpenMonths ?? {}
-      const preferences = { ...incoming, accountOpenMonths, statementTransactions: mergeStatementTransactions(existing?.data.statementTransactions, incoming.statementTransactions), transactionOverrides: mergeTransactionOverrides(
+      const preferences = { ...incoming, accountOpenMonths, historicalBalances: mergeHistoricalBalances((existing?.data.historicalBalances??[]) as HistoricalBalance[], (incoming.historicalBalances??[]) as HistoricalBalance[], []), statementTransactions: mergeStatementTransactions(existing?.data.statementTransactions, incoming.statementTransactions), transactionOverrides: mergeTransactionOverrides(
         cleanTransactionOverrides(existing?.data.transactionOverrides), incoming.transactionOverrides,
       ) }
       if (existing && !existing.etag) return json({ ok: false, error: 'missing_etag' }, 503)

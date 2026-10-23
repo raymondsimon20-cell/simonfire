@@ -26,7 +26,10 @@ export function mergeHistoricalBalances(existing: HistoricalBalance[], incoming:
     // followed by a PDF whose loan line didn't parse) when both describe the
     // same month-end.
     const keepLoan = balance.marginLoanBalance == null && prior?.marginLoanBalance != null && Math.abs(prior.closingEquity - balance.closingEquity) < 1
-    rows.set(key, { ...balance, accountMask, ...(keepLoan ? { marginLoanBalance: prior.marginLoanBalance } : {}) })
+    const priorSnapshotAt=prior?.statementSnapshot?.importedAt??prior?.importedAt??''
+    const nextSnapshotAt=balance.statementSnapshot?.importedAt??balance.importedAt
+    const keepSnapshot = prior?.statementSnapshot?.complete && (!balance.statementSnapshot?.complete || priorSnapshotAt>nextSnapshotAt) && Math.abs(prior.closingEquity-balance.closingEquity)<.01
+    rows.set(key, { ...balance, ...(keepSnapshot ? {statementSnapshot: prior.statementSnapshot, statementSnapshotWarning: balance.statementSnapshot && !balance.statementSnapshot.complete ? 'The latest import could not verify holdings. The prior verified snapshot was retained.' : prior.statementSnapshotWarning} : {statementSnapshotWarning: balance.statementSnapshot?.complete ? undefined : balance.statementSnapshotWarning}), accountMask, ...(keepLoan ? { marginLoanBalance: prior.marginLoanBalance } : {}) })
   }
   return [...rows.values()].sort((a, b) => a.month.localeCompare(b.month))
 }

@@ -1,7 +1,7 @@
 import type { Account, CsvPositionAuthority, CsvTransactionAuthority, Position, Transaction } from './types'
 import { classifySchwabTransaction, normalizeTransactionPattern } from './transaction-classification'
 
-const securityKey = (value?: string) => {
+export const securityKey = (value?: string) => {
   const text = (value ?? '').trim().toUpperCase()
   const option = text.match(/^([A-Z.]+)\s+(\d{2})\/(\d{2})\/(\d{4})\s+([\d.]+)\s+([CP])$/)
   if (option) return `${option[1]}${option[4].slice(-2)}${option[2]}${option[3]}${option[6]}${Math.round(Number(option[5]) * 1000).toString().padStart(8, '0')}`

@@ -158,8 +158,8 @@ export function PositionDrawer({
             {/* Cost Basis & Unrealized Gain */}
             <Section title="Cost Basis & Unrealized Gain" />
             <div className="grid grid-cols-2 gap-3">
-              <Stat icon={<DollarSign size={13} />} label={<span className="flex items-center gap-1.5">Cost Basis <SourceBadge source={p.dataSource === 'csv' ? 'csv' : 'api'}/></span>} value={usd(detail.m.costBasis)} />
-              <Stat icon={<DollarSign size={13} />} label={<span className="flex items-center gap-1.5">Avg Cost <SourceBadge source={p.dataSource === 'csv' ? 'csv' : 'api'}/></span>} value={usd(p.avgCost)} />
+              <Stat icon={<DollarSign size={13} />} label={<span className="flex items-center gap-1.5">Cost Basis <SourceBadge source={p.dataSource ?? 'api'}/></span>} value={usd(detail.m.costBasis)} />
+              <Stat icon={<DollarSign size={13} />} label={<span className="flex items-center gap-1.5">Avg Cost <SourceBadge source={p.dataSource ?? 'api'}/></span>} value={usd(p.avgCost)} />
               <Stat
                 icon={detail.m.totalGain >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
                 label="Unrealized Gain ($)"
@@ -173,8 +173,9 @@ export function PositionDrawer({
                 valueClass={posNeg(detail.m.totalGain)}
               />
             </div>
-            <div className="mt-3 rounded-xl border border-border-soft bg-black/10 p-3 text-[10px] leading-5 text-faint"><strong className="text-muted">Calculation audit:</strong> market value = current API quantity × current API price. Unrealized gain = market value − (current quantity × CSV/API average cost). Total return adds tracked dividends and realized gains.</div>
-            {detail.authority && <div className="mt-2 text-[10px] text-faint">Cost-basis snapshot: <strong className="text-muted">{detail.importEntry?.files.join(', ') ?? 'Schwab Positions CSV'}</strong> · imported {new Date(detail.authority.importedAt).toLocaleDateString()}</div>}
+            <div className="mt-3 rounded-xl border border-border-soft bg-black/10 p-3 text-[10px] leading-5 text-faint"><strong className="text-muted">Calculation audit:</strong> market value = current API quantity × current API price. Unrealized gain = market value − (current quantity × statement/CSV/API average cost). Total return adds tracked dividends and realized gains.</div>
+            {p.dataSource === 'statement' && p.costBasisStatement && <div className="mt-2 text-[10px] text-faint">Cost-basis source: <strong className="text-muted">{p.costBasisStatement.fileName}</strong> · {p.costBasisStatement.month} month-end · page {p.costBasisStatement.page}. Current price and quantity are kept separately.</div>}
+            {p.dataSource !== 'statement' && detail.authority && <div className="mt-2 text-[10px] text-faint">Cost-basis snapshot: <strong className="text-muted">{detail.importEntry?.files.join(', ') ?? 'Schwab Positions CSV'}</strong> · imported {new Date(detail.authority.importedAt).toLocaleDateString()}</div>}
 
             {/* Income & Total Return */}
             <div className="mb-3 mt-7 flex items-center justify-between">

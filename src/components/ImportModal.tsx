@@ -1,3 +1,4 @@
+import { planAccountImport } from '../lib/account-import'
 import { useMemo, useState } from 'react'
 import { FileText, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { Modal } from './Modal'
@@ -11,12 +12,15 @@ import type { HistoricalBalance, StatementTransactions } from '../lib/types'
 import { useToast } from './Toast'
 
 export function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { data, scope, applyImport, enrichDividendSymbols, applyRealizedPlMatches, applyHistoricalBalances } = useStore()
+  const { data, scope, applyImport, updateAccountImport, enrichDividendSymbols, applyRealizedPlMatches, applyHistoricalBalances } = useStore()
   const [broker, setBroker] = useState('Schwab')
   const [name, setName] = useState('')
   const [mask, setMask] = useState('')
   const [isMargin, setIsMargin] = useState(false)
-  const [mode, setMode] = useState<'replace' | 'merge' | 'enrich' | 'historical'>('historical')
+  const [mode, setMode] = useState<'replace' | 'merge' | 'enrich' | 'historical' | 'update'>('historical')
+  const [targetId, setTargetId] = useState(scope !== 'all' ? scope : data.accounts.length === 1 ? data.accounts[0].id : '')
+  const [previewFingerprint, setPreviewFingerprint] = useState('')
+  const currentFingerprint = JSON.stringify([data.accounts, data.positions, data.transactions, data.archivedTransactions])
   const [posFile, setPosFile] = useState<{ name: string; text: string } | null>(null)
   const [txnFile, setTxnFile] = useState<{ name: string; text: string } | null>(null)
   const [realizedFile, setRealizedFile] = useState<{ name: string; text: string } | null>(null)
@@ -26,6 +30,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
   const [historicalFiles, setHistoricalFiles] = useState<{ name: string; data: string | ArrayBuffer }[]>([])
   const [historicalResult, setHistoricalResult] = useState<HistoricalBalance[] | null>(null)
   const [statementDetails, setStatementDetails] = useState<StatementTransactions[]>([])
+  const [useStatementBasis, setUseStatementBasis] = useState(true)
   const [includeTransactions, setIncludeTransactions] = useState(true)
   const [parsing, setParsing] = useState(false)
   const statementPreview = useMemo(() => reconcileStatementTransactions(data.accounts, data.transactions, statementDetails), [data.accounts, data.transactions, statementDetails])
@@ -58,6 +63,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
 
   const doParse = async () => {
     setError('')
+    if (mode === 'update' && !data.accounts.some(a => a.id === targetId && a.mask)) { setError('Select the existing account to update.'); return }
     if (mode === 'historical') {
       if (!historicalFiles.length) { setError('Upload at least one Schwab statement PDF or historical-balance CSV.'); return }
       setParsing(true)
@@ -83,7 +89,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
       finally { setParsing(false) }
     }
     if (realizedFile) {
-      try { setRealizedPreview(previewRealizedGainLoss(realizedFile.text, data.accounts, data.transactions, mask)); return }
+      try { setRealizedPreview(previewRealizedGainLoss(realizedFile.text, data.accounts, data.transactions, mode === 'update' ? data.accounts.find(a => a.id === targetId)?.mask ?? mask : mask)); return }
       catch { setError('Could not recognize this Schwab Realized Gain/Loss CSV. Confirm it includes Symbol, Date Sold/Closed Date, and Gain/Loss columns.'); return }
     }
     const files = [posFile, txnFile].filter(Boolean) as { name: string; text: string }[]
@@ -92,17 +98,20 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
       return
     }
     try {
-      const r = parseSchwabFiles(files, { broker, name, mask, isMargin })
+      const target = mode === 'update' ? data.accounts.find(a => a.id === targetId) : undefined
+      const r = parseSchwabFiles(files, { broker, name: target?.name ?? name, mask: target?.mask ?? mask, isMargin: target?.isMargin ?? isMargin })
+      if (target) planAccountImport(target, data.positions, data.transactions, r, data.archivedTransactions)
+      setPreviewFingerprint(currentFingerprint)
       setResult(r)
       setEnrichment(mode === 'enrich' ? previewDividendEnrichment(r, data.accounts, data.transactions) : null)
-    } catch {
-      setError('Could not parse the file. Make sure it is a Schwab CSV export.')
+    } catch (e) {
+      setError(mode==='update' && e instanceof Error ? e.message : 'Could not parse the file. Make sure it is a Schwab CSV export.')
     }
   }
 
   const doApply = () => {
     if (historicalResult) {
-      applyHistoricalBalances(historicalResult, includeTransactions ? statementDetails : [])
+      applyHistoricalBalances(historicalResult.map(b => ({...b, ...(b.statementSnapshot ? {statementSnapshot: {...b.statementSnapshot,costBasisEnabled:useStatementBasis}} : {})})), includeTransactions ? statementDetails : [])
       push('Schwab statements imported', 'success', `${historicalResult.length} months · ${includeTransactions ? statementPreview.added : 0} new transactions · ${includeTransactions ? statementPreview.matched : 0} matched`)
       reset(); onClose(); return
     }
@@ -113,7 +122,11 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
       reset(); onClose(); return
     }
     if (!result) return
-    if (mode === 'enrich') {
+    if (mode === 'update') {
+      if (!updatePlan || previewFingerprint !== currentFingerprint) { setError('Your records changed after preview. Go back and preview the import again.'); return }
+      updateAccountImport({ ...result, importFiles: [posFile?.name, txnFile?.name].filter((f): f is string => !!f) }, targetId, previewFingerprint)
+      push('Account updated', 'success', `${updatePlan.positionUpdates.length} cost-basis updates · ${updatePlan.added.length} new transactions · ${updatePlan.held.length} held`)
+    } else if (mode === 'enrich') {
       if (!enrichment?.matches.length) return
       enrichDividendSymbols(enrichment.matches)
       push('Dividend symbols enriched', 'success', `${enrichment.matches.length} existing payments updated · no transactions added`)
@@ -158,6 +171,13 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
     </label>
   )
 
+  const updatePlan = (() => {
+    if (mode !== 'update' || !result) return null
+    const target = data.accounts.find(a => a.id === targetId)
+    if (!target) return null
+    try { return planAccountImport(target, data.positions, data.transactions, result, data.archivedTransactions) } catch { return null }
+  })()
+
   const staging = result ? (() => {
     const key = (row: { date: string; symbol?: string; amount: number; units: number }) => `${row.date}|${row.symbol ?? ''}|${row.amount.toFixed(2)}|${row.units.toFixed(6)}`
     const seen = new Set<string>(); let duplicates = 0
@@ -183,8 +203,8 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
         result || realizedPreview || historicalResult ? (
           <>
             <Button onClick={() => { setResult(null); setRealizedPreview(null); setHistoricalResult(null) }}>Back</Button>
-            <Button variant="primary" onClick={doApply}>
-              {historicalResult ? 'Apply statement import' : realizedPreview ? `Apply ${realizedPreview.matches.length} P/L values` : mode === 'enrich' ? `Enrich ${enrichment?.matches.length ?? 0} payments` : mode === 'replace' ? 'Replace with imported data' : 'Add imported data'}
+            <Button variant="primary" onClick={doApply} disabled={mode === 'update' && !realizedPreview && (!updatePlan || previewFingerprint !== currentFingerprint)}>
+              {mode === 'update' && !realizedPreview ? 'Update selected account' : historicalResult ? 'Apply statement import' : realizedPreview ? `Apply ${realizedPreview.matches.length} P/L values` : mode === 'enrich' ? `Enrich ${enrichment?.matches.length ?? 0} payments` : mode === 'replace' ? 'Replace with imported data' : 'Add imported data'}
             </Button>
           </>
         ) : (
@@ -210,7 +230,8 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
             {mode === 'historical' && <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-brand p-3"><div className="grid h-9 w-9 place-items-center rounded-lg bg-surface-2 text-brand"><FileText size={16} /></div><div className="flex-1"><div className="text-sm font-medium">Schwab statements or balance CSV</div><div className="text-xs text-faint">{historicalFiles.length ? `${historicalFiles.length} file(s) selected` : 'Choose PDF statements or the generated CSV'}</div></div><input type="file" multiple accept=".pdf,.csv,application/pdf,text/csv" className="hidden" onChange={(e) => { const files = [...(e.target.files ?? [])]; Promise.all(files.map(async (file) => ({ name: file.name, data: file.name.toLowerCase().endsWith('.pdf') ? await file.arrayBuffer() : await file.text() }))).then(setHistoricalFiles).catch(() => setError('Could not read the selected file.')); setResult(null) }} /></label>}
           </div>
 
-          <div>
+          {mode === 'update' && <label className="block text-sm">Account to update<select aria-label="Account to update" value={targetId} onChange={e => setTargetId(e.target.value)} className="mt-1 block w-full rounded-lg border border-border bg-surface-2 p-2"><option value="">Select an existing account…</option>{data.accounts.map(a => <option key={a.id} value={a.id}>{a.name} ····{a.mask}</option>)}</select><span className="mt-2 block text-xs text-faint">Upload a current Positions CSV to update cost basis. PDF statements remain the source for monthly balances and verified history.</span></label>}
+          {mode !== 'update' && <div>
             <div className="mb-2 text-xs font-semibold tracking-widest text-faint">DEFAULT ACCOUNT (if not in the file)</div>
             <div className="grid grid-cols-2 gap-3">
               <Input label="Broker" value={broker} onChange={setBroker} />
@@ -221,9 +242,10 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
                 Margin account
               </label>
             </div>
-          </div>
+          </div>}
 
           <div><div className="mb-2 text-xs font-semibold tracking-widest text-faint">IMPORT MODE</div><div className="space-y-2">{([
+            ['update', 'Update existing account', 'Refresh matching cost basis and add clearly new transactions. Uncertain matches are held.'],
             ['replace', 'Replace portfolio', 'Replace the current local portfolio with these files.'],
             ['merge', 'Add alongside', 'Append imported accounts and records; may duplicate overlapping data.'],
             ['enrich', 'Enrich existing dividends', 'Match by account, date, amount, and description; copy only missing tickers.'],
@@ -239,6 +261,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
       ) : historicalResult ? <div className="space-y-4">
         <div className="grid grid-cols-3 gap-3 text-center"><Stat n={historicalResult.length} label="Months"/><Stat n={statementPreview.added} label="New transactions"/><Stat n={statementPreview.matched} label="Existing matches"/></div>
         <div className="max-h-48 overflow-auto rounded-lg border border-border-soft">{historicalResult.map((r) => <div key={r.id} className="flex items-center justify-between border-b border-border-soft px-3 py-2 text-xs last:border-0"><span><strong>{r.month}</strong><span className="block text-faint">{r.fileName}</span></span><span className="num">${r.closingEquity.toFixed(2)} equity</span></div>)}</div>
+        {historicalResult.some(b=>b.statementSnapshot) && <div className="space-y-3 rounded-lg border border-border-soft p-3 text-xs"><label className="flex items-center gap-2"><input type="checkbox" checked={useStatementBasis} onChange={e=>setUseStatementBasis(e.target.checked)}/>Use verified statement cost basis for matching current holdings</label><p className="text-faint">Keeps live quantities and prices. Requires the same security and quantity; incomplete snapshots are held. A later CSV cost-basis import takes precedence. Pending income stays separate from received cash.</p>{historicalResult.filter(b=>b.statementSnapshot).map(b=>{const s=b.statementSnapshot!;return <div key={b.id} className="space-y-2 border-t border-border-soft pt-2"><strong>{b.month} · {s.holdings.length} holdings · {s.complete?'Values and totals verified':'Snapshot needs review'}</strong><p>Cost basis: {s.summaryCostBasis!=null?`$${s.summaryCostBasis.toFixed(2)}`:'Not fully available'} · Ending cash/debt: {s.cashEnding!=null?`$${s.cashEnding.toFixed(2)}`:'Unavailable'}</p>{s.marginRate!=null&&<p>Reported margin rate: {s.marginRate.toFixed(3)}% · Margin interest: ${Math.abs(s.marginInterest??0).toFixed(2)}</p>}{s.pendingActivity!=null&&<p>Pending activity: ${s.pendingActivity.toFixed(2)} · excluded from balances and received income</p>}{s.issues.map((issue,i)=><p key={i} className="text-[#e1c887]">{issue}</p>)}<details><summary className="cursor-pointer text-brand">Inspect holdings and source pages</summary><div className="mt-2 max-h-48 space-y-1 overflow-auto">{s.holdings.map(h=><p key={h.symbol}>{h.symbol} · {h.quantity} · value ${h.marketValue.toFixed(2)} · basis {h.costBasis==null?'Unavailable':`$${h.costBasis.toFixed(2)}`} · page {h.page}{h.annualIncome!=null?` · estimated annual income $${h.annualIncome.toFixed(2)}`:''}{h.yieldPct!=null?` · estimated yield ${h.yieldPct.toFixed(2)}%`:''}</p>)}</div></details></div>})}</div>}
         {statementDetails.length > 0 && <>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeTransactions} onChange={(event) => setIncludeTransactions(event.target.checked)}/>Import verified transaction details</label>
           <p className="text-xs text-faint">Dates on statements are settlement/process dates. Existing API trade dates and manual corrections are preserved. Separate statement rows remain separate payments. Imported records persist through sync and are shared across devices.</p>
@@ -261,7 +284,8 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
               ))}
             </div>
           )}
-          {mode !== 'enrich' && staging && <div className="rounded-lg border border-border-soft p-3"><div className="text-xs font-semibold">Staged change review</div><div className="mt-2 grid grid-cols-3 gap-2 text-center"><Stat n={staging.positionUpdates} label="Position updates"/><Stat n={staging.overlaps} label="Existing matches"/><Stat n={staging.duplicates} label="CSV duplicates"/></div><div className="mt-3 max-h-32 overflow-auto divide-y divide-border-soft text-[10px]">{result.transactions.slice(0, 8).map((row) => <div key={row.id} className="flex justify-between gap-3 py-1.5"><span className="truncate">{row.date} · {row.symbol ?? row.type} · {row.description}</span><span className="num shrink-0">{row.amount.toFixed(2)}</span></div>)}</div><p className="mt-2 text-[10px] text-faint">This is a staging preview. Nothing changes until you apply the import. Existing matches reconcile; ambiguous realized-P/L rows remain untouched.</p></div>}
+          {mode !== 'enrich' && mode !== 'update' && staging && <div className="rounded-lg border border-border-soft p-3"><div className="text-xs font-semibold">Staged change review</div><div className="mt-2 grid grid-cols-3 gap-2 text-center"><Stat n={staging.positionUpdates} label="Position updates"/><Stat n={staging.overlaps} label="Existing matches"/><Stat n={staging.duplicates} label="CSV duplicates"/></div><div className="mt-3 max-h-32 overflow-auto divide-y divide-border-soft text-[10px]">{result.transactions.slice(0, 8).map((row) => <div key={row.id} className="flex justify-between gap-3 py-1.5"><span className="truncate">{row.date} · {row.symbol ?? row.type} · {row.description}</span><span className="num shrink-0">{row.amount.toFixed(2)}</span></div>)}</div><p className="mt-2 text-[10px] text-faint">This is a staging preview. Nothing changes until you apply the import. Existing matches reconcile; ambiguous realized-P/L rows remain untouched.</p></div>}
+          {mode === 'update' && updatePlan && <div className="space-y-3 rounded-lg border border-border-soft p-3"><strong className="text-sm">Update preview · {data.accounts.find(a => a.id === targetId)?.name}</strong><div className="grid grid-cols-2 gap-3 text-center"><Stat n={updatePlan.positionUpdates.length} label="Cost-basis updates"/><Stat n={updatePlan.matched.length} label="Existing matches"/><Stat n={updatePlan.added.length} label="New transactions"/><Stat n={updatePlan.held.length + updatePlan.positionHeld.length} label="Held for review"/></div><p className="text-xs text-muted">Balances, live quantities and prices, other accounts, manual decisions and reviews are preserved. Reimporting this file will not add matching records again.</p>{previewFingerprint !== currentFingerprint && <p role="alert" className="text-xs text-neg">Records changed after preview. Go back and preview again before applying.</p>}<div className="max-h-48 overflow-auto space-y-2 text-xs">{updatePlan.positionUpdates.map(p => <p key={p.id}>{p.symbol}: average cost → ${p.avgCost.toFixed(4)}</p>)}{updatePlan.added.map(t => <p key={t.id}>New: {t.date} · {t.symbol ?? t.type} · ${t.amount.toFixed(2)}</p>)}{updatePlan.positionHeld.map((h,i) => <p key={`p${i}`} className="text-[#e1c887]">{h.row.symbol}: {h.reason}</p>)}{updatePlan.held.map((h,i) => <p key={`t${i}`} className="text-[#e1c887]">{h.row.date} · {h.row.symbol ?? h.row.description} · ${h.row.amount.toFixed(2)}: {h.reason}</p>)}</div></div>}
           {result.warnings.length > 0 && (
             <div className="space-y-1 rounded-lg bg-[#35240f] p-3 text-xs text-[#f0a94a]">
               {result.warnings.map((w, i) => (
@@ -276,7 +300,7 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
               ? `${enrichment?.csvDividendCount ?? 0} symbol-bearing CSV dividends were inspected. Ambiguous and unmatched rows will not change.`
               : mode === 'replace'
               ? 'CSV positions and transactions become authoritative. Future API syncs will supplement live prices, balances, and missing records.'
-              : 'CSV records will be reconciled into the authority set without duplicating matching records.'}
+              : mode === 'update' ? 'Only the changes in this account preview will be applied. Held rows are not saved; check them against the source and reimport after resolving the uncertainty.' : 'Add alongside appends records and can duplicate overlapping data. Use Update existing account for routine imports.'}
           </div>
         </div>
       ) : null}

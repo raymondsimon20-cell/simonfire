@@ -1,8 +1,9 @@
+import { positionSources } from '../lib/position-sources'
 import { useMemo, useState } from 'react'
 import { Download, Search, DollarSign, Layers, TrendingUp, Trophy, ArrowUpDown, AlertTriangle } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
 import { positionMetrics, investmentReturn } from '../lib/calc'
-import { usd, pct, num, intfmt, shortDate, posNeg, relTime } from '../lib/format'
+import { usd, pct, num, intfmt, shortDate, posNeg, relTime, monthLabel } from '../lib/format'
 import { KpiCard, PageHeader, Button } from '../components/ui'
 import { PositionDrawer } from '../components/PositionDrawer'
 import { HoldingCell, displayPrice, displayShares } from '../components/HoldingCell'
@@ -36,8 +37,7 @@ export default function Positions() {
   const [selected, setSelected] = useState<Position | null>(null)
   const [compact, setCompact] = useState(false)
   const { push } = useToast()
-  const csvSnapshotAt = (data.csvPositionAuthority ?? []).reduce((latest, row) => row.importedAt > latest ? row.importedAt : latest, '')
-  const csvSnapshotDays = csvSnapshotAt ? Math.max(0, Math.floor((new Date(data.lastSyncAt).getTime() - new Date(csvSnapshotAt).getTime()) / 86_400_000)) : null
+  const sources = positionSources(accounts, positions, data.csvPositionAuthority ?? [], data.historicalBalances ?? [])
 
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
 
@@ -165,7 +165,8 @@ export default function Positions() {
         }
       />
 
-      {csvSnapshotDays != null && csvSnapshotDays >= (data.freshnessThresholds?.positions ?? 7) && <div className="mb-4 flex items-start gap-2 rounded-xl border border-[#e1c887]/25 bg-[#e1c887]/[.06] px-4 py-3 text-xs text-muted"><AlertTriangle size={16} className="mt-0.5 shrink-0 text-[#e1c887]"/><div><strong className="text-ink">Position CSV snapshot is {csvSnapshotDays} days old.</strong><div className="mt-0.5 text-faint">Share quantities and prices are current from Schwab. Cost basis still comes from the CSV snapshot; upload a newer Positions CSV after transfers, assignments, or cost-basis adjustments.</div></div></div>}
+      {(sources.csvCount > 0 || sources.latestStatement) && <details className="mb-4 rounded-xl border border-border-soft px-4 py-3 text-xs text-muted"><summary className="cursor-pointer">Data sources{sources.latestStatement ? ` · latest PDF month: ${monthLabel(sources.latestStatement)}` : ''}{sources.statementCostCount ? ` · ${sources.statementCostCount} PDF cost-basis snapshots` : ''}{sources.csvCount ? ` · ${sources.csvCount} CSV cost-basis snapshots` : ''}</summary><div className="mt-2 space-y-2 leading-5"><p>{data.source === 'live' ? 'Current quantities and prices come from Schwab sync.' : 'Quantities and prices come from the saved portfolio dataset.'} PDF imports supply monthly balances, verified transaction history and dated holding/cost-basis snapshots. Statement cost basis applies only to matching quantities; newer CSV cost-basis imports take precedence.</p>{sources.csvCount > 0 && <p>Cost basis for {sources.csvCount} current holding(s) uses CSV snapshots, the oldest imported {shortDate(sources.oldestCsv!.slice(0, 10))}. An old import date alone does not establish that cost basis is wrong. Review it after trades, transfers, assignments or broker adjustments; Update existing account lets you apply a current Positions CSV without duplicating records.</p>}</div></details>}
+      {sources.quantityChanges > 0 && <div role="status" className="mb-4 flex items-start gap-2 rounded-xl border border-[#e1c887]/25 px-4 py-3 text-xs text-muted"><AlertTriangle size={16} className="shrink-0 text-[#e1c887]"/><p>{sources.quantityChanges} holding(s) have quantities that differ from their CSV cost-basis snapshots. Check broker cost basis before relying on gains.</p></div>}
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <KpiCard label="Total Value" value={usd(totals.value)} icon={<DollarSign size={20} />} tile="green" />

@@ -326,9 +326,12 @@ export function parseSchwabFiles(
         if (shares === 0 && toNum(cells[cMktVal]) === 0) continue
         const lastPrice = toNum(cells[cPrice]) || (shares ? toNum(cells[cMktVal]) / shares : 0)
         const priceChg = cPriceChg >= 0 ? toNum(cells[cPriceChg]) : 0
-        const cost = cCost >= 0 ? toNum(cells[cCost]) : shares * lastPrice
+        const rawCost = cCost >= 0 ? (cells[cCost] ?? '').trim().replace(/[$,()]/g, '') : ''
+        const costBasisUnavailable = !rawCost || !Number.isFinite(Number(rawCost))
+        const cost = !costBasisUnavailable ? toNum(cells[cCost]) : shares * lastPrice
         positions.push({
           id: 'pos_' + uid(),
+          costBasisUnavailable,
           accountId: acc.id,
           symbol: sym,
           name: cells[cDesc]?.trim() || sym,

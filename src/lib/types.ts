@@ -26,6 +26,7 @@ export interface Account {
 }
 
 export interface Position {
+  costBasisUnavailable?: boolean // CSV omitted a numeric cost basis; never use it as an update.
   securityId?: string // Broker-reported CUSIP, when available.
   id: string
   accountId: string
@@ -53,7 +54,9 @@ export interface Position {
   indicatedYield?: number
   lastDividend?: number
   dividendPayDate?: string
-  dataSource?: 'csv' | 'api' | 'manual'
+  dataSource?: 'csv' | 'api' | 'manual' | 'statement'
+  basisBeforeStatement?: { avgCost: number; source?: 'csv' | 'api' | 'manual'; unavailable?: boolean }
+  costBasisStatement?: { month: string; fileName: string; page: number; shares: number }
 }
 
 export type TxnType =
@@ -209,7 +212,27 @@ export interface AccountSyncCoverage {
   dividendLookup?: { resolved: number; failed: number; limited: number }
 }
 
+export interface StatementHolding {
+  symbol: string; name: string; quantity: number; price: number; marketValue: number
+  costBasis?: number; unrealized?: number; yieldPct?: number; annualIncome?: number
+  page: number; category: string
+  option?: { underlying: string; expiration: string; strike: number; type: 'Put' | 'Call' }
+}
+export interface StatementSnapshot {
+  sourceFile?: string; importedAt?: string
+  costBasisEnabled?: boolean
+  summaryCostBasis?: number; summaryUnrealized?: number
+  holdings: StatementHolding[]; complete: boolean; issues: string[]
+  categoryTotals: { category: string; marketValue: number; costBasis?: number }[]
+  cashBeginning?: number; cashEnding?: number
+  marginRate?: number; marginInterest?: number; marginLoanClosing?: number
+  realizedShortTerm?: number; realizedLongTerm?: number
+  pendingActivity?: number
+}
 export interface HistoricalBalance {
+  statementSnapshot?: StatementSnapshot
+  statementSnapshotWarning?: string
+
   id: string
   accountMask: string
   month: string

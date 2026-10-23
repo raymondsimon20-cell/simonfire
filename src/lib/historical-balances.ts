@@ -1,3 +1,4 @@
+import { parseStatementHoldings } from './statement-holdings'
 import type { HistoricalBalance } from './types'
 import { parseCsv } from './import'
 import { parseStatementTransactions, type PdfTextPage } from './statement-transactions'
@@ -72,6 +73,7 @@ export async function parseSchwabStatementDocument(data: ArrayBuffer, fileName: 
       pages.push({ page: i, items: content.items.flatMap((item) => 'str' in item ? [{ str: item.str, x: item.transform[4], y: item.transform[5], width: item.width }] : []) })
     }
     const balance = parseSchwabStatementText(text.join('\n'), fileName, accountMask)
+    balance.statementSnapshot = {...parseStatementHoldings(pages, balance.month, balance.closingEquity),sourceFile:fileName,importedAt:balance.importedAt}
     return { balance, details: parseStatementTransactions(pages, balance.month, balance.accountMask, fileName) }
   } finally { await task.destroy() }
 }

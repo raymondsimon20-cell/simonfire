@@ -1,3 +1,4 @@
+import { positionSources } from '../lib/position-sources'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles, History, FileText, ShieldCheck, Settings } from 'lucide-react'
@@ -211,9 +212,7 @@ export default function Layout() {
   const { push } = useToast()
   const location = useLocation()
   const dialogs = useConfirmDialog()
-  const latestPositionCsv = (data.csvPositionAuthority ?? []).reduce((latest, row) => row.importedAt > latest ? row.importedAt : latest, '')
-  const positionCsvAge = latestPositionCsv ? Math.max(0, Math.floor((new Date(data.lastSyncAt).getTime() - new Date(latestPositionCsv).getTime()) / 86_400_000)) : null
-  const stalePositionCsv = positionCsvAge != null && positionCsvAge >= (data.freshnessThresholds?.positions ?? 7)
+  const basisSources = positionSources(data.accounts, data.positions, data.csvPositionAuthority ?? [], data.historicalBalances ?? [])
 
   useEffect(() => {
     const label = NAV.find((n) => n.to === location.pathname)?.label ?? (location.pathname.startsWith('/account/') ? 'Account' : 'Portfolio')
@@ -323,7 +322,7 @@ export default function Layout() {
       <a href="#main-content" className="fixed left-3 top-3 z-[300] -translate-y-20 rounded-lg bg-brand px-3 py-2 text-sm font-semibold text-white focus:translate-y-0">Skip to content</a>
       <main id="main-content" tabIndex={-1} className="mx-auto max-w-[1480px] px-4 py-7 pb-20 sm:px-6 lg:ml-[248px] lg:px-10 lg:py-9 xl:px-12">
         {(syncing || autoSyncing) && <div className="mb-4 flex items-center gap-2 rounded-xl border border-[#c7a96b]/20 bg-[#c7a96b]/8 px-4 py-2.5 text-xs text-[#dec78f]"><RefreshCw size={13} className="animate-spin" /> Securely refreshing portfolio data…</div>}
-        {stalePositionCsv && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#e1c887]/20 bg-[#e1c887]/[.06] px-4 py-2.5 text-xs"><span>Position cost-basis CSV is {positionCsvAge} days old. Live quantities and prices remain current.</span><Link to="/data-quality" className="shrink-0 font-semibold text-[#e1c887]">Review</Link></div>}
+        {basisSources.quantityChanges > 0 && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#e1c887]/20 bg-[#e1c887]/[.06] px-4 py-2.5 text-xs"><span>{basisSources.quantityChanges} {basisSources.quantityChanges === 1 ? 'holding has a quantity that differs' : 'holdings have quantities that differ'} from their active CSV cost-basis snapshots. Check cost basis before relying on gains.</span><Link to="/data-quality" className="shrink-0 font-semibold text-[#e1c887]">Review</Link></div>}
         {undoLabel && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#5aa2ff]/20 bg-[#5aa2ff]/8 px-4 py-2.5 text-xs"><span>{undoLabel} completed.</span><button onClick={undoLast} className="font-semibold text-[#7fb5ff]">Undo</button></div>}
         <div className="mb-5 flex items-center justify-between gap-3 lg:contents">
           <div className="lg:fixed lg:left-[166px] lg:top-5 lg:z-40"><PremiumTools /></div>

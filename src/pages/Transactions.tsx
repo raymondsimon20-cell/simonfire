@@ -1,3 +1,4 @@
+import { AiCategorization } from '../components/AiCategorization'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { Plus, Download, Search, ChevronRight, Trash2, BookmarkPlus } from 'lucide-react'
 import { useScoped, useStore } from '../lib/store'
@@ -196,6 +197,7 @@ export default function Transactions() {
         <span className="ml-auto text-xs text-faint">{filtered.length} transactions</span>
       </div>
 
+      <AiCategorization transactions={filtered} selectedIds={selectedVisible}/>
       <p className="mb-3 text-xs text-muted">Transactions before {shortDate(automaticReviewCutoff())} are automatically reviewed to keep your queue focused on the last four months. Data-quality warnings still apply. Undo review to bring an older record back into the queue.</p>
       <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
         <label className="flex items-center gap-2"><input type="checkbox" aria-label="Select all filtered transactions" checked={filtered.length > 0 && selectedVisible.length === filtered.length} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((t) => t.id)) : new Set())}/> Select all {filtered.length} filtered transactions</label>

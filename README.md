@@ -63,6 +63,24 @@ An expired brokerage connection pauses captures. Saved history remains available
 
 Data Quality supports local backup/restore and server checkpoints. The client attempts a daily server backup after live data is available; the server retains seven rotating restore points. This backup attempt depends on the client running and is separate from scheduled balance capture. Preferences shows the last recorded automatic-backup status.
 
+## AI transaction categorization
+
+In Transactions, use **Suggest categories** for recent unresolved Other/Transfer records in the current view, or select transactions and choose **Suggest for selected**. Up to 25 records are sent per request. Review the category, explanation, and qualitative confidence, then accept, correct, or skip each suggestion. The app does not silently apply AI output or mark accepted categories reviewed.
+
+Accepted categories use the same durable manual overrides as other corrections and survive sync. Optional saved rules match normalized descriptions and cash direction, can affect existing non-manual records across accounts, and apply on future imports. The UI shows that scope before you enable a rule. Changed or removed transactions invalidate pending suggestions. Manually classified records are excluded from automatic candidate selection; you can explicitly select them for a second opinion.
+
+### Enable AI on Netlify
+
+1. Add `OPENAI_API_KEY` as a server-side environment variable. Never put it in source, chat, browser storage, or a `VITE_` variable.
+2. Optionally set `OPENAI_CATEGORIZATION_MODEL` (defaults to `gpt-4o-mini`) and `AI_CATEGORIZATION_DAILY_LIMIT` (defaults to 50 requests per UTC day, maximum 200; 0 disables requests).
+3. Redeploy, then open Transactions and request suggestions. API access and billing must be enabled for the selected model.
+
+The Netlify function calls the OpenAI Responses API with [structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs), validates every returned category and ID, and requests `store: false`. It sends descriptions with long numeric references redacted, symbols, amounts, units, and current categories. Structured account, balance, date, and original transaction-ID fields are omitted. Descriptions can still contain identifying text; the panel discloses the provider and data before sending.
+
+Paid requests are bounded by batch size, output limits, a timeout, and an atomic site-wide daily request ceiling in Netlify Blobs. Failed provider calls still consume a request slot. Origin/header checks reject browser requests from other sites; they are not user authentication. Use this feature within the personal deployment’s access controls. No key, quota exhaustion, malformed output, or provider failure changes transaction categories.
+
+Run `npm run test:ai` for request validation, redaction, stale suggestions, provider failures, and concurrent daily-limit checks. Local tests mock OpenAI and do not send financial data or make billable requests. Use `netlify dev` for local UI-to-function testing; Vite alone does not run the AI endpoint.
+
 ## Development
 
 Built with Vite, React, TypeScript, Tailwind CSS, React Router, Recharts, and Netlify Functions/Blobs.

@@ -153,3 +153,9 @@ After deployment, use Connections to authorize Schwab and sync. Expired authoriz
 ## Limitations
 
 Historical prices, incomplete transaction history, missing cost basis, option valuation, and proxy assumptions can affect estimates. Source labels and coverage warnings explain these gaps. Review broker records before relying on a calculation or submitting a trade.
+
+### AI help for Today funding review
+
+On Today, expand **Review funding by account and month** and choose **Review funding with AI**. The assistant explains possible causes of differences and suggests what to check or import. It reviews up to six account/months at a time, using monthly totals and up to 12 redacted transaction descriptions per group. Account names and identifiers are omitted from the request; transaction amounts, categories and month are included. Guidance is advisory and never changes funding decisions, statement totals or review markers. Confirm transfers and category corrections using the existing controls.
+
+Reviews save on the current browser/device and survive navigation and refresh. When records or the selected range change, refresh the AI review before relying on it. This uses the existing `OPENAI_API_KEY`, `OPENAI_CATEGORIZATION_MODEL` and shared daily AI request limit; no additional key is needed.

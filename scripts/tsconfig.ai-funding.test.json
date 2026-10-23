@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
+    "types": [
+      "node"
+    ],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "rootDir": "..",
+    "outDir": "/tmp/simonfire-ai-funding-tests"
+  },
+  "include": [
+    "test-ai-funding.ts"
+  ]
+}

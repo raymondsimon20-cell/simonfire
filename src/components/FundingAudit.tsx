@@ -6,6 +6,7 @@ import { canPairFunding, isFundingCash } from '../lib/funding-review'
 import { monthLabel, shortDate, usd } from '../lib/format'
 import { useStore } from '../lib/store'
 import { ImportModal } from './ImportModal'
+import { AiFundingReview } from './AiFundingReview'
 
 function FundingRecord({ txn, pool, onSelect }: { txn: Transaction; pool: Transaction[]; onSelect: (t: Transaction) => void }) {
   const { data, reviewFunding } = useStore()
@@ -56,6 +57,7 @@ export function FundingAudit({ result: r, onSelect }: { result: EquityGrowth; on
   return <details className="mt-3 rounded-xl border border-white/[.07] p-4" open={expanded} onToggle={(e) => setExpanded(e.currentTarget.open)}>
     <summary className="cursor-pointer text-sm text-[#e1c887]">Review funding by account and month · {needsReview.length ? `${needsReview.length} need review` : 'Totals reconciled'}</summary>
     <p className="mt-3 text-xs leading-5 text-muted">Resolve differences by importing missing transactions, correcting categories, or confirming transfers. A review clears when the totals and classifications reconcile.</p>
+    <AiFundingReview result={r} onImport={() => setImportOpen(true)}/>
     <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs">
       <label className="flex items-center gap-2 text-muted"><input type="checkbox" checked={onlyIssues} onChange={(e) => setOnlyIssues(e.target.checked)} className="accent-[#c7a96b]"/>Only show accounts and months needing review</label>
       <div className="flex flex-wrap items-center gap-3"><Link to="/transactions" className="text-[#e1c887] underline">Browse transactions</Link><button onClick={() => setImportOpen(true)} className="rounded-lg border border-[#c7a96b]/30 px-3 py-2 text-[#e1c887]">Import missing records</button></div>

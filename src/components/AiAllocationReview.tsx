@@ -1,14 +1,16 @@
+import { useReviewCache } from '../lib/use-review-cache'
 import { useEffect, useState } from 'react'
 import { type AllocationEvidence, type AllocationReview, validateAllocationReview } from '../lib/ai-allocation'
 import { pct, usd } from '../lib/format'
 import { Button } from './ui'
 
-export function AiAllocationReview({ evidence, planKey, shortlistActive, onUseShortlist, onClearShortlist, onProtection }: {
-  evidence: AllocationEvidence; planKey: string; shortlistActive: boolean
+export function AiAllocationReview({ evidence, planKey, shortlistActive, onUseShortlist, onClearShortlist, onProtection, cacheScope }: {
+  cacheScope: string; evidence: AllocationEvidence; planKey: string; shortlistActive: boolean
   onUseShortlist: (symbols: string[], expectedKey: string, expiresAt: number) => void; onClearShortlist: () => void; onProtection: () => void
 }) {
   const [busy, setBusy] = useState(false); const [error, setError] = useState('')
-  const [result, setResult] = useState<{ review: AllocationReview; key: string; planKey: string; createdAt: number } | null>(null)
+  const [savedReviews, setSavedReviews, saveError] = useReviewCache<Record<string, { review: AllocationReview; key: string; planKey: string; createdAt: number }>>('simonfire.ai.allocation.reviews.v1', {})
+  const result = savedReviews[cacheScope] ?? null
   const [clock, setClock] = useState(() => Date.now())
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 60000); return () => window.clearInterval(timer) }, [])
   const key = JSON.stringify(evidence)
@@ -19,7 +21,8 @@ export function AiAllocationReview({ evidence, planKey, shortlistActive, onUseSh
       const response = await fetch('/.netlify/functions/ai-allocation', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Simonfire-Ai-Request': '1' }, body: key, signal: AbortSignal.timeout(40000) })
       const body = await response.json()
       if (!response.ok) throw new Error(body.error || 'AI review is unavailable.')
-      setResult({ review: validateAllocationReview(body.review, evidence), key, planKey, createdAt: Date.now() })
+      const saved = { review: validateAllocationReview(body.review, evidence), key, planKey, createdAt: Date.now() }
+      setSavedReviews((previous) => ({ ...previous, [cacheScope]: saved }))
     } catch (e) { setError(e instanceof Error && e.name !== 'SyntaxError' ? e.message : 'AI review needs the deployed Netlify functions. Please retry.') }
     finally { setBusy(false) }
   }
@@ -35,8 +38,9 @@ export function AiAllocationReview({ evidence, planKey, shortlistActive, onUseSh
     <p className="mt-3 text-xs text-muted">{evidence.activePuts.length} existing put positions · {usd(evidence.longExposure)} long exposure · {evidence.marginDebt == null ? 'Unknown margin debt' : `${usd(evidence.marginDebt)} margin debt`} · {evidence.netEquity == null ? 'Unknown net equity' : `${usd(evidence.netEquity)} net equity`} · {usd(evidence.budget)} contribution budget. Beta estimates describe past price relationships and may fail in a downturn.</p>
     {evidence.hedge && <p className="mt-2 text-xs text-muted">Selected {evidence.hedge.proxy} scenario: {evidence.hedge.declinePct}% decline, assumed beta {evidence.hedge.beta}, {evidence.hedge.offsetPct}% loss-offset target. {evidence.hedge.contracts} additional contracts, {usd(evidence.hedge.premiumCost)} gross debit, {usd(evidence.hedge.existingOffset)} modeled change from same-proxy existing puts, {usd(evidence.hedge.residualLoss)} remaining modeled loss. {evidence.hedge.quoteCurrent ? 'Non-delayed quote fetched within five minutes.' : evidence.hedge.quoteDelayed ? 'Quote is delayed or unavailable: planning assumptions only.' : 'No current quote: planning assumptions only.'}</p>}{!!evidence.hedgeAlternatives.length && <div className="mt-3 space-y-2">{evidence.hedgeAlternatives.map((q) => <p key={`${q.expiration}-${q.strike}`} className="text-xs text-muted">Alternative {q.expiration} · strike {usd(q.strike)} · {q.contracts} additional contracts · {usd(q.premiumCost)} gross premium · {usd(q.residualLoss)} remaining modeled loss.</p>)}</div>}</details>
     {shortlistActive && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand/25 p-3 text-xs"><span>AI shortlist is filtering the buy plan. Excluded dollars stay unassigned.</span><button onClick={onClearShortlist} className="font-semibold text-brand">Use all engine-eligible holdings</button></div>}
+    {saveError && <p role="alert" className="mt-3 text-xs text-neg">This browser could not save the review. Keep this page open; check browser storage before leaving.</p>}
     {error && <p role="alert" className="mt-3 text-xs text-neg">{error}</p>}
-    {result && <div className="mt-4 space-y-4">{stale && <p role="status" className="rounded-lg bg-neg/10 p-3 text-xs text-neg">Inputs changed or the quote-based review expired. Run a new review before using this shortlist.</p>}<p className="text-sm leading-6">{result.review.summary}</p><div className="grid gap-3 sm:grid-cols-2">{result.review.candidates.map((c, i) => <div key={c.symbol} className="rounded-xl border border-border-soft p-4"><h3 className="font-semibold">{i + 1}. {c.symbol}</h3><p className="mt-2 text-xs leading-5 text-muted">{c.reason}</p><p className="mt-2 text-xs leading-5 text-[#e7c88f]">Trade-off: {c.risk}</p></div>)}</div>
+    {result && <div className="mt-4 space-y-4"><p className="text-xs text-faint">Saved on this device · {new Date(result.createdAt).toLocaleString()}</p>{stale && <p role="status" className="rounded-lg bg-neg/10 p-3 text-xs text-neg">Inputs changed or the quote-based review expired. Run a new review before using this shortlist.</p>}<p className="text-sm leading-6">{result.review.summary}</p><div className="grid gap-3 sm:grid-cols-2">{result.review.candidates.map((c, i) => <div key={c.symbol} className="rounded-xl border border-border-soft p-4"><h3 className="font-semibold">{i + 1}. {c.symbol}</h3><p className="mt-2 text-xs leading-5 text-muted">{c.reason}</p><p className="mt-2 text-xs leading-5 text-[#e7c88f]">Trade-off: {c.risk}</p></div>)}</div>
       {!result.review.candidates.length && <p className="text-xs text-muted">No ticker shortlist is supported by the supplied evidence.</p>}
       <div className="rounded-xl border border-border-soft p-4"><h3 className="font-semibold">Portfolio protection</h3><p className="mt-2 text-xs leading-6 text-muted">{result.review.protection}</p><button onClick={onProtection} className="mt-3 text-xs font-semibold text-brand">Review protective puts →</button></div>
       <div className="grid gap-3 sm:grid-cols-2">{[['3-month check-in', result.review.checks3m], ['6-month check-in', result.review.checks6m]].map(([label, checks]) => <div key={label as string} className="rounded-xl border border-border-soft p-4"><h3 className="text-sm font-semibold">{label}</h3><ul className="mt-2 list-disc space-y-2 pl-4 text-xs text-muted">{(checks as string[]).map((c) => <li key={c}>{c}</li>)}</ul></div>)}</div>

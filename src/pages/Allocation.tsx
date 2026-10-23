@@ -1,3 +1,4 @@
+import { useReviewCache } from '../lib/use-review-cache'
 import { AiAllocationReview } from '../components/AiAllocationReview'
 import { allocationShortlistIsCurrent, buildAllocationEvidence, filterAllocationShortlist, type AiHedgeContext } from '../lib/ai-allocation'
 import { AllocationOverview, type AllocationStep } from '../components/AllocationOverview'
@@ -36,11 +37,15 @@ export default function Allocation() {
   const stats = useMemo(() => bucketStats(allocationPositions, transactions), [allocationPositions, transactions])
   const { buckets, total, blendedYield } = stats
   const [tab, setTab] = useState<AllocationStep>('overview')
-  const [aiShortlist, setAiShortlist] = useState<{ symbols: string[]; key: string; expiresAt: number } | null>(null)
+  const cacheScope = `${data.source ?? 'sample'}:${scope}`
+  const [savedShortlists, setSavedShortlists, shortlistSaveError] = useReviewCache<Record<string, { symbols: string[]; key: string; expiresAt: number }>>('simonfire.ai.allocation.shortlists.v1', {})
+  const aiShortlist = savedShortlists[cacheScope] ?? null
+  const setAiShortlist = (selection: { symbols: string[]; key: string; expiresAt: number } | null) => setSavedShortlists((previous) => { const next = { ...previous }; if (selection) next[cacheScope] = selection; else delete next[cacheScope]; return next })
   const [evidenceClock, setEvidenceClock] = useState(() => Date.now())
   useEffect(() => { const timer = window.setInterval(() => setEvidenceClock(Date.now()), 60000); return () => window.clearInterval(timer) }, [])
-  const [aiHedge, setAiHedge] = useState<{ scope: string; value: AiHedgeContext } | null>(null)
-  const receiveAiHedge = useCallback((value: AiHedgeContext) => setAiHedge({ scope, value }), [scope])
+  const [savedHedges, setSavedHedges, hedgeSaveError] = useReviewCache<Record<string, AiHedgeContext>>('simonfire.ai.allocation.hedge-inputs.v1', {})
+  const aiHedge = savedHedges[cacheScope] ?? null
+  const receiveAiHedge = useCallback((value: AiHedgeContext) => setSavedHedges((previous) => ({ ...previous, [cacheScope]: { ...value, alternatives: value.alternatives ?? [] } })), [cacheScope, setSavedHedges])
   const [locked, setLocked] = useState<Set<Bucket>>(new Set())
 
   const insights = useMemo(
@@ -100,12 +105,19 @@ export default function Allocation() {
   const targetBlended = BUCKETS.reduce((s, b) => s + ((target[b] ?? 0) / 100) * buckets[b].yield, 0)
 
   // ---- Rebalance calculator ----
-  const [requestedContribution, setContribution] = useState(2000)
-  const [planMode, setPlanMode] = useState<'contribution' | 'rebalance'>('contribution')
-  const [wholeShares, setWholeShares] = useState(true)
+  const [savedInputs, setSavedInputs, inputSaveError] = useReviewCache<Record<string, { contribution: number; mode: 'contribution' | 'rebalance'; wholeShares: boolean; account: string }>>('simonfire.allocation.inputs.v1', {})
+  const savedInput = savedInputs[cacheScope]
+  const requestedContribution = savedInput?.contribution ?? 2000
+  const planMode = savedInput?.mode ?? 'contribution'
+  const wholeShares = savedInput?.wholeShares ?? true
+  const patchInput = (patch: Partial<NonNullable<typeof savedInput>>) => setSavedInputs((previous) => ({ ...previous, [cacheScope]: { ...(previous[cacheScope] ?? { contribution: 2000, mode: 'contribution', wholeShares: true, account: scope !== 'all' ? scope : data.accounts[0]?.id ?? '' }), ...patch } }))
+  const setContribution = (contribution: number) => patchInput({ contribution })
+  const setPlanMode = (mode: 'contribution' | 'rebalance') => patchInput({ mode })
+  const setWholeShares = (wholeShares: boolean) => patchInput({ wholeShares })
   const sizing = data.incomePlan?.allocationSizing ?? 'priority'
   const setSizing = (allocationSizing: AllocationSizing) => setIncomePlan({ ...DEFAULT_INCOME_PLAN, ...data.incomePlan, allocationSizing })
-  const [chosenOrderAccount, setOrderAccount] = useState<string>(() => scope !== 'all' ? scope : data.accounts[0]?.id ?? '')
+  const chosenOrderAccount = savedInput?.account ?? (scope !== 'all' ? scope : data.accounts[0]?.id ?? '')
+  const setOrderAccount = (account: string) => patchInput({ account })
   const eligibleOrderAccounts = data.accounts.filter((account) => scope === 'all' || account.id === scope)
   const orderAccount = scope !== 'all' ? scope : eligibleOrderAccounts.some((account) => account.id === chosenOrderAccount) ? chosenOrderAccount : eligibleOrderAccounts[0]?.id ?? ''
   const selectedOrderAccount = data.accounts.find((account) => account.id === orderAccount)
@@ -151,7 +163,7 @@ export default function Allocation() {
   }, [total, contribution, target, buckets, balanced, planMode])
 
   // Flatten the plan into a reviewable BUY order queue (one row per ticker).
-  const aiEvidence = useMemo(() => buildAllocationEvidence(positions, data.insights, target, contribution, brokerageDate(), data.source ?? 'sample', aiHedge?.scope === scope ? aiHedge.value : null, { marginDebt: data.accounts.filter((a) => scope === 'all' || a.id === scope).reduce((sum, a) => sum + a.marginBalance, 0), netEquity: portfolioSummary(positions, data.accounts, scope, transactions).net }, evidenceClock), [positions, data.insights, target, contribution, data.source, aiHedge, scope, data.accounts, transactions, evidenceClock])
+  const aiEvidence = useMemo(() => buildAllocationEvidence(positions, data.insights, target, contribution, brokerageDate(), data.source ?? 'sample', aiHedge, { marginDebt: data.accounts.filter((a) => scope === 'all' || a.id === scope).reduce((sum, a) => sum + a.marginBalance, 0), netEquity: portfolioSummary(positions, data.accounts, scope, transactions).net }, evidenceClock), [positions, data.insights, target, contribution, data.source, aiHedge, scope, data.accounts, transactions, evidenceClock])
   const aiPlanKey = JSON.stringify({ scope, positions, insightDate: data.insights?.generatedAt, target, contribution, sizing, planMode, wholeShares, orderAccount, expenseReserveEnabled, evidence: aiEvidence })
   const shortlistCurrent = allocationShortlistIsCurrent(aiShortlist, aiPlanKey, evidenceClock)
   const baseOrderQueue = useMemo(() => allocationOrders(plan, tickersByBucket, wholeShares, sizing), [plan, tickersByBucket, wholeShares, sizing])
@@ -193,7 +205,8 @@ export default function Allocation() {
         ] as const).map(([key, Icon, label]) => <button key={key} onClick={() => setTab(key)} className={clsx('flex min-w-max flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors', tab === key ? 'bg-[#c7a96b]/15 text-[#e1c887]' : 'text-muted hover:bg-white/[0.03] hover:text-ink')}><Icon size={15} />{label}</button>)}
       </div>
 
-      {['overview', 'plan', 'review', 'hedges'].includes(tab) && <AiAllocationReview evidence={aiEvidence} planKey={aiPlanKey} shortlistActive={shortlistCurrent} onClearShortlist={() => setAiShortlist(null)} onProtection={() => setTab('hedges')} onUseShortlist={(symbols, expectedKey, expiresAt) => { if (expectedKey !== aiPlanKey || expiresAt <= Date.now()) return; setAiShortlist({ symbols, key: aiPlanKey, expiresAt }); setTab('plan') }}/>}
+      {['overview', 'plan', 'review', 'hedges'].includes(tab) && <AiAllocationReview cacheScope={cacheScope} evidence={aiEvidence} planKey={aiPlanKey} shortlistActive={shortlistCurrent} onClearShortlist={() => setAiShortlist(null)} onProtection={() => setTab('hedges')} onUseShortlist={(symbols, expectedKey, expiresAt) => { if (expectedKey !== aiPlanKey || expiresAt <= Date.now()) return; setAiShortlist({ symbols, key: aiPlanKey, expiresAt }); setTab('plan') }}/>}
+      {(shortlistSaveError || hedgeSaveError || inputSaveError) && <p role="alert" className="mb-4 text-xs text-neg">This browser could not save allocation settings. Keep the page open and check browser storage.</p>}
       {aiShortlist && !shortlistCurrent && <p className="mb-4 text-xs text-muted">The previous AI shortlist was cleared from the buy plan because its inputs changed. Run a new review to use a fresh shortlist.</p>}
       {tab === 'overview' && <AllocationOverview value={total} drift={largestDrift ? `${largestDrift.bucket} ${Math.abs(largestDrift.drift) < .05 ? '0.0' : `${largestDrift.drift > 0 ? '+' : ''}${largestDrift.drift.toFixed(1)}`} points` : '—'} balanced={balanced} fallbackCount={fallbackCount} activePuts={positions.filter((p) => isActiveProtectivePut(p, brokerageDate())).length} queuedHedges={(data.hedgeRolls ?? []).filter((r) => !['closed', 'rolled'].includes(r.status)).length} onChoose={(step, rebalance) => { if (step === 'plan') setPlanMode(rebalance ? 'rebalance' : 'contribution'); setTab(step) }}/>}
       {tab !== 'overview' && <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border-soft p-4 text-xs"><span className="text-muted">{tab === 'targets' ? '1 · Set the mix you want. Then choose how to fund it.' : tab === 'plan' ? '2 · Choose an account and budget. Review assigned and unassigned dollars.' : tab === 'review' ? 'Check your holdings before using their classifications and signals.' : tab === 'hedges' ? 'Review existing protection first. New protection and replacement rolls are separate decisions.' : '3 · Review account, quantity, price, and broker preview. Submitted orders still need fill confirmation.'}</span><button className="font-semibold text-brand" onClick={() => setTab('overview')}>Choose another goal</button></div>}
@@ -527,7 +540,7 @@ export default function Allocation() {
       <FallbackCorrections rows={classificationRows.filter((r) => r.method === 'Growth fallback')} onSetBucket={setPositionBucket} />
       <RebalanceInsights insights={insights} accName={(id) => data.accounts.find((a) => a.id === id)?.name ?? id} hasData={!!data.insights} />
       </>}
-      {tab === 'hedges' && <HedgeWorkspace key={scope} onAiEvidence={receiveAiHedge} positions={positions} accounts={data.accounts.filter((a) => scope === 'all' || a.id === scope)} /> }
+      {tab === 'hedges' && <HedgeWorkspace key={cacheScope} initialEvidence={aiHedge ?? undefined} onAiEvidence={receiveAiHedge} positions={positions} accounts={data.accounts.filter((a) => scope === 'all' || a.id === scope)} /> }
     </div>
   )
 }
@@ -567,14 +580,14 @@ function FallbackCorrections({ rows, onSetBucket }: { rows: Array<{ position: Po
   return <div className="card mt-4 p-5"><div className="flex items-start gap-2"><CircleAlert size={16} className="mt-0.5 text-[#e7c88f]"/><div><h3 className="font-semibold">Resolve Growth Fallbacks</h3><p className="mt-1 text-xs text-faint">Choose the intended bucket. Overrides are saved by account and symbol and reapplied after every sync.</p></div></div><div className="mt-4 space-y-2">{rows.map(({ position }) => <div key={position.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-border-soft bg-surface-2/40 p-3"><div className="min-w-[180px] flex-1"><span className="font-semibold">{position.symbol}</span><div className="truncate text-xs text-faint">{position.name}</div></div>{BUCKETS.map((bucket) => <button key={bucket} onClick={() => onSetBucket(position.accountId, position.symbol, bucket)} className="rounded-lg border px-2.5 py-1.5 text-xs font-medium hover:bg-white/[.04]" style={{ borderColor: `${BUCKET_COLOR[bucket]}35`, color: BUCKET_COLOR[bucket] }}>{bucket}</button>)}</div>)}</div></div>
 }
 
-function HedgeWorkspace({ positions, accounts, onAiEvidence }: { positions: Position[]; accounts: Account[]; onAiEvidence: (value: AiHedgeContext) => void }) {
+function HedgeWorkspace({ positions, accounts, onAiEvidence, initialEvidence }: { positions: Position[]; accounts: Account[]; initialEvidence?: AiHedgeContext; onAiEvidence: (value: AiHedgeContext) => void }) {
   const [plan, setPlan] = useState<HedgePlanSnapshot | null>(null)
   const [mode, setMode] = useState<'manage' | 'portfolio' | 'holding'>('manage')
   return <div className="space-y-4">
     <div className="card p-5"><h2 className="text-lg font-semibold">Your protection workspace</h2><p className="mt-2 text-sm text-muted">Start with puts you already own. To add protection, choose the whole portfolio or a specific holding.</p><div className="mt-4 flex flex-wrap gap-2">{([['manage', 'Manage existing puts'], ['portfolio', 'Protect the portfolio'], ['holding', 'Protect one holding']] as const).map(([key, label]) => <Button key={key} variant={mode === key ? 'primary' : undefined} onClick={() => setMode(key)}>{label}</Button>)}</div></div>
     {mode === 'manage' && !positions.some((p) => isActiveProtectivePut(p, brokerageDate())) && <div className="card p-5 text-sm text-muted">No active protective puts are present in these accounts. Choose “Protect the portfolio” or “Protect one holding” to explore a new plan. Queued orders below do not count as protection until filled.</div>}
     <div hidden={mode === 'holding'}><PutRollQueue positions={positions} accounts={accounts} plan={plan}/></div>
-    <div hidden={mode !== 'portfolio'} className="space-y-4"><PortfolioHedgeGuide/><LivePutQuotes positions={positions} accounts={accounts} symbolFilter="QQQ,SPY"/><PortfolioHedgeEngine positions={positions} onPlan={setPlan} onAiEvidence={onAiEvidence}/></div>
+    <div hidden={mode !== 'portfolio'} className="space-y-4"><PortfolioHedgeGuide/><LivePutQuotes positions={positions} accounts={accounts} symbolFilter="QQQ,SPY"/><PortfolioHedgeEngine initialEvidence={initialEvidence} positions={positions} onPlan={setPlan} onAiEvidence={onAiEvidence}/></div>
     {mode === 'holding' && <div className="space-y-4"><ProtectivePutTutorial/><LivePutQuotes positions={positions} accounts={accounts}/><ProtectivePutsEngine positions={positions} accounts={accounts}/></div>}
   </div>
 }
@@ -589,21 +602,21 @@ function PortfolioHedgeGuide() {
   return <details className="card group p-0"><summary className="flex cursor-pointer list-none items-center gap-3 p-5"><ShieldCheck size={19} className="text-brand"/><div><h3 className="font-semibold">Portfolio QQQ / SPY hedge · monthly roll plan</h3><p className="mt-0.5 text-xs text-faint">Size index puts against portfolio risk—not the number of index shares owned</p></div><ChevronRight size={17} className="ml-auto text-faint transition-transform group-open:rotate-90"/></summary><div className="border-t border-border-soft p-5"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{steps.map(([title, body]) => <div key={title} className="rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="text-sm font-semibold">{title}</div><p className="mt-2 text-xs leading-5 text-muted">{body}</p></div>)}</div><div className="mt-4 rounded-lg border border-[#5a3a16] bg-[#38240f]/55 p-3 text-xs leading-5 text-[#e7c88f]">Both proxies have basis risk and may not offset CEF, credit, or non-equity losses. Gross premium is not net roll cost because the old put may retain value when sold.</div></div></details>
 }
 
-function PortfolioHedgeEngine({ positions, onPlan, onAiEvidence }: { positions: Position[]; onPlan: (plan: HedgePlanSnapshot) => void; onAiEvidence: (value: AiHedgeContext) => void }) {
+function PortfolioHedgeEngine({ positions, onPlan, onAiEvidence, initialEvidence }: { positions: Position[]; initialEvidence?: AiHedgeContext; onPlan: (plan: HedgePlanSnapshot) => void; onAiEvidence: (value: AiHedgeContext) => void }) {
   const longExposure = positions.filter((p) => !p.isOption && p.shares > 0).reduce((sum, p) => sum + p.shares * p.lastPrice, 0)
-  const [hedgeSymbol, setHedgeSymbol] = useState<'QQQ' | 'SPY'>('QQQ')
+  const [hedgeSymbol, setHedgeSymbol] = useState<'QQQ' | 'SPY'>(initialEvidence?.proxy ?? 'QQQ')
   const heldQqq = positions.find((p) => !p.isOption && normTicker(p.symbol) === hedgeSymbol)
-  const [qqqPrice, setQqqPrice] = useState(heldQqq?.lastPrice ?? 0)
-  const [beta, setBeta] = useState(.8)
-  const [decline, setDecline] = useState(25)
-  const [offset, setOffset] = useState(50)
-  const [budget, setBudget] = useState(3)
+  const [qqqPrice, setQqqPrice] = useState(initialEvidence?.price ?? heldQqq?.lastPrice ?? 0)
+  const [beta, setBeta] = useState(initialEvidence?.beta ?? .8)
+  const [decline, setDecline] = useState(initialEvidence?.declinePct ?? 25)
+  const [offset, setOffset] = useState(initialEvidence?.offsetPct ?? 50)
+  const [budget, setBudget] = useState(initialEvidence?.annualBudgetPct ?? 3)
   const [rollDays, setRollDays] = useState(30)
-  const [strike, setStrike] = useState(0)
-  const [premium, setPremium] = useState(0)
-  const [expiry, setExpiry] = useState('')
+  const [strike, setStrike] = useState(initialEvidence?.strike ?? 0)
+  const [premium, setPremium] = useState(initialEvidence?.premium ?? 0)
+  const [expiry, setExpiry] = useState(initialEvidence?.expiration ?? '')
   const [optionSymbol, setOptionSymbol] = useState('')
-  const [quoteIdentity, setQuoteIdentity] = useState<{ strike: number; expiration: string; premium: number; fetchedAt: string; underlyingPrice: number; delayed: boolean; alternatives: { strike: number; premium: number; expiration: string }[] } | null>(null)
+  const [quoteIdentity, setQuoteIdentity] = useState<{ strike: number; expiration: string; premium: number; fetchedAt: string; underlyingPrice: number; delayed: boolean; alternatives: { strike: number; premium: number; expiration: string }[] } | null>(() => initialEvidence ? { strike: initialEvidence.strike, expiration: initialEvidence.expiration, premium: initialEvidence.premium, fetchedAt: initialEvidence.quoteFetchedAt, underlyingPrice: initialEvidence.price, delayed: initialEvidence.quoteDelayed, alternatives: initialEvidence.alternatives ?? [] } : null)
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     const applyQuote = (event: Event) => {

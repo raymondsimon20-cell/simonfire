@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:review-cache": "tsc -p scripts/tsconfig.review-cache.test.json && node /tmp/simonfire-review-cache-tests/scripts/test-review-cache.js",
     "test:ai-allocation": "tsc -p scripts/tsconfig.ai-allocation.test.json && NODE_PATH=./node_modules node /tmp/simonfire-ai-allocation-tests/scripts/test-ai-allocation.js",
     "test:ai": "tsc -p scripts/tsconfig.ai.test.json && NODE_PATH=./node_modules node /tmp/simonfire-ai-tests/scripts/test-ai-categorization.js",
     "test:review": "tsc -p scripts/tsconfig.review.test.json && node /tmp/simonfire-review-tests/scripts/test-transaction-review-status.js",

@@ -81,6 +81,22 @@ Paid requests are bounded by batch size, output limits, a timeout, and an atomic
 
 Run `npm run test:ai` for request validation, redaction, stale suggestions, provider failures, and concurrent daily-limit checks. Local tests mock OpenAI and do not send financial data or make billable requests. Use `netlify dev` for local UI-to-function testing; Vite alone does not run the AI endpoint.
 
+## AI allocation and portfolio protection
+
+Allocation’s **Review with AI** analyzes the selected account scope for a **12-month total-return objective**, with **3- and 6-month monitoring checklists**. It reviews current holdings rather than discovering new securities or conducting live external research. The evidence table distinguishes historical price returns from estimated distribution yields; it does not claim a validated probability of profit or a distribution-adjusted total-return forecast.
+
+A Schwab sync now saves 3/6/12-month price-return evidence, annualized daily price volatility, historical drawdowns, and price-return beta/correlation to QQQ and SPY. It reuses the history fetched during sync, with an extra history margin for calendar boundaries. Existing cached insights need a new sync to populate these fields. Short or stale histories, incomplete moving averages, and daily price moves over 40% prevent shortlist eligibility; large moves require a corporate-action/price-adjustment check. Proxy beta is withheld when fewer than 80% of long holdings have sufficiently covered history. Estimates are historical and can fail under stress.
+
+AI ranks only eligible supplied holdings and explains both the evidence and a downside for each. **Use shortlist in contribution plan** filters the deterministic engine’s original buys; it preserves share quantities, target gaps, expense reserves, and spending checks. Money excluded by the filter stays unassigned. Changing plan inputs, account scope, holdings, aggregate balances, or reviewed hedge evidence invalidates the filter. Quote-based filters expire with their five-minute quote window; other reviews expire after 24 hours. Targets and live orders never change automatically.
+
+For protection, the review includes aggregate equity/debt, existing long puts, historical proxy estimates, and the portfolio planner’s user-assumed beta/scenario. Select a live QQQ or SPY quote in Protective Puts to include the selected contract and up to three ranked alternatives. Their sizing, premium costs, and residual losses are calculated by code. Quote-based reviews expire after five minutes. Delayed quotes and manually edited underlying prices cannot be treated as current executable evidence; edited inputs invalidate the review. These are intrinsic-payoff scenarios, not an interim loss guarantee or whole-portfolio insurance.
+
+Additional-put sizing credits the modeled change in **existing same-proxy puts that remain active through the proposed expiration**. The credit is scenario intrinsic payoff less current market value, not original premium. Puts expiring earlier are not credited. Other proxies, credit risk, shorts, changing beta, and timing mismatches can leave substantial gaps. Replacement rolls remain a separate workflow with linked close/open quantities.
+
+The feature uses the existing server-side `OPENAI_API_KEY`; `OPENAI_ALLOCATION_MODEL` optionally overrides the categorization model. Categorization and allocation share `AI_CATEGORIZATION_DAILY_LIMIT`. Only bounded ticker-level evidence, targets/budget, aggregate equity/debt, and option scenarios are sent. Account identifiers, transaction history, names, and credentials are excluded. OpenAI responses are validated; unknown/ineligible ticker picks are rejected. `store: false` is requested. No private portfolio data is sent until the user requests a review.
+
+Run `npm run test:ai-allocation` for evidence, freshness, input/output validation, privacy, shortlist quantity preservation, existing-put sizing, and expiration coverage checks. Provider calls are mocked in local tests.
+
 ## Development
 
 Built with Vite, React, TypeScript, Tailwind CSS, React Router, Recharts, and Netlify Functions/Blobs.

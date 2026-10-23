@@ -1,3 +1,4 @@
+import { priceRiskEvidence, proxyRelationship } from '../../../src/lib/ai-allocation'
 // Shared Schwab Trader API helpers for the Netlify Functions.
 // Server-side only. Secrets come from env; OAuth tokens are stored in Netlify Blobs.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -356,11 +357,11 @@ async function buildTwrSeries(
     if ((t.type === 'Buy' || t.type === 'Sell') && t.symbol && !isOptionSymbol(t.symbol))
       equitySyms.add(t.symbol)
 
-  const syms = [...equitySyms]
+  const syms = [...new Set([...equitySyms, 'QQQ', 'SPY'])]
   const closeBySym = new Map<string, Map<string, number>>()
   for (let batch = 0; batch < syms.length; batch += 8) await Promise.all(
     syms.slice(batch, batch + 8).map(async (s) => {
-      closeBySym.set(s, await fetchDailyCloses(s, token, start.getTime(), end.getTime()))
+      closeBySym.set(s, await fetchDailyCloses(s, token, start.getTime() - 45 * 86400000, end.getTime()))
     }),
   )
   const sortedDates = new Map<string, string[]>()
@@ -491,6 +492,11 @@ async function buildTwrSeries(
       sma100: smaOf(closes, 100),
       sma200: smaOf(closes, 200),
       history: closes.length,
+      risk: priceRiskEvidence((sortedDates.get(sym) ?? []).map((date) => ({ date, value: m.get(date)! }))),
+      proxies: Object.fromEntries(['QQQ', 'SPY'].map((proxy) => [proxy, proxyRelationship(
+        (sortedDates.get(sym) ?? []).map((date) => ({ date, value: m.get(date)! })),
+        (sortedDates.get(proxy) ?? []).map((date) => ({ date, value: closeBySym.get(proxy)!.get(date)! })),
+      )])),
     }
   }
   const insights = { bySymbol: insightsBySymbol, generatedAt: new Date().toISOString() }

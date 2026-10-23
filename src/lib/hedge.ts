@@ -198,6 +198,7 @@ export function putRollTiming(daysToExpiration: number, rollWindowDays = 60) {
 
 export interface PortfolioPutHedgeInput {
   longExposure: number
+  existingOffset?: number
   qqqPrice: number
   portfolioQqqBeta: number
   targetQqqDeclinePct: number
@@ -220,15 +221,17 @@ export function portfolioPutHedge(input: PortfolioPutHedgeInput) {
   const desiredOffset = modeledPortfolioLoss * offset
   const grossPayoffPerContract = Math.max(0, strike - crashPrice) * 100
   const netPayoffPerContract = Math.max(0, grossPayoffPerContract - premium * 100)
-  const contracts = netPayoffPerContract > 0 ? Math.ceil(desiredOffset / netPayoffPerContract) : 0
+  const existingOffset = Number.isFinite(input.existingOffset) ? input.existingOffset! : 0
+  const additionalOffset = Math.max(0, desiredOffset - existingOffset)
+  const contracts = netPayoffPerContract > 0 ? Math.ceil(additionalOffset / netPayoffPerContract) : 0
   const grossPremium = contracts * premium * 100
   const modeledGrossPayoff = contracts * grossPayoffPerContract
-  const modeledNetOffset = Math.max(0, modeledGrossPayoff - grossPremium)
-  const offsetAchievedPct = modeledPortfolioLoss ? Math.min(1, modeledNetOffset / modeledPortfolioLoss) : 0
+  const modeledNetOffset = existingOffset + modeledGrossPayoff - grossPremium
+  const offsetAchievedPct = modeledPortfolioLoss ? Math.max(0, Math.min(1, modeledNetOffset / modeledPortfolioLoss)) : 0
   const annualBudget = longExposure * Math.max(0, input.annualPremiumBudgetPct) / 100
   const monthlyGrossDebitBudget = annualBudget / 12
   return {
-    longExposure, qqqPrice, beta, crashPrice, modeledPortfolioLoss, desiredOffset,
+    longExposure, qqqPrice, beta, crashPrice, modeledPortfolioLoss, desiredOffset, existingOffset, additionalOffset,
     grossPayoffPerContract, netPayoffPerContract, contracts, grossPremium,
     modeledGrossPayoff, modeledNetOffset, offsetAchievedPct, annualBudget,
     monthlyGrossDebitBudget, overMonthlyBudget: grossPremium > monthlyGrossDebitBudget,
@@ -245,4 +248,9 @@ export function putPlanMatchesContract(plan: { optionSymbol?: string; proxy: str
     && Number(match[3]) / 1000 === plan.strike
     && plan.expiration > asOf
     && !!buildPutPreviewOrder(symbol, plan.contracts, plan.premiumPerShare)
+}
+
+export function existingProxyPutOffset(positions: Array<PutPosition & { symbol: string; underlying?: string; lastPrice: number }>, proxy: string, crashPrice: number, asOf: string) {
+  return positions.filter((p) => isActiveProtectivePut(p, asOf) && (p.underlying ?? p.symbol.replace(/\s*\d{6}P\d{8}$/, '')).trim().toUpperCase() === proxy)
+    .reduce((sum, p) => sum + p.shares * (100 * Math.max(0, p.strike! - crashPrice) - p.lastPrice), 0)
 }

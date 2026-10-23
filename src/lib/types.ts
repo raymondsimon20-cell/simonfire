@@ -343,6 +343,8 @@ export interface HedgeRoll {
 }
 
 export interface SmaSnapshot {
+  risk?: import('./ai-allocation').PriceRiskEvidence
+  proxies?: Record<string, import('./ai-allocation').ProxyRelationship>
   symbol: string
   price: number
   sma50: number | null

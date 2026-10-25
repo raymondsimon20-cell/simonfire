@@ -4,7 +4,7 @@ import { resolveDividendSymbols } from '../src/lib/dividend-symbol'
 import { previewDividendEnrichment, previewRealizedGainLoss, type ImportResult } from '../src/lib/import'
 import { captureCsvAuthority, reconcileCsvAuthority } from '../src/lib/csv-authority'
 import type { Position, Transaction } from '../src/lib/types'
-import { estimateDividendDate } from '../src/lib/dividend-calendar'
+import { buildDividendCalendar, estimateDividendDate } from '../src/lib/dividend-calendar'
 
 assert.equal(estimateDividendDate(['2026-06-13', '2026-07-15', '2026-08-14'], '2026-09', '2026-09-01', 'Monthly'), '2026-09-14')
 assert.equal(estimateDividendDate(['2026-08-07', '2026-08-14', '2026-08-21'], '2026-09', '2026-09-14', 'Weekly'), '2026-09-18')
@@ -224,3 +224,47 @@ const bankCsv = { accountMask: '', importedAt: '', transaction: { ...bankApi, de
 const bank = reconcileCsvAuthority([existingAccount], [], [bankApi], [], [bankCsv])
 assert.equal(bank.transactions.length, 1)
 assert.equal(bank.transactions[0].type, 'Withdrawal')
+
+// Calendar receipts must be posted; forecasts must never masquerade as cash.
+const calendarPosition = { ...positions[0], annualDividend: 12, lastDividend: 0.4, dividendPayDate: '2026-10-30' }
+const calendarTxns = [
+  txn({ id: 'posted', date: '2026-10-10', type: 'Dividend', symbol: 'XYZ', amount: 50 }),
+  txn({ id: 'future', date: '2026-10-30', type: 'Dividend', symbol: 'XYZ', amount: 40 }),
+]
+const calendarSymbols = dividendStats([calendarPosition], calendarTxns, '2026-10-25').bySymbol
+const calendar = buildDividendCalendar([calendarPosition], calendarTxns, calendarSymbols, '2026-10', '2026-10-25')
+assert.equal(calendar.receivedTotal, 50, 'future-dated records are not received')
+assert.equal(calendar.scheduledTotal, 40, 'upcoming payment uses per-payment amount, not annual dividend divided by cadence')
+assert.equal(calendar.byDate.get('2026-10-30')?.[0].estimated, true, 'current shares never prove payment entitlement')
+assert.equal(buildDividendCalendar([calendarPosition], calendarTxns, calendarSymbols, '2026-09', '2026-10-25').scheduledTotal, 0, 'past months have no forecast remainders')
+const paid = [...calendarTxns, txn({ id: 'actual', date: '2026-10-30', type: 'Dividend', symbol: 'XYZ', amount: 38 })]
+const paidModel = buildDividendCalendar([calendarPosition], paid, calendarSymbols, '2026-10', '2026-10-30')
+assert.equal(paidModel.scheduledTotal, 0, 'a posted payment clears the estimate even when actual dollars differ')
+const noDate = { ...calendarPosition, dividendPayDate: undefined }
+assert.equal(buildDividendCalendar([noDate], calendarTxns, calendarSymbols.map((r) => ({ ...r, cadence: 'Monthly' as const })), '2026-10', '2026-10-25').scheduledTotal, 0,
+  'monthly payment already posted does not leave a phantom remainder')
+const otherAccount = { ...calendarPosition, id: 'other', accountId: 'acc_2' }
+assert.equal(buildDividendCalendar([calendarPosition, otherAccount], paid, calendarSymbols, '2026-10', '2026-10-30').scheduledTotal, 40,
+  'payment in one account does not clear a different account')
+console.log('Dividend calendar posted receipts, per-payment estimates, and account matching passed')
+const weeklySymbols = calendarSymbols.map((r) => ({ ...r, cadence: 'Weekly' as const, projAnnual: 520 }))
+const weekly = buildDividendCalendar([{ ...noDate, annualDividend: 5.2 }], [], weeklySymbols, '2026-10', '2026-10-25')
+assert.equal(weekly.pending.length, 1, 'weekly monthly estimate has no invented single payment date')
+assert.equal(weekly.byDate.size, 0)
+assert.equal(buildDividendCalendar([{ ...calendarPosition, lastDividend: undefined }], [], weeklySymbols, '2026-10', '2026-10-25').scheduledTotal, 10,
+  'a dated weekly payment without per-payment data uses annual / 52, not annual / 12')
+const corrections = buildDividendCalendar([noDate], [
+  txn({ id: 'cash', date: '2026-10-10', type: 'Dividend', amount: 10 }),
+  txn({ id: 'reverse', date: '2026-10-11', type: 'Dividend', amount: -2 }),
+  txn({ id: 'reinvest', date: '2026-10-12', type: 'Dividend', description: 'DIVIDEND REINVEST', amount: 5 }),
+  txn({ id: 'interest', date: '2026-10-12', type: 'Interest', amount: 0.06 }),
+], calendarSymbols, '2026-10', '2026-10-25')
+assert.equal(corrections.receivedTotal, 13, 'interest stays separate and negative corrections remain included')
+assert.equal(corrections.cashTotal, 8)
+assert.equal(corrections.dripTotal, 5)
+
+const weeklyAfterPayment = buildDividendCalendar([{ ...calendarPosition, dividendPayDate: '2026-10-23' }], [
+  txn({ id: 'weekly-paid', date: '2026-10-23', type: 'Dividend', symbol: 'XYZ', amount: 10 }),
+], weeklySymbols, '2026-10', '2026-10-25')
+assert.equal(weeklyAfterPayment.scheduledTotal, 520 / 12 - 10, 'posted weekly broker date falls back to monthly remainder')
+assert.equal(weeklyAfterPayment.pending.length, 1)

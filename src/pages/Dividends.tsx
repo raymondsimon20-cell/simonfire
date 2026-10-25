@@ -10,7 +10,7 @@ import { normTicker } from '../lib/plan'
 import clsx from 'clsx'
 import { TransactionDrawer } from '../components/TransactionDrawer'
 import type { Transaction } from '../lib/types'
-import { estimateDividendDate } from '../lib/dividend-calendar'
+import { buildDividendCalendar } from '../lib/dividend-calendar'
 import { SourceBadge } from '../components/SourceBadge'
 
 const todayISO = () => {
@@ -20,7 +20,7 @@ const todayISO = () => {
 }
 
 export default function Dividends() {
-  const { positions, transactions, lastSyncAt } = useScoped()
+  const { positions, transactions, accounts, scope, lastSyncAt } = useScoped()
   const today = todayISO()
   const [calendarMonth, setCalendarMonth] = useState(() => today.slice(0, 7))
   const [selectedDividend, setSelectedDividend] = useState<Transaction | null>(null)
@@ -47,6 +47,10 @@ export default function Dividends() {
     })
   }, [today, transactions])
 
+  const selectedYear = calendarMonth.slice(0, 4)
+  const yearReceived = transactions.filter((t) => t.type === 'Dividend' && t.date.slice(0, 4) === selectedYear && t.date <= today).reduce((sum, t) => sum + t.amount, 0)
+  const scopeLabel = scope === 'all' ? 'All accounts' : accounts.find((a) => a.id === scope)?.name ?? 'Selected account'
+
   const exportCsv = () =>
     downloadCsv('dividends.csv', [
       ['Symbol', 'Cadence', 'Trailing 12M Received', 'Available History', 'Forward / Run Rate', 'Estimate Source', 'Confidence', 'Payments (12M)', 'Last Payment'],
@@ -57,7 +61,7 @@ export default function Dividends() {
     <div>
       <PageHeader
         title="Dividend Income"
-        subtitle={`As of ${shortDate(today)} · synced ${relTime(lastSyncAt)}`}
+        subtitle={`${scopeLabel} · As of ${shortDate(today)} · synced ${relTime(lastSyncAt)}`}
         right={
           <Button onClick={exportCsv}>
             <Download size={15} /> Export CSV
@@ -65,7 +69,19 @@ export default function Dividends() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <DividendCalendar
+        month={calendarMonth}
+        onMonthChange={setCalendarMonth}
+        today={today}
+        positions={positions}
+        transactions={transactions}
+        symbols={d.bySymbol}
+        onSelect={(id) => setSelectedDividend(transactions.find((transaction) => transaction.id === id) ?? null)}
+      />
+
+      <div className="mt-5 rounded-xl border border-border-soft bg-surface-2/40 p-4"><div className="text-xs text-muted">{selectedYear} received dividends · {scopeLabel}</div><div className="num mt-1 text-xl font-semibold text-pos">{usd(yearReceived)}</div><p className="mt-1 text-xs text-faint">Calendar-year posted dividends through {shortDate(today)}, including reinvestments and corrections. Interest is excluded. Match the account and year selected in Schwab to compare.</p></div>
+
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <KpiCard label="Trailing 12M Income" value={usd(d.trailing12m)} sub={`${d.monthsActive}/12 months active`} icon={<DollarSign size={20} />} tile="green" />
         <KpiCard label="Monthly Average" value={usd(d.monthlyAverage)} icon={<TrendingUp size={20} />} tile="blue" />
         <KpiCard label="Historical Dividend Symbols" value={intfmt(d.dividendSymbols)} sub={`${intfmt(d.totalPayments)} payments in available history`} icon={<Layers size={20} />} tile="purple" />
@@ -90,19 +106,11 @@ export default function Dividends() {
         </div>
       )}
 
-      <DividendCalendar
-        month={calendarMonth}
-        onMonthChange={setCalendarMonth}
-        today={today}
-        positions={positions}
-        transactions={transactions}
-        symbols={d.bySymbol}
-        onSelect={(id) => setSelectedDividend(transactions.find((transaction) => transaction.id === id) ?? null)}
-      />
+
 
       <div className="mt-6 grid gap-4 xl:grid-cols-2">
         <div className="card">
-          <div className="mb-1 flex items-center gap-2 text-lg font-semibold">Historical Payment Pattern <SourceBadge source="csv" label="CSV + API"/></div>
+          <div className="mb-1 flex items-center gap-2 text-lg font-semibold">Historical Payment Pattern <SourceBadge source="csv" label="PDF / CSV / API records"/></div>
           <div className="mb-4 text-xs text-faint">Dividends actually received in each of the last 12 calendar months, including assigned and unassigned payments.</div>
           <PositiveBars key={`history-${lastSyncAt}`} data={historicalData} xKey="label" yKey="amount" height={280} color="#34d17d" />
         </div>
@@ -160,7 +168,6 @@ export default function Dividends() {
   )
 }
 
-type CalendarEvent = { symbol: string; amount: number; kind: 'cash' | 'drip' | 'scheduled'; date?: string; cadence?: string; transactionId?: string; estimated?: boolean }
 
 function DividendCalendar({ month, onMonthChange, today, positions, transactions, symbols, onSelect }: {
   month: string
@@ -171,63 +178,9 @@ function DividendCalendar({ month, onMonthChange, today, positions, transactions
   symbols: SymbolDividend[]
   onSelect: (transactionId: string) => void
 }) {
-  const model = useMemo(() => {
-    const [year, monthNumber] = month.split('-').map(Number)
-    const daysInMonth = new Date(year, monthNumber, 0).getDate()
-    const firstWeekday = new Date(year, monthNumber - 1, 1).getDay()
-    const received: CalendarEvent[] = transactions
-      .filter((txn) => txn.type === 'Dividend' && txn.date.slice(0, 7) === month)
-      .map((txn) => ({ symbol: normTicker(txn.symbol ?? '') || 'Unassigned', amount: txn.amount, date: txn.date, kind: /REINVEST|DRIP/i.test(txn.description) ? 'drip' : 'cash', transactionId: txn.id }))
-    const receivedBySymbol = new Map<string, number>()
-    for (const event of received) receivedBySymbol.set(event.symbol, (receivedBySymbol.get(event.symbol) ?? 0) + event.amount)
-
-    const currentShares = new Map<string, number>()
-    const payDates = new Map<string, string>()
-    for (const position of positions) {
-      if (position.isOption || position.shares <= 0) continue
-      const symbol = normTicker(position.symbol)
-      currentShares.set(symbol, (currentShares.get(symbol) ?? 0) + position.shares)
-      if (position.dividendPayDate && (!payDates.has(symbol) || position.dividendPayDate > payDates.get(symbol)!)) payDates.set(symbol, position.dividendPayDate)
-    }
-    const historicalMonths = new Map<string, Set<number>>()
-    const historicalDates = new Map<string, string[]>()
-    for (const txn of transactions) {
-      if (txn.type !== 'Dividend' || !txn.symbol) continue
-      const symbol = normTicker(txn.symbol)
-      const set = historicalMonths.get(symbol) ?? new Set<number>()
-      set.add(Number(txn.date.slice(5, 7)))
-      historicalMonths.set(symbol, set)
-      historicalDates.set(symbol, [...(historicalDates.get(symbol) ?? []), txn.date])
-    }
-    const divisor: Record<SymbolDividend['cadence'], number> = { Weekly: 12, Monthly: 12, Quarterly: 4, Semiannual: 2, Annual: 1, Irregular: 12 }
-    const scheduled: CalendarEvent[] = []
-    for (const row of symbols) {
-      if (!currentShares.has(row.symbol) || row.projAnnual <= 0) continue
-      const exactDate = payDates.get(row.symbol)
-      const expectedThisMonth = row.cadence === 'Weekly' || row.cadence === 'Monthly'
-        || exactDate?.slice(0, 7) === month
-        || historicalMonths.get(row.symbol)?.has(monthNumber)
-      if (!expectedThisMonth) continue
-      const expected = row.projAnnual / divisor[row.cadence]
-      const remaining = Math.max(0, expected - (receivedBySymbol.get(row.symbol) ?? 0))
-      if (remaining < 0.005) continue
-      const brokerDate = exactDate?.slice(0, 7) === month && exactDate >= today ? exactDate : undefined
-      const estimatedDate = brokerDate ? undefined : estimateDividendDate(historicalDates.get(row.symbol) ?? [], month, today, row.cadence)
-      scheduled.push({ symbol: row.symbol, amount: remaining, cadence: row.cadence, kind: 'scheduled', date: brokerDate ?? estimatedDate, estimated: !brokerDate && !!estimatedDate })
-    }
-    const byDate = new Map<string, CalendarEvent[]>()
-    for (const event of [...received, ...scheduled.filter((event) => event.date)]) {
-      const list = byDate.get(event.date!) ?? []
-      list.push(event)
-      byDate.set(event.date!, list)
-    }
-    return {
-      year, monthNumber, daysInMonth, firstWeekday, byDate,
-      receivedTotal: received.reduce((sum, event) => sum + event.amount, 0),
-      scheduledTotal: scheduled.reduce((sum, event) => sum + event.amount, 0),
-      pending: scheduled.filter((event) => !event.date).sort((a, b) => b.amount - a.amount),
-    }
-  }, [month, positions, symbols, today, transactions])
+  const { accounts } = useScoped()
+  const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? 'Account'
+  const model = useMemo(() => buildDividendCalendar(positions, transactions, symbols, month, today), [month, positions, symbols, today, transactions])
 
   const moveMonth = (amount: number) => {
     const [year, monthNumber] = month.split('-').map(Number)
@@ -241,16 +194,17 @@ function DividendCalendar({ month, onMonthChange, today, positions, transactions
 
   return <section className="card mt-6 overflow-hidden p-0">
     <div className="flex flex-wrap items-start justify-between gap-4 p-5 sm:p-6">
-      <div><h2 className="text-lg font-semibold">Dividend Calendar</h2><p className="mt-1 text-xs text-faint">Received and scheduled dividends stay separate. A ~ marks a date estimated from payment history.</p></div>
-      <div className="flex items-center gap-2"><button onClick={() => moveMonth(-1)} className="grid h-9 w-9 place-items-center rounded-lg border border-border text-muted hover:text-ink"><ChevronLeft size={16}/></button><div className="min-w-36 text-center text-sm font-semibold">{label}</div><button onClick={() => moveMonth(1)} className="grid h-9 w-9 place-items-center rounded-lg border border-border text-muted hover:text-ink"><ChevronRight size={16}/></button></div>
+      <div><h2 className="text-lg font-semibold">Monthly Dividend Income</h2><p className="mt-1 text-xs text-faint">Received shows posted dividend records through today, including reinvestments and corrections. Upcoming amounts are estimates based on current shares; Schwab may show different eligible shares or distributions. A ~ marks an estimated date; amounts are always estimates until posted.</p></div>
+      <div className="flex items-center gap-2"><button aria-label="Previous dividend month" onClick={() => moveMonth(-1)} className="grid h-9 w-9 place-items-center rounded-lg border border-border text-muted hover:text-ink"><ChevronLeft size={16}/></button><div className="min-w-36 text-center text-sm font-semibold">{label}</div><button aria-label="Next dividend month" onClick={() => moveMonth(1)} className="grid h-9 w-9 place-items-center rounded-lg border border-border text-muted hover:text-ink"><ChevronRight size={16}/></button></div>
     </div>
     <div className="grid border-y border-border-soft sm:grid-cols-2">
-      <div className="p-5 sm:border-r sm:border-border-soft"><div className="text-xs text-muted">Received</div><div className="num mt-1 text-2xl font-semibold text-pos">{usd(model.receivedTotal)}</div></div>
-      <div className="p-5"><div className="text-xs text-muted">Scheduled · not received</div><div className="num mt-1 text-2xl font-semibold text-[#e1c887]">{usd(model.scheduledTotal)}</div></div>
+      <div className="p-5 sm:border-r sm:border-border-soft"><div className="text-xs text-muted">Received dividends · {label}</div><div className="num mt-1 text-2xl font-semibold text-pos">{usd(model.receivedTotal)}</div><p className="mt-1 text-xs text-muted">{usd(model.cashTotal)} cash · {usd(model.dripTotal)} reinvested</p></div>
+      <div className="p-5"><div className="text-xs text-muted">Est. remaining dividends · {label}</div><div className="num mt-1 text-2xl font-semibold text-[#e1c887]">{usd(model.scheduledTotal)}</div><p className="mt-1 text-xs text-muted">Our estimate from saved holdings and payment history; may differ from Schwab.</p></div>
     </div>
-    <div className="flex flex-wrap gap-4 px-5 py-3 text-[11px] text-muted"><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-pos"/>Cash received</span><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#5aa2ff]"/>DRIP received</span><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#c7a96b]"/>Scheduled</span></div>
-    <div className="overflow-x-auto px-3 pb-4 sm:px-5"><div className="min-w-[720px]"><div className="grid grid-cols-7 border-l border-t border-border-soft">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day) => <div key={day} className="border-b border-r border-border-soft bg-surface-2/40 px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-faint">{day}</div>)}</div><div className="grid grid-cols-7 border-l border-border-soft">{cells.map((day, index) => { const date = day ? `${month}-${String(day).padStart(2, '0')}` : ''; const events = date ? model.byDate.get(date) ?? [] : []; return <div key={index} className={clsx('min-h-28 border-b border-r border-border-soft p-2', date === today && 'bg-[#c7a96b]/[.04]')}><div className={clsx('text-xs', date === today ? 'font-bold text-brand' : 'text-muted')}>{day}</div><div className="mt-1 space-y-1">{events.map((event, eventIndex) => <button key={`${event.symbol}-${event.kind}-${eventIndex}`} onClick={() => event.transactionId && onSelect(event.transactionId)} disabled={!event.transactionId} title={`${event.estimated ? 'Estimated from payment history · ' : ''}${event.symbol} · ${usd(event.amount)}${event.symbol === 'Unassigned' ? ' · click to assign' : ''}`} className={clsx('block w-full truncate rounded-md border px-1.5 py-1 text-left text-[10px]', eventTone[event.kind], event.estimated && 'border-dashed', event.transactionId && 'hover:brightness-125')}><span className="font-semibold">{event.estimated ? '~' : ''}{event.symbol}</span> · {usd(event.amount)}</button>)}</div></div> })}</div></div></div>
-    {model.pending.length > 0 && <div className="border-t border-border-soft p-5 sm:p-6"><h3 className="text-sm font-semibold">Scheduled this month — date pending</h3><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{model.pending.map((event) => <div key={event.symbol} className="flex items-center justify-between gap-3 rounded-lg border border-border-soft bg-surface-2/35 px-3 py-2 text-xs"><span><strong>{event.symbol}</strong><span className="ml-1 text-faint">· {event.cadence}</span></span><span className="num text-[#e1c887]">{usd(event.amount)} scheduled</span></div>)}</div></div>}
+    <div className="flex flex-wrap gap-4 px-5 py-3 text-[11px] text-muted"><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-pos"/>Cash received</span><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#5aa2ff]"/>DRIP received</span><span className="flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-[#c7a96b]"/>Est. remaining</span></div>
+    <div className="overflow-x-auto px-3 pb-4 sm:px-5"><div className="min-w-[720px]"><div className="grid grid-cols-7 border-l border-t border-border-soft">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day) => <div key={day} className="border-b border-r border-border-soft bg-surface-2/40 px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-faint">{day}</div>)}</div><div className="grid grid-cols-7 border-l border-border-soft">{cells.map((day, index) => { const date = day ? `${month}-${String(day).padStart(2, '0')}` : ''; const events = date ? model.byDate.get(date) ?? [] : []; return <div key={index} className={clsx('min-h-28 border-b border-r border-border-soft p-2', date === today && 'bg-[#c7a96b]/[.04]')}><div className={clsx('text-xs', date === today ? 'font-bold text-brand' : 'text-muted')}>{day}</div><div className="mt-1 space-y-1">{events.map((event, eventIndex) => <button key={`${event.symbol}-${event.kind}-${eventIndex}`} onClick={() => event.transactionId && onSelect(event.transactionId)} disabled={!event.transactionId} title={`${event.kind === 'scheduled' ? event.dateSource === 'broker' ? 'Schwab payment date · estimated amount · ' : 'Estimated from payment history · ' : ''}${event.symbol} · ${usd(event.amount)}${event.symbol === 'Unassigned' ? ' · click to assign' : ''}`} className={clsx('block w-full truncate rounded-md border px-1.5 py-1 text-left text-[10px]', eventTone[event.kind], event.estimated && 'border-dashed', event.transactionId && 'hover:brightness-125')}><span className="font-semibold">{event.dateSource === 'history' ? '~' : ''}{event.symbol}</span> · {usd(event.amount)}</button>)}</div></div> })}</div></div></div>
+    {model.received.length > 0 && <details className="border-t border-border-soft p-5"><summary className="cursor-pointer text-sm font-semibold">Received payments · {model.received.length} record{model.received.length === 1 ? '' : 's'}</summary><p className="mt-2 text-xs text-faint">Posted dates and amounts from saved transactions. Select a payment to check its account, source, or classification.</p><div className="mt-3 max-h-72 overflow-auto">{[...model.received].sort((a, b) => b.date!.localeCompare(a.date!)).map((event) => <button key={event.transactionId} onClick={() => onSelect(event.transactionId!)} className="flex w-full items-center justify-between gap-3 border-t border-border-soft py-3 text-left text-xs"><span><strong>{event.symbol}</strong><span className="ml-2 text-muted">{shortDate(event.date!)} · {accountName(event.accountId)} · {event.kind === 'drip' ? 'Reinvested' : event.amount < 0 ? 'Correction' : 'Cash'}</span></span><span className="num">{usd(event.amount)}</span></button>)}</div></details>}
+    {model.pending.length > 0 && <div className="border-t border-border-soft p-5 sm:p-6"><h3 className="text-sm font-semibold">Estimated this month · date pending</h3><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">{model.pending.map((event) => <div key={`${event.accountId}-${event.symbol}`} className="flex items-center justify-between gap-3 rounded-lg border border-border-soft bg-surface-2/35 px-3 py-2 text-xs"><span><strong>{event.symbol}</strong><span className="ml-1 text-faint">· {event.cadence} · {accountName(event.accountId)}</span></span><span className="num text-[#e1c887]">{usd(event.amount)} estimated</span></div>)}</div></div>}
   </section>
 }
 
@@ -258,12 +212,13 @@ function SymbolRow({ s }: { s: SymbolDividend }) {
   const { transactions, accounts } = useScoped()
   const [open, setOpen] = useState(false)
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? ''
+  const asOf = todayISO()
   const payments = useMemo(
     () =>
       transactions
-        .filter((t) => t.type === 'Dividend' && normTicker(t.symbol ?? '') === s.symbol)
+        .filter((t) => t.type === 'Dividend' && t.date <= asOf && normTicker(t.symbol ?? '') === s.symbol)
         .sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [transactions, s.symbol],
+    [transactions, s.symbol, asOf],
   )
 
   return (
@@ -314,7 +269,7 @@ function SymbolRow({ s }: { s: SymbolDividend }) {
                     <tr key={t.id} className="border-t border-border-soft">
                       <td className="whitespace-nowrap px-4 py-2 text-muted">{shortDate(t.date)}</td>
                       <td className="px-4 py-2">
-                        <span className="rounded-md bg-[#123024] px-2 py-0.5 text-xs font-medium text-[#3fd88a]">Cash Dividend</span>
+                        <span className="rounded-md bg-[#123024] px-2 py-0.5 text-xs font-medium text-[#3fd88a]">{/REINVEST|DRIP/i.test(t.description) ? 'Reinvested Dividend' : t.amount < 0 ? 'Dividend Correction' : 'Cash Dividend'}</span>
                       </td>
                       <td className="px-4 py-2 text-xs text-muted">{accName(t.accountId)}</td>
                       <td className="max-w-[320px] truncate px-4 py-2 text-muted">{t.description}</td>

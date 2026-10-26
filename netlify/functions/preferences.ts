@@ -1,3 +1,4 @@
+import { cleanFireModels, mergeFireModels, type FireSettings } from '../../src/lib/fire-model'
 import { mergeHistoricalBalances } from '../../src/lib/statement-history'
 import type { HistoricalBalance } from '../../src/lib/types'
 import { cleanStatementSnapshot } from '../../src/lib/statement-holdings'
@@ -27,6 +28,7 @@ type SharedPreferences = {
   historicalBalances?: unknown[]
   accountOpenMonths?: Record<string, string>
   incomePlan?: {
+    fireModels?: Record<string, FireSettings>
     allocationExpenseReserve?: boolean
     allocationSizing?: 'priority' | 'gaps' | 'equal' | 'trend'
     annualW2Target: number
@@ -79,6 +81,7 @@ function clean(input: any): SharedPreferences {
   }
   const rawPlan = input?.incomePlan
   const incomePlan = rawPlan && typeof rawPlan === 'object' ? {
+    fireModels: cleanFireModels(rawPlan.fireModels),
     allocationExpenseReserve: rawPlan.allocationExpenseReserve !== false,
     allocationSizing: (['priority', 'gaps', 'equal', 'trend'].includes(rawPlan.allocationSizing) ? rawPlan.allocationSizing : 'priority') as 'priority' | 'gaps' | 'equal' | 'trend',
     annualW2Target: numberIn(rawPlan.annualW2Target, 0, 10_000_000, 0),
@@ -164,7 +167,7 @@ export default async (request: Request) => {
       const existing = await storage.getWithMetadata(KEY, { type: 'json' })
       // Tabs from before open months existed omit the field; keep the saved value.
       const accountOpenMonths = 'accountOpenMonths' in body ? incoming.accountOpenMonths : existing?.data.accountOpenMonths ?? {}
-      const preferences = { ...incoming, accountOpenMonths, historicalBalances: mergeHistoricalBalances((existing?.data.historicalBalances??[]) as HistoricalBalance[], (incoming.historicalBalances??[]) as HistoricalBalance[], []), statementTransactions: mergeStatementTransactions(existing?.data.statementTransactions, incoming.statementTransactions), transactionOverrides: mergeTransactionOverrides(
+      const preferences = { ...incoming, incomePlan: incoming.incomePlan ? { ...incoming.incomePlan, fireModels: mergeFireModels(existing?.data.incomePlan?.fireModels, incoming.incomePlan.fireModels) } : existing?.data.incomePlan, accountOpenMonths, historicalBalances: mergeHistoricalBalances((existing?.data.historicalBalances??[]) as HistoricalBalance[], (incoming.historicalBalances??[]) as HistoricalBalance[], []), statementTransactions: mergeStatementTransactions(existing?.data.statementTransactions, incoming.statementTransactions), transactionOverrides: mergeTransactionOverrides(
         cleanTransactionOverrides(existing?.data.transactionOverrides), incoming.transactionOverrides,
       ) }
       if (existing && !existing.etag) return json({ ok: false, error: 'missing_etag' }, 503)

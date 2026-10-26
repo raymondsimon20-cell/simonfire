@@ -316,6 +316,7 @@ export interface SyncChangeSummary {
 }
 
 export interface IncomePlan {
+  fireModels?: Record<string, import('./fire-model').FireSettings>
   allocationExpenseReserve?: boolean
   allocationSizing?: 'priority' | 'gaps' | 'equal' | 'trend'
   annualW2Target: number

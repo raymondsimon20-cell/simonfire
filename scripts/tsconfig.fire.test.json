@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
+    "types": [
+      "node"
+    ],
+    "rootDir": "..",
+    "outDir": "/tmp/simonfire-fire-tests",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true
+  },
+  "include": [
+    "test-fire-model.ts",
+    "../src/lib/fire-model.ts"
+  ]
+}

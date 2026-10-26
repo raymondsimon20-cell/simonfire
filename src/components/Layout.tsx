@@ -1,7 +1,7 @@
 import { positionSources } from '../lib/position-sources'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
-import { RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles, History, FileText, ShieldCheck, Settings } from 'lucide-react'
+import { TrendingUp as TrendingIcon, RefreshCw, ChevronDown, Layers, RotateCcw, Zap, FlaskConical, Upload, LayoutDashboard, ChartNoAxesCombined, ReceiptText, Landmark, Coins, CalendarCheck, BookOpenText, Goal, Cable, Sparkles, History, FileText, ShieldCheck, Settings } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { schwabStatus, schwabSync } from '../lib/api'
 import { relTime } from '../lib/format'
@@ -59,6 +59,7 @@ const NAV = [
   { to: '/month-close', label: 'Month Close', icon: CalendarCheck },
   { to: '/ledger', label: 'Ledger', icon: BookOpenText },
   { to: '/allocation', label: 'Allocation', icon: Goal },
+  { to: '/fire-model', label: 'FIRE Model', icon: TrendingIcon },
   { to: '/reports', label: 'Reports', icon: FileText },
   { to: '/data-quality', label: 'Data Quality', icon: ShieldCheck },
   { to: '/preferences', label: 'Preferences', icon: Settings },

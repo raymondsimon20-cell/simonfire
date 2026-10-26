@@ -6,7 +6,7 @@ import { isClosingSale } from '../lib/transaction-review'
 import { usePersistentState } from '../lib/persistent-state'
 import { Modal } from './Modal'
 
-const pages = [['Today','/'],['Positions','/positions'],['Transactions','/transactions'],['Dividends','/dividends'],['Cash Flow','/cash-flow'],['Historical Value','/history'],['Allocation & Puts','/allocation'],['Reports','/reports'],['Data Quality','/data-quality'],['Preferences','/preferences'],['Connections','/connections']]
+const pages = [['Today','/'],['Positions','/positions'],['Transactions','/transactions'],['Dividends','/dividends'],['Cash Flow','/cash-flow'],['Historical Value','/history'],['Allocation & Puts','/allocation'],['FIRE Model','/fire-model'],['Reports','/reports'],['Data Quality','/data-quality'],['Preferences','/preferences'],['Connections','/connections']]
 type Alert = { id: string; label: string; detail: string; to: string }
 
 export function PremiumTools() {

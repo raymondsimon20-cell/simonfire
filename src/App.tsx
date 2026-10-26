@@ -13,6 +13,7 @@ const MonthClose = lazy(() => import('./pages/MonthClose'))
 const Ledger = lazy(() => import('./pages/Ledger'))
 const Connections = lazy(() => import('./pages/Connections'))
 const AccountDetail = lazy(() => import('./pages/AccountDetail'))
+const FireModel = lazy(() => import('./pages/FireModel'))
 const Allocation = lazy(() => import('./pages/Allocation'))
 const HistoricalValue = lazy(() => import('./pages/HistoricalValue'))
 const Reports = lazy(() => import('./pages/Reports'))
@@ -22,7 +23,7 @@ const page = (node: ReactNode) => <Suspense fallback={<PageSkeleton />}>{node}</
 const makeRouter = import.meta.env.VITE_SINGLEFILE ? createHashRouter : createBrowserRouter
 const router = makeRouter([{ path: '/', element: <Layout />, errorElement: <NotFound />, children: [
   { index: true, element: page(<Dashboard />) }, { path: 'positions', element: page(<Positions />) },
-  { path: 'account/:id', element: page(<AccountDetail />) }, { path: 'allocation', element: page(<Allocation />) },
+  { path: 'account/:id', element: page(<AccountDetail />) }, { path: 'allocation', element: page(<Allocation />) }, { path: 'fire-model', element: page(<FireModel />) },
   { path: 'history', element: page(<HistoricalValue />) },
   { path: 'transactions', element: page(<Transactions />) }, { path: 'cash-flow', element: page(<CashFlow />) },
   { path: 'dividends', element: page(<Dividends />) }, { path: 'month-close', element: page(<MonthClose />) },

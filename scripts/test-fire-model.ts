@@ -82,3 +82,36 @@ const storedModels = { 'account-391': base }
 assert.deepEqual(mergeFireModels(storedModels, undefined)['account-391'], cleanFireSettings(base), 'old client omission preserves saved scenarios')
 assert.equal(Object.keys(mergeFireModels(storedModels, { taxable: base })).length, 2, 'one scope save retains other scopes')
 assert.equal(mergeFireModels(storedModels, { 'account-391': { ...base, annualSalary: 999 } })['account-391'].annualSalary, 999)
+
+import { firePortfolio } from '../src/lib/fire-portfolio'
+import type { Account, Position } from '../src/lib/types'
+const liveAccounts = [{ id: 'live', mask: '391', name: 'Brokerage', type: 'Margin', isMargin: true, cash: 100, marginBalance: 1000, equity: 9250 }, { id: 'ira', mask: '870', type: 'Roth IRA', cash: 50000, marginBalance: 0, equity: 50000 }] as Account[]
+const livePositions = [
+  { id: 'stock', accountId: 'live', symbol: 'ABC', name: 'ABC', shares: 100, lastPrice: 100, avgCost: 80, prevClose: 99, annualDividend: 4, dividendsReceived: 0 },
+  { id: 'put', accountId: 'live', symbol: 'ABC', name: 'Protective put', shares: 1, lastPrice: 120, avgCost: 100, prevClose: 110, dividendsReceived: 0, isOption: true },
+] as Position[]
+const live = firePortfolio(liveAccounts, livePositions, [], 'all', [], '2026-10-26')
+assert.equal(live.accounts.length, 1)
+assert.equal(live.holdings.length, 2, 'actual option holding is shown too')
+assert.equal(live.actualGross, 10250, 'broker equity plus debt is the authoritative gross')
+assert.equal(live.balanceAdjustment, 30, 'unallocated broker balance difference is explicit')
+assert.equal(live.start.otherValue, 150)
+assert.equal(live.start.cashYieldPct, 4)
+assert.equal(projectFire(live.start, { ...base, months: 1 }).startingGross, 10250)
+const updated = firePortfolio(liveAccounts, livePositions.map((p) => p.id === 'stock' ? { ...p, shares: 120, lastPrice: 110 } : p), [], 'all', ['391|ABC'], '2026-10-26')
+assert.equal(updated.start.dripValue, 13200, 'current holdings and price changes immediately feed the model')
+assert.equal(updated.actualGross, 10250, 'broker balance remains authoritative until a newer balance arrives')
+assert.equal(updated.start.cashYieldPct, 0, 'reinvested holding is not also paid as cash')
+for (const otherValue of [-200, 200]) {
+  const staticProjection = projectFire({ ...starting, otherValue }, { ...base, months: 2, growthPct: 0, interestPct: 0 })
+  assert.equal(staticProjection.startingGross, 10000 + otherValue)
+  assert.equal(staticProjection.rows[0].cashDividend, 100, 'fixed marked assets earn no invented dividend')
+  let net = 9000 + otherValue
+  for (const r of staticProjection.rows) {
+    net += r.salary + r.lumpSum + r.dripDividend + r.cashDividend + r.appreciation - r.expenses - r.interest + r.unfunded
+    assert.ok(Math.abs(net - r.net) < 0.00001, 'signed broker reconciliation preserves net-equity accounting')
+  }
+}
+
+const twoAccounts = firePortfolio([liveAccounts[0], { ...liveAccounts[0], id: 'joint', mask: '414' }], [livePositions[0], { ...livePositions[0], id: 'joint-stock', accountId: 'joint', annualDividend: undefined }], [], 'all', [], '2026-10-26')
+assert.equal(twoAccounts.holdings.reduce((sum, h) => sum + h.income, 0), 800, 'shared security fundamentals scale to each account without partial double counting')

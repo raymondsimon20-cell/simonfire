@@ -23,7 +23,7 @@ export interface FireSettings {
   milestones: FireMilestone[]
 }
 export interface FireStart {
-  dripValue: number; cashValue: number; cash: number; debt: number
+  dripValue: number; cashValue: number; cash: number; otherValue?: number; debt: number
   dripYieldPct: number; cashYieldPct: number
 }
 export interface FireMonth {
@@ -71,7 +71,8 @@ export function projectFire(start: FireStart, raw: FireSettings) {
   let cashValue = Math.max(0, start.cashValue)
   let cash = Math.max(0, start.cash)
   let debt = s.startingDebt ?? Math.max(0, start.debt)
-  const startingGross = dripValue + cashValue + cash
+  const otherValue = start.otherValue ?? 0
+  const startingGross = dripValue + cashValue + cash + otherValue
   const startingDebt = debt
   const dripRatio = s.newMoneyDripPct != null ? s.newMoneyDripPct / 100 : (dripValue + cashValue > 0 ? dripValue / (dripValue + cashValue) : 0)
   const dripYield = (s.dripYieldPct ?? start.dripYieldPct) / 100 / 12 * (1 - s.cutPct / 100)
@@ -113,7 +114,7 @@ export function projectFire(start: FireStart, raw: FireSettings) {
       const desiredDebt = debt + expenses + interest - cashDividend
       if (desiredDebt < 0) { surplusInvested = -desiredDebt; debt = 0; invest(surplusInvested) }
       else debt = desiredDebt
-      const capacity = (dripValue + cashValue + cash) * (1 - s.minEquityPct / 100)
+      const capacity = (dripValue + cashValue + cash + otherValue) * (1 - s.minEquityPct / 100)
       if (debt > capacity + 0.005) {
         // An opening debt breach cannot be cured by pretending some old debt
         // disappeared. Leave liabilities intact and stop the scenario.
@@ -140,10 +141,10 @@ export function projectFire(start: FireStart, raw: FireSettings) {
         if (unfunded > 0.005) { stoppedMonth = month; stopReason = 'funding' }
       }
     }
-    if (debt > (dripValue + cashValue + cash) * (1 - s.minEquityPct / 100) + 0.005 && stoppedMonth == null) { stoppedMonth = month; stopReason = 'equity' }
+    if (debt > (dripValue + cashValue + cash + otherValue) * (1 - s.minEquityPct / 100) + 0.005 && stoppedMonth == null) { stoppedMonth = month; stopReason = 'equity' }
     cumulativeSalary += salary
     cumulativeDrip += dripDividend; cumulativeCash += cashDividend
-    const gross = dripValue + cashValue + cash
+    const gross = dripValue + cashValue + cash + otherValue
     rows.push({ month, gross, net: gross - debt, debt, equityPct: gross > 0 ? (gross - debt) / gross * 100 : 0,
       salary, lumpSum, expenses, interest, dripDividend, cashDividend, appreciation,
       borrowed: Math.max(0, debt - openingDebt), debtPaid: Math.max(0, openingDebt - debt),

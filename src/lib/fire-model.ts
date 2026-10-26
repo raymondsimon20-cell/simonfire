@@ -16,6 +16,7 @@ export interface FireSettings {
   months: number
   cutPct: number
   minEquityPct: number
+  enforceEquityLimit?: boolean
   dripKeys: string[]
   dripYieldPct?: number
   cashYieldPct?: number
@@ -44,6 +45,7 @@ export function cleanFireSettings(raw: unknown): FireSettings {
     inflationPct: bound(r.inflationPct, 0, 30, 3), interestPct: bound(r.interestPct, 0, 50, 8),
     growthPct: bound(r.growthPct, -95, 50, 0), months: Math.round(bound(r.months, 1, 360, 60)),
     cutPct: bound(r.cutPct, 0, 100, 0), minEquityPct: bound(r.minEquityPct, 1, 100, 50),
+    enforceEquityLimit: r.enforceEquityLimit === true,
     dripKeys: Array.isArray(r.dripKeys) ? [...new Set(r.dripKeys.filter((k): k is string => typeof k === 'string' && k.length <= 200))].slice(0, 2000) : [],
     dripYieldPct: optional(r.dripYieldPct, 0, 100), cashYieldPct: optional(r.cashYieldPct, 0, 100),
     newMoneyDripPct: optional(r.newMoneyDripPct, 0, 100),
@@ -83,7 +85,8 @@ export function projectFire(start: FireStart, raw: FireSettings) {
   let expenses = s.monthlyExpenses
   let cumulativeSalary = 0, cumulativeDrip = 0, cumulativeCash = 0
   const rows: FireMonth[] = []
-  let stoppedMonth: number | null = debt > startingGross * (1 - s.minEquityPct / 100) + 0.005 ? 0 : null
+  let equityBreachMonth: number | null = debt > startingGross * (1 - s.minEquityPct / 100) + 0.005 ? 0 : null
+  let stoppedMonth: number | null = s.enforceEquityLimit ? equityBreachMonth : null
   let stopReason: 'equity' | 'funding' | null = stoppedMonth === 0 ? 'equity' : null
   if (stoppedMonth === 0) rows.push({ month: 0, gross: startingGross, net: startingGross - debt, debt, equityPct: startingGross > 0 ? (startingGross - debt) / startingGross * 100 : 0, salary: 0, lumpSum: 0, expenses: 0, interest: 0, dripDividend: 0, cashDividend: 0, appreciation: 0, borrowed: 0, debtPaid: 0, surplusInvested: 0, assetSales: 0, unfunded: 0, cumulativeSalary: 0, cumulativeDrip: 0, cumulativeCash: 0 })
   const invest = (amount: number) => { dripValue += amount * dripRatio; cashValue += amount * (1 - dripRatio) }
@@ -116,6 +119,9 @@ export function projectFire(start: FireStart, raw: FireSettings) {
       else debt = desiredDebt
       const capacity = (dripValue + cashValue + cash + otherValue) * (1 - s.minEquityPct / 100)
       if (debt > capacity + 0.005) {
+        equityBreachMonth ??= month
+      }
+      if (s.enforceEquityLimit && debt > capacity + 0.005) {
         // An opening debt breach cannot be cured by pretending some old debt
         // disappeared. Leave liabilities intact and stop the scenario.
         unfunded = Math.max(0, debt - Math.max(capacity, openingDebt))
@@ -141,7 +147,10 @@ export function projectFire(start: FireStart, raw: FireSettings) {
         if (unfunded > 0.005) { stoppedMonth = month; stopReason = 'funding' }
       }
     }
-    if (debt > (dripValue + cashValue + cash + otherValue) * (1 - s.minEquityPct / 100) + 0.005 && stoppedMonth == null) { stoppedMonth = month; stopReason = 'equity' }
+    if (debt > (dripValue + cashValue + cash + otherValue) * (1 - s.minEquityPct / 100) + 0.005) {
+      equityBreachMonth ??= month
+      if (s.enforceEquityLimit && stoppedMonth == null) { stoppedMonth = month; stopReason = 'equity' }
+    }
     cumulativeSalary += salary
     cumulativeDrip += dripDividend; cumulativeCash += cashDividend
     const gross = dripValue + cashValue + cash + otherValue
@@ -162,5 +171,5 @@ export function projectFire(start: FireStart, raw: FireSettings) {
   }
   const peak = rows.reduce((best, r) => r.debt > best.debt ? r : best, { month: 0, debt: startingDebt })
   return { rows, startingGross, startingDebt, startingNet: startingGross - startingDebt,
-    final: rows.at(-1)!, crossoverMonth, stoppedMonth, stopReason, peakDebt: peak.debt, peakDebtMonth: peak.month }
+    final: rows.at(-1)!, crossoverMonth, stoppedMonth, stopReason, equityBreachMonth, peakDebt: peak.debt, peakDebtMonth: peak.month }
 }

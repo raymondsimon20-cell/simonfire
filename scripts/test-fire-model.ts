@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { projectFire, cleanFireSettings, mergeFireModels, type FireSettings } from '../src/lib/fire-model'
 
-const base: FireSettings = { mode: 'margin', annualSalary: 12000, monthlyExpenses: 500, inflationPct: 0, interestPct: 12, growthPct: 0, months: 12, cutPct: 0, minEquityPct: 25, dripKeys: [], milestones: [] }
+const base: FireSettings = { mode: 'margin', annualSalary: 12000, monthlyExpenses: 500, inflationPct: 0, interestPct: 12, growthPct: 0, months: 12, cutPct: 0, minEquityPct: 25, enforceEquityLimit: true, dripKeys: [], milestones: [] }
 const starting = { dripValue: 0, cashValue: 10000, cash: 0, debt: 1000, dripYieldPct: 0, cashYieldPct: 12 }
 const one = projectFire(starting, { ...base, months: 1 })
 assert.equal(one.rows[0].salary, 1000, 'entire salary goes into assets')
@@ -115,3 +115,16 @@ for (const otherValue of [-200, 200]) {
 
 const twoAccounts = firePortfolio([liveAccounts[0], { ...liveAccounts[0], id: 'joint', mask: '414' }], [livePositions[0], { ...livePositions[0], id: 'joint-stock', accountId: 'joint', annualDividend: undefined }], [], 'all', [], '2026-10-26')
 assert.equal(twoAccounts.holdings.reduce((sum, h) => sum + h.income, 0), 800, 'shared security fundamentals scale to each account without partial double counting')
+
+const fullTimeline = projectFire({ ...starting, debt: 7400 }, { ...base, annualSalary: 0, months: 60, minEquityPct: 50, enforceEquityLimit: false })
+assert.equal(fullTimeline.rows.length, 60, 'full-timeline mode continues beyond an opening equity breach')
+assert.equal(fullTimeline.final.month, 60)
+assert.equal(fullTimeline.stoppedMonth, null)
+assert.equal(fullTimeline.equityBreachMonth, 0)
+assert.ok(fullTimeline.final.debt > 7400, 'hypothetical debt is not silently capped')
+const firstMonthBreach = projectFire({ ...starting, debt: 4900 }, { ...base, annualSalary: 0, months: 60, minEquityPct: 50, enforceEquityLimit: false })
+assert.equal(firstMonthBreach.equityBreachMonth, 1)
+assert.equal(firstMonthBreach.rows.length, 60)
+assert.equal(cleanFireSettings({ ...base, enforceEquityLimit: undefined }).enforceEquityLimit, false, 'existing saved scenarios default to a complete projection')
+const cashCannotInventFunds = projectFire({ ...starting, cashValue: 50, debt: 0, cashYieldPct: 0 }, { ...base, mode: 'cash', annualSalary: 0, monthlyExpenses: 100, interestPct: 0, enforceEquityLimit: false })
+assert.equal(cashCannotInventFunds.stopReason, 'funding', 'full timeline never invents cash-only borrowing')

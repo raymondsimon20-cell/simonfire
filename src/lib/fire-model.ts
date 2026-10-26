@@ -17,6 +17,7 @@ export interface FireSettings {
   cutPct: number
   minEquityPct: number
   enforceEquityLimit?: boolean
+  pauseInvestmentsOverLimit?: boolean
   dripKeys: string[]
   dripYieldPct?: number
   cashYieldPct?: number
@@ -29,6 +30,7 @@ export interface FireStart {
 }
 export interface FireMonth {
   month: number; gross: number; net: number; debt: number; equityPct: number
+  salaryInvested: number; salaryToMargin: number; lumpSumToMargin: number; dividendsRedirected: number; investmentPaused: boolean
   salary: number; lumpSum: number; expenses: number; interest: number
   dripDividend: number; cashDividend: number; appreciation: number
   borrowed: number; debtPaid: number; surplusInvested: number; assetSales: number; unfunded: number
@@ -46,6 +48,7 @@ export function cleanFireSettings(raw: unknown): FireSettings {
     growthPct: bound(r.growthPct, -95, 50, 0), months: Math.round(bound(r.months, 1, 360, 60)),
     cutPct: bound(r.cutPct, 0, 100, 0), minEquityPct: bound(r.minEquityPct, 1, 100, 50),
     enforceEquityLimit: r.enforceEquityLimit === true,
+    pauseInvestmentsOverLimit: r.pauseInvestmentsOverLimit !== false,
     dripKeys: Array.isArray(r.dripKeys) ? [...new Set(r.dripKeys.filter((k): k is string => typeof k === 'string' && k.length <= 200))].slice(0, 2000) : [],
     dripYieldPct: optional(r.dripYieldPct, 0, 100), cashYieldPct: optional(r.cashYieldPct, 0, 100),
     newMoneyDripPct: optional(r.newMoneyDripPct, 0, 100),
@@ -86,9 +89,9 @@ export function projectFire(start: FireStart, raw: FireSettings) {
   let cumulativeSalary = 0, cumulativeDrip = 0, cumulativeCash = 0
   const rows: FireMonth[] = []
   let equityBreachMonth: number | null = debt > startingGross * (1 - s.minEquityPct / 100) + 0.005 ? 0 : null
-  let stoppedMonth: number | null = s.enforceEquityLimit ? equityBreachMonth : null
+  let stoppedMonth: number | null = s.enforceEquityLimit && !(s.mode === 'margin' && s.pauseInvestmentsOverLimit) ? equityBreachMonth : null
   let stopReason: 'equity' | 'funding' | null = stoppedMonth === 0 ? 'equity' : null
-  if (stoppedMonth === 0) rows.push({ month: 0, gross: startingGross, net: startingGross - debt, debt, equityPct: startingGross > 0 ? (startingGross - debt) / startingGross * 100 : 0, salary: 0, lumpSum: 0, expenses: 0, interest: 0, dripDividend: 0, cashDividend: 0, appreciation: 0, borrowed: 0, debtPaid: 0, surplusInvested: 0, assetSales: 0, unfunded: 0, cumulativeSalary: 0, cumulativeDrip: 0, cumulativeCash: 0 })
+  if (stoppedMonth === 0) rows.push({ month: 0, gross: startingGross, net: startingGross - debt, debt, equityPct: startingGross > 0 ? (startingGross - debt) / startingGross * 100 : 0, salary: 0, salaryInvested: 0, salaryToMargin: 0, lumpSumToMargin: 0, dividendsRedirected: 0, investmentPaused: false, lumpSum: 0, expenses: 0, interest: 0, dripDividend: 0, cashDividend: 0, appreciation: 0, borrowed: 0, debtPaid: 0, surplusInvested: 0, assetSales: 0, unfunded: 0, cumulativeSalary: 0, cumulativeDrip: 0, cumulativeCash: 0 })
   const invest = (amount: number) => { dripValue += amount * dripRatio; cashValue += amount * (1 - dripRatio) }
   for (let month = 1; month <= s.months && stoppedMonth == null; month++) {
     if (month > 1) expenses *= inflation
@@ -100,21 +103,41 @@ export function projectFire(start: FireStart, raw: FireSettings) {
     }
     // Opening holdings earn dividends and price growth. Salary and lump sums
     // are invested at month end, so they do not earn a full month's income early.
-    const dripDividend = dripValue * dripYield
-    const cashDividend = cashValue * cashYield
+    const expectedDrip = dripValue * dripYield
+    const expectedCash = cashValue * cashYield
     const appreciation = (dripValue + cashValue) * growth
+    const openingGross = dripValue + cashValue + cash + otherValue
+    const openingDebt = debt
+    const salary = annualSalary / 12
+    // Test the ordinary month before allocating new money. If investing would
+    // cross the threshold, route this month's contributions and all dividends
+    // toward debt instead. A recovered month can resume normal investment.
+    const interest = (debt + (s.mode === 'margin' ? expenses : 0)) * s.interestPct / 100 / 12
+    const normalGross = openingGross + appreciation + expectedDrip + salary + lumpSum
+    const normalDebt = Math.max(0, debt + expenses + interest - expectedCash)
+    const investmentPaused = s.mode === 'margin' && s.pauseInvestmentsOverLimit === true
+      && (openingDebt > openingGross * (1 - s.minEquityPct / 100) + 0.005
+        || normalDebt > normalGross * (1 - s.minEquityPct / 100) + 0.005)
+    const dividendsRedirected = investmentPaused ? expectedDrip : 0
+    const dripDividend = investmentPaused ? 0 : expectedDrip
+    const cashDividend = expectedCash + dividendsRedirected
     dripValue *= 1 + growth
     cashValue *= 1 + growth
     dripValue += dripDividend
-    const salary = annualSalary / 12
-    invest(salary + lumpSum)
-    const openingDebt = debt
-    let assetSales = 0, unfunded = 0, surplusInvested = 0
-    // Margin mode funds expenses first, charges interest on that balance, then
-    // applies cash dividends to debt. Interest is financed if dividends fall short.
-    const interest = (debt + (s.mode === 'margin' ? expenses : 0)) * s.interestPct / 100 / 12
+    let assetSales = 0, unfunded = 0, surplusInvested = 0, salaryToMargin = 0, lumpSumToMargin = 0
+    let salaryInvested = salary
     if (s.mode === 'margin') {
-      const desiredDebt = debt + expenses + interest - cashDividend
+      // Dividends service expenses, interest and opening debt first; paused
+      // contributions repay the rest. Excess after zero debt can be invested.
+      let desiredDebt = debt + expenses + interest - cashDividend
+      if (investmentPaused) {
+        salaryToMargin = Math.min(salary, Math.max(0, desiredDebt))
+        desiredDebt -= salaryToMargin
+        lumpSumToMargin = Math.min(lumpSum, Math.max(0, desiredDebt))
+        desiredDebt -= lumpSumToMargin
+        salaryInvested = salary - salaryToMargin
+      }
+      invest(salaryInvested + lumpSum - lumpSumToMargin)
       if (desiredDebt < 0) { surplusInvested = -desiredDebt; debt = 0; invest(surplusInvested) }
       else debt = desiredDebt
       const capacity = (dripValue + cashValue + cash + otherValue) * (1 - s.minEquityPct / 100)
@@ -129,6 +152,7 @@ export function projectFire(start: FireStart, raw: FireSettings) {
         stoppedMonth = month; stopReason = 'equity'
       }
     } else {
+      invest(salary + lumpSum)
       const balance = cashDividend - expenses - interest
       if (balance >= 0) {
         const repayment = Math.min(debt, balance)
@@ -151,11 +175,11 @@ export function projectFire(start: FireStart, raw: FireSettings) {
       equityBreachMonth ??= month
       if (s.enforceEquityLimit && stoppedMonth == null) { stoppedMonth = month; stopReason = 'equity' }
     }
-    cumulativeSalary += salary
+    cumulativeSalary += salaryInvested
     cumulativeDrip += dripDividend; cumulativeCash += cashDividend
     const gross = dripValue + cashValue + cash + otherValue
     rows.push({ month, gross, net: gross - debt, debt, equityPct: gross > 0 ? (gross - debt) / gross * 100 : 0,
-      salary, lumpSum, expenses, interest, dripDividend, cashDividend, appreciation,
+      salary, salaryInvested, salaryToMargin, lumpSumToMargin, dividendsRedirected, investmentPaused, lumpSum, expenses, interest, dripDividend, cashDividend, appreciation,
       borrowed: Math.max(0, debt - openingDebt), debtPaid: Math.max(0, openingDebt - debt),
       surplusInvested, assetSales, unfunded, cumulativeSalary, cumulativeDrip, cumulativeCash })
     if (stoppedMonth != null) break

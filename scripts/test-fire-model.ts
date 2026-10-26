@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { projectFire, cleanFireSettings, mergeFireModels, type FireSettings } from '../src/lib/fire-model'
 
-const base: FireSettings = { mode: 'margin', annualSalary: 12000, monthlyExpenses: 500, inflationPct: 0, interestPct: 12, growthPct: 0, months: 12, cutPct: 0, minEquityPct: 25, enforceEquityLimit: true, dripKeys: [], milestones: [] }
+const base: FireSettings = { mode: 'margin', annualSalary: 12000, monthlyExpenses: 500, inflationPct: 0, interestPct: 12, growthPct: 0, months: 12, cutPct: 0, minEquityPct: 25, enforceEquityLimit: true, pauseInvestmentsOverLimit: false, dripKeys: [], milestones: [] }
 const starting = { dripValue: 0, cashValue: 10000, cash: 0, debt: 1000, dripYieldPct: 0, cashYieldPct: 12 }
 const one = projectFire(starting, { ...base, months: 1 })
 assert.equal(one.rows[0].salary, 1000, 'entire salary goes into assets')
@@ -128,3 +128,41 @@ assert.equal(firstMonthBreach.rows.length, 60)
 assert.equal(cleanFireSettings({ ...base, enforceEquityLimit: undefined }).enforceEquityLimit, false, 'existing saved scenarios default to a complete projection')
 const cashCannotInventFunds = projectFire({ ...starting, cashValue: 50, debt: 0, cashYieldPct: 0 }, { ...base, mode: 'cash', annualSalary: 0, monthlyExpenses: 100, interestPct: 0, enforceEquityLimit: false })
 assert.equal(cashCannotInventFunds.stopReason, 'funding', 'full timeline never invents cash-only borrowing')
+
+const recovery = projectFire({ ...starting, debt: 6000, cashYieldPct: 0 }, { ...base, annualSalary: 24000, monthlyExpenses: 500, interestPct: 0, months: 3, minEquityPct: 50, enforceEquityLimit: false, pauseInvestmentsOverLimit: true })
+assert.equal(recovery.rows[0].investmentPaused, true)
+assert.equal(recovery.rows[0].salaryInvested, 0)
+assert.equal(recovery.rows[0].salaryToMargin, 2000)
+assert.equal(recovery.rows[0].debt, 4500)
+assert.equal(recovery.rows[0].gross, 10000)
+assert.equal(recovery.rows[1].investmentPaused, false, 'salary investment resumes once debt is under the equity limit')
+assert.equal(recovery.rows[1].salaryInvested, 2000)
+assert.equal(recovery.rows[1].salaryToMargin, 0)
+assert.equal(recovery.rows[1].gross, 12000)
+assert.equal(recovery.rows[1].cumulativeSalary, 2000, 'invested salary chart excludes salary paid toward margin')
+const dripPause = projectFire({ dripValue: 10000, cashValue: 0, cash: 0, debt: 6000, dripYieldPct: 12, cashYieldPct: 0 }, { ...base, annualSalary: 12000, monthlyExpenses: 500, interestPct: 0, months: 1, minEquityPct: 50, enforceEquityLimit: false, pauseInvestmentsOverLimit: true })
+assert.equal(dripPause.rows[0].dripDividend, 0)
+assert.equal(dripPause.rows[0].dividendsRedirected, 100)
+assert.equal(dripPause.rows[0].cashDividend, 100)
+assert.equal(dripPause.rows[0].debt, 5400)
+assert.equal(dripPause.rows[0].gross, 10000)
+assert.equal(dripPause.rows[0].net, 4000 + 1000 + 100 - 500)
+const preemptive = projectFire({ ...starting, debt: 4900, cashYieldPct: 0 }, { ...base, annualSalary: 12000, monthlyExpenses: 2000, interestPct: 0, months: 1, minEquityPct: 50, enforceEquityLimit: false, pauseInvestmentsOverLimit: true })
+assert.equal(preemptive.rows[0].investmentPaused, true, 'a projected month-end breach pauses investment before it occurs')
+assert.equal(preemptive.rows[0].salaryToMargin, 1000)
+assert.equal(cleanFireSettings({}).pauseInvestmentsOverLimit, true)
+const pausedMilestone = projectFire({ ...starting, debt: 6000, cashYieldPct: 0 }, { ...base, annualSalary: 12000, monthlyExpenses: 500, interestPct: 0, months: 1, minEquityPct: 50, enforceEquityLimit: false, pauseInvestmentsOverLimit: true, milestones: [{ id: 'bonus', month: 1, contribution: 1000 }] })
+assert.equal(pausedMilestone.rows[0].lumpSumToMargin, 1000)
+assert.equal(pausedMilestone.rows[0].debt, 4500)
+assert.equal(pausedMilestone.rows[0].gross, 10000)
+const cashComparison = projectFire(starting, { ...base, mode: 'cash', pauseInvestmentsOverLimit: true, months: 1 })
+assert.equal(cashComparison.rows[0].investmentPaused, false, 'adaptive investing applies only to the margin strategy')
+for (const growthPct of [-20, 0, 7]) {
+  const adaptive = projectFire({ dripValue: 30000, cashValue: 70000, cash: 500, debt: 60000, dripYieldPct: 8, cashYieldPct: 15 }, { ...base, annualSalary: 48000, monthlyExpenses: 2000, months: 60, growthPct, minEquityPct: 50, pauseInvestmentsOverLimit: true, enforceEquityLimit: false })
+  let net = 40500
+  for (const r of adaptive.rows) {
+    net += r.salary + r.lumpSum + r.dripDividend + r.cashDividend + r.appreciation - r.expenses - r.interest
+    assert.ok(Math.abs(net - r.net) < 0.00001, `adaptive month ${r.month} conserves salary and dividend cash`)
+    assert.ok(Math.abs(r.salaryInvested + r.salaryToMargin - r.salary) < 0.00001)
+  }
+}

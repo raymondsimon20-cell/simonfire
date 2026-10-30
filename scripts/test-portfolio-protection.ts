@@ -46,3 +46,15 @@ assert.equal(boundary.recommendation?.contracts,3,'a feasible quantity outranks 
 assert.equal(rankPortfolioProtection({...input,accountCount:2}).ready,false,'cash-only accounts contributing balances cannot bypass the single-account gate')
 const entryBreach = rankPortfolioProtection({...input, positions:[stock], gross:100000, debt:49000.02, ratePct:0, feePerContract:0, maxContracts:10, budget:20000, risks:{[riskKey(stock)]:{beta:1.6,correlation:1,leverage:1,maintenancePct:0,source:'Synthetic test',maintenanceSource:'Synthetic test'}},quotes:[{symbol:'QQQ 270319P00500000',expiration:'2027-03-19',strike:500,ask:5,bid:4.9,multiplier:100}]})
 assert.equal(entryBreach.recommendation,null,'future protection cannot justify an immediate equity-floor breach')
+
+assert.equal(rankPortfolioProtection({...input,risks:{[riskKey(stock)]:{...input.risks[riskKey(stock)],leverage:undefined}}}).ready,true,'observed beta already includes leverage; separate leverage metadata is optional')
+assert.equal(rankPortfolioProtection({...input,risks:{[riskKey(stock)]:{...input.risks[riskKey(stock)],maintenancePct:undefined}}}).ready,false,'missing broker maintenance must still block final advice')
+
+import { protectionAiEvidence } from '../src/lib/portfolio-protection'
+const aiStress = protectionAiEvidence(input, true)
+assert.deepEqual(aiStress.hold.map(s=>s.declinePct),[5,10,20,30])
+assert.equal(aiStress.hold[2].financing,hold[2].financing)
+assert.equal(aiStress.evidenceComplete,true)
+assert.equal(protectionAiEvidence(input,false).evidenceComplete,false)
+assert.ok(!JSON.stringify(aiStress).includes('accountId'))
+assert.ok(!JSON.stringify(aiStress).includes(put.symbol),'AI comparison sends numeric contract terms, not raw account positions')

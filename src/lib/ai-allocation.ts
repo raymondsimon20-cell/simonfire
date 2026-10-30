@@ -1,3 +1,4 @@
+import { PROTECTION_SHOCKS, type ProtectionAiEvidence, type ProtectionAiScenario } from './portfolio-protection'
 import type { Insights, Position } from './types'
 import { bucketOf, BUCKETS } from './buckets'
 import { holdingInsight } from './insights'
@@ -41,6 +42,7 @@ export function isCurrentHedgeQuote(fetchedAt: string, expiration: string, asOf:
 }
 export interface AllocationCandidate { symbol: string; bucket: string; weight: number; distributionYield: number | null; trend: string; trendScore: number | null; risk: PriceRiskEvidence | null; eligible: boolean; evidenceScore: number; gapWeight: number }
 export interface AllocationEvidence {
+  protectionReview?: ProtectionAiEvidence
   asOf: string; source: 'sample' | 'live' | 'imported'; horizonMonths: 12; monitorMonths: [3, 6]; budget: number; longExposure: number; shortExposure: number; marginDebt: number | null; netEquity: number | null
   candidates: AllocationCandidate[]; targets: { bucket: string; percent: number }[]
   proxies: { symbol: string; beta: number | null; coverage: number }[]
@@ -105,7 +107,27 @@ export function validateAllocationEvidence(raw: unknown): AllocationEvidence {
     const p = portfolioPutHedge({ longExposure: r.longExposure, qqqPrice: h.price, portfolioQqqBeta: h.beta, targetQqqDeclinePct: h.declinePct, lossOffsetPct: h.offsetPct, strikePrice: q.strike, premiumPerShare: q.premium, annualPremiumBudgetPct: h.annualBudgetPct, existingOffset: activePuts.filter((put) => put.underlying === h.proxy && put.expiration >= q.expiration).reduce((sum, put) => sum + put.contracts * 100 * Math.max(0, put.strike - h.price * (1 - h.declinePct / 100)) - put.value, 0) })
     return { strike: q.strike, premium: q.premium, expiration: q.expiration, contracts: p.contracts, premiumCost: p.grossPremium, residualLoss: p.residualLoss }
   })
-  return { asOf: r.asOf, source: r.source, horizonMonths: 12, monitorMonths: [3, 6], budget: r.budget, longExposure: r.longExposure, shortExposure: r.shortExposure, marginDebt: r.marginDebt, netEquity: r.netEquity, candidates, hedgeAlternatives, targets, proxies, activePuts, hedge }
+  let protectionReview: ProtectionAiEvidence | undefined
+  if (r.protectionReview != null) {
+    const p = r.protectionReview
+    const scenarios = (rows: ProtectionAiScenario[]) => {
+      if (!Array.isArray(rows) || rows.length !== 4) throw new Error('invalid_protection_scenarios')
+      return rows.map((v,i) => {
+        if (!v || v.declinePct !== PROTECTION_SHOCKS[i] || !bounded(v.equity,-1e12,1e12) || !bounded(v.equityPct,-1e9,1e9) || !bounded(v.floorGap,0,1e12) || !(v.maintenanceGap === null || bounded(v.maintenanceGap,0,1e12)) || ![v.premium,v.closeCredit,v.fees,v.financing].every(n=>bounded(n,0,1e12))) throw new Error('invalid_protection_scenario')
+        return {declinePct:v.declinePct,equity:v.equity,equityPct:v.equityPct,floorGap:v.floorGap,maintenanceGap:v.maintenanceGap,premium:v.premium,closeCredit:v.closeCredit,fees:v.fees,financing:v.financing}
+      })
+    }
+    if (p.targetEquityPct !== 50 || !bounded(p.horizonDays,30,180) || !bounded(p.ratePct,0,50) || typeof p.evidenceComplete !== 'boolean' || !Number.isSafeInteger(p.missingCount) || !bounded(p.missingCount,0,1000) || !text(p.quoteFetchedAt,40)) throw new Error('invalid_protection_review')
+    let candidate: ProtectionAiEvidence['candidate'] = null
+    if(p.candidate) {
+      const c=p.candidate
+      if (typeof c.meetsTargets !== 'boolean' || typeof c.withinBudget !== 'boolean' || !bounded(c.entryEquityPct,-1e9,1e9) || !bounded(c.entryFloorGap,0,1e12) || !['ADD','ROLL'].includes(c.action) || !bounded(c.strike,.001,1e7) || !/^\d{4}-\d{2}-\d{2}$/.test(c.expiration) || !Number.isSafeInteger(c.contracts) || !bounded(c.contracts,1,100)) throw new Error('invalid_protection_candidate')
+      candidate={meetsTargets:c.meetsTargets,withinBudget:c.withinBudget,entryEquityPct:c.entryEquityPct,entryFloorGap:c.entryFloorGap,action:c.action,strike:c.strike,expiration:c.expiration,contracts:c.contracts,stress:scenarios(c.stress)}
+    }
+    const age = Date.now()-Date.parse(p.quoteFetchedAt)
+    protectionReview={targetEquityPct:50,horizonDays:p.horizonDays,ratePct:p.ratePct,evidenceComplete:p.evidenceComplete && p.missingCount===0 && age>=0 && age<=300000,missingCount:p.missingCount,quoteFetchedAt:p.quoteFetchedAt,hold:scenarios(p.hold),candidate}
+  }
+  return { ...(protectionReview ? {protectionReview} : {}), asOf: r.asOf, source: r.source, horizonMonths: 12, monitorMonths: [3, 6], budget: r.budget, longExposure: r.longExposure, shortExposure: r.shortExposure, marginDebt: r.marginDebt, netEquity: r.netEquity, candidates, hedgeAlternatives, targets, proxies, activePuts, hedge }
 }
 export function validateAllocationReview(raw: unknown, evidence: AllocationEvidence): AllocationReview {
   const r = raw as AllocationReview; const text = (x: unknown) => typeof x === 'string' && x.trim().length > 0 && x.length <= 1500

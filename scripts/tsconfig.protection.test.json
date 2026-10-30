@@ -18,6 +18,8 @@
     "../src/lib/portfolio-protection.ts",
     "../netlify/functions/schwab-risk-history.ts",
     "../netlify/functions/schwab-order.ts",
-    "test-hedge-advisory.ts"
+    "test-hedge-advisory.ts",
+    "test-schwab-protection-data.ts",
+    "../netlify/functions/schwab-protection-data.ts"
   ]
 }

@@ -46,7 +46,6 @@ export function protectionEvidence(input: ProtectionInput) {
     const r = input.risks[riskKey(p)]
     if (p.shares < 0) missing.push(`${p.symbol}: short exposure requires a separate model`)
     if (!finite(r?.beta) || Math.abs(r.beta) > 8 || !finite(r?.correlation) || Math.abs(r.correlation) > 1 || !r.source?.trim()) missing.push(`${p.symbol}: QQQ beta/correlation missing`)
-    if (!finite(r?.leverage)) missing.push(`${p.symbol}: leverage not reviewed`)
     if (!finite(r?.maintenancePct) || r.maintenancePct < 0 || r.maintenancePct > 100 || !r?.maintenanceSource?.trim()) missing.push(`${p.symbol}: broker maintenance evidence missing`)
   }
   return missing
@@ -149,4 +148,22 @@ export function rankPortfolioProtection(input: ProtectionInput) {
   }).sort((a, b) => a.score - b.score)
   const holdMeetsFloor = hold.every((s) => s.floorGap < .01 && s.maintenanceGap != null && s.maintenanceGap < .01)
   return { hold, holdMeetsFloor, candidates, missing, ready: missing.length === 0, recommendation: missing.length === 0 && !holdMeetsFloor ? candidates.find((c) => c.meetsFloor && c.withinBudget) ?? null : null }
+}
+
+export interface ProtectionAiScenario {
+  declinePct: number; equity: number; equityPct: number; floorGap: number
+  maintenanceGap: number | null; premium: number; closeCredit: number; fees: number; financing: number
+}
+export interface ProtectionAiEvidence {
+  targetEquityPct: 50; horizonDays: number; ratePct: number; evidenceComplete: boolean
+  missingCount: number; quoteFetchedAt: string; hold: ProtectionAiScenario[]
+  candidate: { meetsTargets: boolean; withinBudget: boolean; entryEquityPct: number; entryFloorGap: number; action: 'ADD' | 'ROLL'; strike: number; expiration: string; contracts: number; stress: ProtectionAiScenario[] } | null
+}
+// Send only aggregate comparison values. No account identifiers, raw positions,
+// free-text evidence labels, or credentials belong in an AI request.
+export function protectionAiEvidence(input: ProtectionInput, balancesConfirmed: boolean): ProtectionAiEvidence {
+  const ranking = rankPortfolioProtection(input)
+  const scenario = (s: ReturnType<typeof protectionStress>[number]): ProtectionAiScenario => ({declinePct:s.declinePct,equity:s.equity,equityPct:s.equityPct,floorGap:s.floorGap,maintenanceGap:s.maintenanceGap,premium:s.premium,closeCredit:s.closeCredit,fees:s.fees,financing:s.financing})
+  const candidate = ranking.recommendation ?? ranking.candidates[0]
+  return {targetEquityPct:50,horizonDays:input.horizonDays,ratePct:input.ratePct,evidenceComplete:ranking.ready && balancesConfirmed,missingCount:ranking.missing.length + Number(!balancesConfirmed),quoteFetchedAt:input.quoteFetchedAt ?? '',hold:ranking.hold.map(scenario),candidate:candidate ? {meetsTargets:candidate.meetsFloor,withinBudget:candidate.withinBudget,entryEquityPct:candidate.entry.equityPct,entryFloorGap:candidate.entry.floorGap,action:input.closePositionId?'ROLL':'ADD',strike:candidate.quote.strike,expiration:candidate.quote.expiration,contracts:candidate.contracts,stress:candidate.stress.map(scenario)} : null}
 }

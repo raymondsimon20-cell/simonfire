@@ -85,3 +85,8 @@ async function endpointTests() {
   console.log('Allocation API validation, shared quota, provider failures, existing insurance and expiration alignment passed')
 }
 void endpointTests().catch((error) => { console.error(error); process.exitCode = 1 })
+
+const protectionReview = {targetEquityPct:50,horizonDays:30,ratePct:8,evidenceComplete:false,missingCount:1,quoteFetchedAt:'',candidate:null,hold:[5,10,20,30].map(declinePct=>({declinePct,equity:10000,equityPct:50,floorGap:0,maintenanceGap:null,premium:0,closeCredit:0,fees:0,financing:50}))}
+assert.deepEqual(validateAllocationEvidence({...evidence,protectionReview}).protectionReview,protectionReview,'AI receives the portfolio stress comparison')
+assert.throws(()=>validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,hold:[{...protectionReview.hold[0],financing:NaN}]}}))
+assert.ok(!JSON.stringify(validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,accountId:'private-account'}})).includes('private-account'))

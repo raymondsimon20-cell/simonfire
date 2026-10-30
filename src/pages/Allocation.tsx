@@ -1,5 +1,5 @@
 import { PortfolioProtection } from '../components/PortfolioProtection'
-import { HEDGE_ADVISORY_ONLY } from '../lib/portfolio-protection'
+import { HEDGE_ADVISORY_ONLY, type ProtectionAiEvidence } from '../lib/portfolio-protection'
 import { useReviewCache } from '../lib/use-review-cache'
 import { AiAllocationReview } from '../components/AiAllocationReview'
 import { allocationShortlistIsCurrent, buildAllocationEvidence, filterAllocationShortlist, type AiHedgeContext } from '../lib/ai-allocation'
@@ -165,7 +165,13 @@ export default function Allocation() {
   }, [total, contribution, target, buckets, balanced, planMode])
 
   // Flatten the plan into a reviewable BUY order queue (one row per ticker).
-  const aiEvidence = useMemo(() => buildAllocationEvidence(positions, data.insights, target, contribution, brokerageDate(), data.source ?? 'sample', aiHedge, { marginDebt: data.accounts.filter((a) => scope === 'all' || a.id === scope).reduce((sum, a) => sum + a.marginBalance, 0), netEquity: portfolioSummary(positions, data.accounts, scope, transactions).net }, evidenceClock), [positions, data.insights, target, contribution, data.source, aiHedge, scope, data.accounts, transactions, evidenceClock])
+  const protectionContext = JSON.stringify({scope,positions,accounts:data.accounts})
+  const [savedProtectionReview, setProtectionReview] = useState<{context:string;value:ProtectionAiEvidence} | null>(null)
+  const receiveProtectionReview = useCallback((value:ProtectionAiEvidence | null) => {
+    if(value) setProtectionReview({context:protectionContext,value})
+  },[protectionContext])
+  const protectionReview = savedProtectionReview?.context === protectionContext ? savedProtectionReview.value : null
+  const aiEvidence = useMemo(() => ({...buildAllocationEvidence(positions, data.insights, target, contribution, brokerageDate(), data.source ?? 'sample', aiHedge, { marginDebt: data.accounts.filter((a) => scope === 'all' || a.id === scope).reduce((sum, a) => sum + a.marginBalance, 0), netEquity: portfolioSummary(positions, data.accounts, scope, transactions).net }, evidenceClock), ...(protectionReview ? {protectionReview} : {})}), [protectionReview, positions, data.insights, target, contribution, data.source, aiHedge, scope, data.accounts, transactions, evidenceClock])
   const aiPlanKey = JSON.stringify({ scope, positions, insightDate: data.insights?.generatedAt, target, contribution, sizing, planMode, wholeShares, orderAccount, expenseReserveEnabled, evidence: aiEvidence })
   const shortlistCurrent = allocationShortlistIsCurrent(aiShortlist, aiPlanKey, evidenceClock)
   const baseOrderQueue = useMemo(() => allocationOrders(plan, tickersByBucket, wholeShares, sizing), [plan, tickersByBucket, wholeShares, sizing])
@@ -542,7 +548,7 @@ export default function Allocation() {
       <FallbackCorrections rows={classificationRows.filter((r) => r.method === 'Growth fallback')} onSetBucket={setPositionBucket} />
       <RebalanceInsights insights={insights} accName={(id) => data.accounts.find((a) => a.id === id)?.name ?? id} hasData={!!data.insights} />
       </>}
-      {tab === 'hedges' && <HedgeWorkspace key={cacheScope} initialEvidence={aiHedge ?? undefined} onAiEvidence={receiveAiHedge} positions={positions} accounts={data.accounts.filter((a) => scope === 'all' || a.id === scope)} /> }
+      {tab === 'hedges' && <HedgeWorkspace key={cacheScope} initialEvidence={aiHedge ?? undefined} onAiEvidence={receiveAiHedge} onReviewEvidence={receiveProtectionReview} positions={positions} accounts={data.accounts.filter((a) => scope === 'all' || a.id === scope)} /> }
     </div>
   )
 }
@@ -582,14 +588,14 @@ function FallbackCorrections({ rows, onSetBucket }: { rows: Array<{ position: Po
   return <div className="card mt-4 p-5"><div className="flex items-start gap-2"><CircleAlert size={16} className="mt-0.5 text-[#e7c88f]"/><div><h3 className="font-semibold">Resolve Growth Fallbacks</h3><p className="mt-1 text-xs text-faint">Choose the intended bucket. Overrides are saved by account and symbol and reapplied after every sync.</p></div></div><div className="mt-4 space-y-2">{rows.map(({ position }) => <div key={position.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-border-soft bg-surface-2/40 p-3"><div className="min-w-[180px] flex-1"><span className="font-semibold">{position.symbol}</span><div className="truncate text-xs text-faint">{position.name}</div></div>{BUCKETS.map((bucket) => <button key={bucket} onClick={() => onSetBucket(position.accountId, position.symbol, bucket)} className="rounded-lg border px-2.5 py-1.5 text-xs font-medium hover:bg-white/[.04]" style={{ borderColor: `${BUCKET_COLOR[bucket]}35`, color: BUCKET_COLOR[bucket] }}>{bucket}</button>)}</div>)}</div></div>
 }
 
-function HedgeWorkspace({ positions, accounts, onAiEvidence, initialEvidence }: { positions: Position[]; accounts: Account[]; initialEvidence?: AiHedgeContext; onAiEvidence: (value: AiHedgeContext) => void }) {
+function HedgeWorkspace({ positions, accounts, onAiEvidence, initialEvidence, onReviewEvidence }: { positions: Position[]; accounts: Account[]; initialEvidence?: AiHedgeContext; onReviewEvidence: (value: ProtectionAiEvidence | null) => void; onAiEvidence: (value: AiHedgeContext) => void }) {
   const [plan, setPlan] = useState<HedgePlanSnapshot | null>(null)
   const [mode, setMode] = useState<'manage' | 'portfolio' | 'holding'>('portfolio')
   return <div className="space-y-4">
     <div className="card p-5"><h2 className="text-lg font-semibold">Your protection workspace</h2><p className="mt-2 text-sm text-muted">Start with puts you already own. To add protection, choose the whole portfolio or a specific holding.</p><div className="mt-4 flex flex-wrap gap-2">{([['manage', 'Manage existing puts'], ['portfolio', 'Protect the portfolio'], ['holding', 'Protect one holding']] as const).map(([key, label]) => <Button key={key} variant={mode === key ? 'primary' : undefined} onClick={() => setMode(key)}>{label}</Button>)}</div></div>
     {mode === 'manage' && !positions.some((p) => isActiveProtectivePut(p, brokerageDate())) && <div className="card p-5 text-sm text-muted">No active protective puts are present in these accounts. Choose “Protect the portfolio” or “Protect one holding” to explore a new plan. Queued orders below do not count as protection until filled.</div>}
     {mode === 'manage' && <PutRollQueue positions={positions} accounts={accounts} plan={plan}/>}
-    <div hidden={mode !== 'portfolio'} className="space-y-4"><PortfolioProtection positions={positions} accounts={accounts}/><details className="card"><summary className="cursor-pointer text-sm text-muted">Legacy proxy estimate · reference only</summary><PortfolioHedgeGuide/><LivePutQuotes positions={positions} accounts={accounts} symbolFilter="QQQ,SPY"/><PortfolioHedgeEngine initialEvidence={initialEvidence} positions={positions} onPlan={setPlan} onAiEvidence={onAiEvidence}/></details></div>
+    <div hidden={mode !== 'portfolio'} className="space-y-4"><PortfolioProtection positions={positions} accounts={accounts} onReviewEvidence={onReviewEvidence}/><details className="card"><summary className="cursor-pointer text-sm text-muted">Legacy proxy estimate · reference only</summary><PortfolioHedgeGuide/><LivePutQuotes positions={positions} accounts={accounts} symbolFilter="QQQ,SPY"/><PortfolioHedgeEngine initialEvidence={initialEvidence} positions={positions} onPlan={setPlan} onAiEvidence={onAiEvidence}/></details></div>
     {mode === 'holding' && <div className="space-y-4"><ProtectivePutTutorial/><LivePutQuotes positions={positions} accounts={accounts}/><ProtectivePutsEngine positions={positions} accounts={accounts}/></div>}
   </div>
 }

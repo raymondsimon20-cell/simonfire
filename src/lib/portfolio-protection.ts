@@ -1,6 +1,5 @@
-import type { Position } from './types'
+import type { HedgeRoll, Position } from './types'
 import { isActiveProtectivePut, putPlanMatchesContract } from './hedge'
-export const HEDGE_ADVISORY_ONLY = true
 export const PROTECTION_FLOOR = 0.5
 export const PROTECTION_SHOCKS = [5, 10, 20, 30] as const
 export interface HoldingRisk {
@@ -166,4 +165,26 @@ export function protectionAiEvidence(input: ProtectionInput, balancesConfirmed: 
   const scenario = (s: ReturnType<typeof protectionStress>[number]): ProtectionAiScenario => ({declinePct:s.declinePct,equity:s.equity,equityPct:s.equityPct,floorGap:s.floorGap,maintenanceGap:s.maintenanceGap,premium:s.premium,closeCredit:s.closeCredit,fees:s.fees,financing:s.financing})
   const candidate = ranking.recommendation ?? ranking.candidates[0]
   return {targetEquityPct:50,horizonDays:input.horizonDays,ratePct:input.ratePct,evidenceComplete:ranking.ready && balancesConfirmed,missingCount:ranking.missing.length + Number(!balancesConfirmed),quoteFetchedAt:input.quoteFetchedAt ?? '',hold:ranking.hold.map(scenario),candidate:candidate ? {meetsTargets:candidate.meetsFloor,withinBudget:candidate.withinBudget,entryEquityPct:candidate.entry.equityPct,entryFloorGap:candidate.entry.floorGap,action:input.closePositionId?'ROLL':'ADD',strike:candidate.quote.strike,expiration:candidate.quote.expiration,contracts:candidate.contracts,stress:candidate.stress.map(scenario)} : null}
+}
+
+export type ProtectionOrderDraft = Omit<HedgeRoll, 'id' | 'createdAt'>
+export function buildProtectionOrderDraft(input: ProtectionInput, selection: {symbol:string;contracts:number}, accountId: string, balancesConfirmed: boolean): ProtectionOrderDraft | null {
+  if (!balancesConfirmed || !accountId || accountId.startsWith('csv:') || input.positions.some(p=>p.shares!==0 && p.accountId!==accountId)) return null
+  const close = input.closePositionId ? input.positions.find(p=>p.id===input.closePositionId) : undefined
+  if (input.closePositionId && (!close || !isActiveProtectivePut(close,input.today) || close.underlying?.toUpperCase()!=='QQQ' || !Number.isSafeInteger(close.shares) || close.shares<=0)) return null
+  const ranking = rankPortfolioProtection(input)
+  if (!ranking.ready || ranking.holdMeetsFloor) return null
+  const candidate = ranking.candidates.find(c=>c.quote.symbol===selection.symbol && c.contracts===selection.contracts)
+  if (!candidate?.meetsFloor || !candidate.withinBudget) return null
+  const closeQuote = close ? input.quotes.find(q=>q.symbol.replace(/\s/g,'')===close.symbol.replace(/\s/g,'')) : undefined
+  if (close && (!finite(closeQuote?.bid) || closeQuote.bid<=0 || closeQuote.multiplier!==100)) return null
+  return {
+    proxy:'QQQ',accountId,optionSymbol:candidate.quote.symbol,contracts:candidate.contracts,
+    strike:candidate.quote.strike,expiration:candidate.quote.expiration,
+    premiumPerShare:candidate.quote.ask!,grossPremium:candidate.stress[0].premium,rollDate:input.today,
+    status:'queued',source:'planning',previewState:'not_previewed',
+    ...(close ? {closeOptionSymbol:close.symbol,closeContracts:close.shares,closeLimitCredit:closeQuote!.bid!,
+      closeCostBasis:close.avgCost*close.shares,closeEstimatedValue:close.shares*close.lastPrice,
+      closeEstimatedPL:(close.lastPrice-close.avgCost)*close.shares,closePreviewState:'not_previewed' as const} : {}),
+  }
 }

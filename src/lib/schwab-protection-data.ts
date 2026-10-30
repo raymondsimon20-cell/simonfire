@@ -28,3 +28,19 @@ export function schwabProtectionData(raw: unknown): SchwabProtectionAccount[] {
     }
   })
 }
+
+// Match inventory before combining refreshed marks and debt. Price movements
+// update the local analysis; inventory changes need the normal portfolio sync.
+export function reconcileProtectionHoldings(saved: import('./types').Position[], fetched: SchwabProtectionAccount['positions']) {
+  const key = (s:string) => s.trim().toUpperCase().replace(/\s/g,'')
+  const quantities = new Map<string,number>(), broker = new Map<string,SchwabProtectionAccount['positions'][number]>()
+  for(const p of saved) if(p.shares!==0) quantities.set(key(p.symbol),(quantities.get(key(p.symbol))??0)+p.shares)
+  let valid=true
+  for(const p of fetched) {
+    if(p.shares===0) continue
+    if(broker.has(key(p.symbol)) || !Number.isFinite(p.shares) || !Number.isFinite(p.lastPrice) || p.lastPrice<0) valid=false
+    broker.set(key(p.symbol),p)
+  }
+  const matches=valid && quantities.size===broker.size && [...quantities].every(([symbol,shares])=>Math.abs(shares-(broker.get(symbol)?.shares??Infinity))<1e-6)
+  return {matches,positions:matches ? saved.map(p=>p.shares!==0 ? {...p,lastPrice:broker.get(key(p.symbol))!.lastPrice} : p) : saved}
+}

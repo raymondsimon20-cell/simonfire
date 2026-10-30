@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { priceRisk, protectionStress, rankPortfolioProtection, riskKey, HEDGE_ADVISORY_ONLY } from '../src/lib/portfolio-protection'
+import { priceRisk, protectionStress, rankPortfolioProtection, riskKey } from '../src/lib/portfolio-protection'
 import type { ProtectionInput } from '../src/lib/portfolio-protection'
 import type { Position } from '../src/lib/types'
 const stock = { id: 'stock', accountId: 'a', symbol: 'TEST', shares: 1000, lastPrice: 100 } as Position
@@ -31,8 +31,7 @@ const risk = priceRisk(y,x)!
 assert.ok(Math.abs(risk.beta - 2) < 1e-10)
 assert.ok(Math.abs(risk.correlation - 1) < 1e-10)
 assert.equal(priceRisk({},x),null)
-assert.equal(HEDGE_ADVISORY_ONLY,true)
-console.log('Portfolio stress, held-vs-roll cash accounting, leverage, risk evidence and advisory checks passed')
+console.log('Portfolio stress, held-vs-roll cash accounting, leverage, risk evidence checks passed')
 
 assert.equal(rankPortfolioProtection({ ...input, closePositionId: 'put', quotes: input.quotes.map((q,i) => i===0 ? {...q,multiplier:10} : q) }).ready,false,'closing multiplier must be verified too')
 assert.equal(protectionStress({ ...input, closePositionId: 'put', quotes: input.quotes.map((q,i) => i===0 ? {...q,multiplier:10} : q) },{quote:input.quotes[1],contracts:2})[0].closeCredit,0,'unsupported closing multiplier never fabricates proceeds')
@@ -58,3 +57,33 @@ assert.equal(aiStress.evidenceComplete,true)
 assert.equal(protectionAiEvidence(input,false).evidenceComplete,false)
 assert.ok(!JSON.stringify(aiStress).includes('accountId'))
 assert.ok(!JSON.stringify(aiStress).includes(put.symbol),'AI comparison sends numeric contract terms, not raw account positions')
+
+import { buildProtectionOrderDraft } from '../src/lib/portfolio-protection'
+const tradeInput: ProtectionInput = {...input, positions:[stock],gross:100000,debt:48000.02,ratePct:0,feePerContract:0,maxContracts:3,budget:5000,risks:{[riskKey(stock)]:{beta:1,correlation:1,maintenancePct:0,source:'Synthetic history',maintenanceSource:'Synthetic broker requirement'}},quotes:[{symbol:'QQQ 270319P00500000',expiration:'2027-03-19',strike:500,ask:10,bid:9.9,multiplier:100}]}
+const selection={symbol:tradeInput.quotes[0].symbol,contracts:3}
+const draft=buildProtectionOrderDraft(tradeInput,selection,'a',true)!
+assert.ok(draft,'eligible portfolio protection can be prepared for user review')
+assert.equal(draft.accountId,'a')
+assert.equal(draft.contracts,3)
+assert.equal(draft.premiumPerShare,10)
+assert.equal(draft.grossPremium,3000)
+assert.equal(draft.previewState,'not_previewed','a recommendation is never a broker preview or approval')
+assert.equal(draft.orderId,undefined)
+assert.equal(buildProtectionOrderDraft(tradeInput,selection,'other-account',true),null)
+assert.equal(buildProtectionOrderDraft(tradeInput,selection,'a',false),null)
+assert.equal(buildProtectionOrderDraft({...tradeInput,risks:{}},selection,'a',true),null)
+assert.equal(buildProtectionOrderDraft({...tradeInput,now:Date.parse(input.quoteFetchedAt!)+300001},selection,'a',true),null)
+assert.equal(buildProtectionOrderDraft(tradeInput,{...selection,contracts:2},'a',true),null,'infeasible quantity cannot become an order')
+assert.equal(buildProtectionOrderDraft({...tradeInput,debt:0},selection,'a',true),null,'keep existing protection when holding already meets targets')
+assert.equal(buildProtectionOrderDraft({...tradeInput,closePositionId:'missing-put'},selection,'a',true),null)
+console.log('Protection orders require confirmed balances, a matching account, fresh quotes and feasible portfolio protection; previews remain separate')
+
+const rollInput: ProtectionInput = {...tradeInput,positions:[stock,{...put,avgCost:800}],gross:101000,closePositionId:put.id,quotes:[...tradeInput.quotes,input.quotes[0]]}
+const rollDraft=buildProtectionOrderDraft(rollInput,{...selection,contracts:2},'a',true)!
+assert.ok(rollDraft,'a feasible roll produces a review ticket')
+assert.equal(rollDraft.closeOptionSymbol,put.symbol)
+assert.equal(rollDraft.closeContracts,1,'close the actual held quantity; replacement quantity is sized independently')
+assert.equal(rollDraft.contracts,2)
+assert.equal(rollDraft.closeLimitCredit,10)
+assert.equal(rollDraft.closePreviewState,'not_previewed')
+assert.equal(rollDraft.closeOrderId,undefined)

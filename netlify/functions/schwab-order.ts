@@ -1,5 +1,4 @@
-import { HEDGE_ADVISORY_ONLY } from '../../src/lib/portfolio-protection'
-// Preview and place one reviewed equity order. Live placement is disabled unless
+// Preview and place one reviewed equity or option order. Live placement is disabled unless
 // SCHWAB_ORDER_PLACEMENT_ENABLED=true is set in the Netlify environment.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createHash } from 'node:crypto'
@@ -19,9 +18,9 @@ const requestIdPattern = /^[a-f0-9-]{20,64}$/i
 const symbolPattern = /^[A-Z0-9][A-Z0-9./-]{0,14}$/
 const optionSymbolPattern = /^[A-Z]{1,6}\d{6}[CP]\d{8}$/
 
-function sameOrigin(req: Request) {
+function sameOrigin(req: Request, appUrl: string) {
   const origin = req.headers.get('origin')
-  const allowed = env().appUrl || new URL(req.url).origin
+  const allowed = appUrl || new URL(req.url).origin
   return !!origin && origin === allowed.replace(/\/$/, '') && req.headers.get('x-simonfire-order-request') === '1'
 }
 
@@ -79,88 +78,109 @@ async function schwabError(res: Response) {
   }
 }
 
-export default async (req: Request) => {
-  if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405)
-  if (!sameOrigin(req)) return json({ ok: false, error: 'forbidden' }, 403)
+export interface OrderDependencies {
+  appUrl: string
+  placementEnabled: boolean
+  accessToken: typeof accessToken
+  accountHash: typeof accountHash
+  store: () => Pick<ReturnType<typeof getStore>, 'get' | 'setJSON'>
+  fetch: typeof fetch
+  now: () => number
+}
 
-  try {
-    const body = (await req.json()) as OrderRequest
-    const action = body.action
-    if (HEDGE_ADVISORY_ONLY && action === 'place' && (body.order as any)?.orderLegCollection?.some((leg: any) => String(leg?.instrument?.assetType).toUpperCase() === 'OPTION')) return json({ ok: false, error: 'hedge_advisory_only', detail: 'Option trades and roll approvals are disabled. Compare holding versus rolling in the portfolio protection review.' }, 403)
-    if (!body.accountId) return json({ ok: false, error: 'account_required' }, 400)
+export function createSchwabOrderHandler(deps: OrderDependencies) {
+  return async (req: Request) => {
+    if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405)
+    if (!sameOrigin(req, deps.appUrl)) return json({ ok: false, error: 'forbidden' }, 403)
 
-    const token = await accessToken()
-    const hash = await accountHash(body.accountId, token)
+    try {
+      const body = (await req.json()) as OrderRequest
+      const action = body.action
+      if (!body.accountId) return json({ ok: false, error: 'account_required' }, 400)
+      if (action === 'place') {
+        if (!deps.placementEnabled) return json({ ok: false, error: 'placement_disabled' }, 503)
+        if (body.confirm !== true) return json({ ok: false, error: 'confirmation_required' }, 400)
+      }
 
-    if (action === 'status') {
-      if (!/^\d+$/.test(String(body.orderId ?? ''))) return json({ ok: false, error: 'invalid_order_id' }, 400)
-      const res = await fetch(`${API_BASE}/accounts/${encodeURIComponent(hash)}/orders/${body.orderId}`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-      })
-      if (!res.ok) return json({ ok: false, error: await schwabError(res) }, res.status)
-      const order: any = await res.json()
-      return json({ ok: true, orderId: String(body.orderId), status: order.status ?? 'UNKNOWN' })
-    }
+      const token = await deps.accessToken()
+      const hash = await deps.accountHash(body.accountId, token)
 
-    if (action !== 'preview' && action !== 'place') return json({ ok: false, error: 'invalid_action' }, 400)
-    if (!requestIdPattern.test(String(body.requestId ?? ''))) return json({ ok: false, error: 'invalid_request_id' }, 400)
-    const order = validateOrder(body.order)
-    const digest = fingerprint(body.accountId, order)
-    const orderStore = getStore('schwab-orders')
+      if (action === 'status') {
+        if (!/^\d+$/.test(String(body.orderId ?? ''))) return json({ ok: false, error: 'invalid_order_id' }, 400)
+        const res = await deps.fetch(`${API_BASE}/accounts/${encodeURIComponent(hash)}/orders/${body.orderId}`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        })
+        if (!res.ok) return json({ ok: false, error: await schwabError(res) }, res.status)
+        const order: any = await res.json()
+        return json({ ok: true, orderId: String(body.orderId), status: order.status ?? 'UNKNOWN' })
+      }
 
-    if (action === 'preview') {
-      const res = await fetch(`${API_BASE}/accounts/${encodeURIComponent(hash)}/previewOrder`, {
+      if (action !== 'preview' && action !== 'place') return json({ ok: false, error: 'invalid_action' }, 400)
+      if (!requestIdPattern.test(String(body.requestId ?? ''))) return json({ ok: false, error: 'invalid_request_id' }, 400)
+      const order = validateOrder(body.order)
+      const digest = fingerprint(body.accountId, order)
+      const orderStore = deps.store()
+
+      if (action === 'preview') {
+        const res = await deps.fetch(`${API_BASE}/accounts/${encodeURIComponent(hash)}/previewOrder`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(order),
+        })
+        if (!res.ok) return json({ ok: false, error: await schwabError(res) }, res.status)
+        const text = await res.text()
+        const preview = text ? (() => { try { return JSON.parse(text) } catch { return { message: text } } })() : {}
+        await orderStore.setJSON(`previews/${body.requestId}`, { digest, previewedAt: deps.now() })
+        return json({ ok: true, preview })
+      }
+
+      const preview: any = await orderStore.get(`previews/${body.requestId}`, { type: 'json' })
+      if (!preview || preview.digest !== digest || !Number.isFinite(preview.previewedAt) || deps.now() < preview.previewedAt || deps.now() - preview.previewedAt > 10 * 60_000)
+        return json({ ok: false, error: 'preview_required' }, 409)
+
+      const claim = await orderStore.setJSON(
+        `placements/${body.requestId}`,
+        { digest, state: 'submitting', createdAt: deps.now() },
+        { onlyIfNew: true },
+      )
+      if (!claim.modified) return json({ ok: false, error: 'duplicate_request' }, 409)
+
+      const res = await deps.fetch(`${API_BASE}/accounts/${encodeURIComponent(hash)}/orders`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify(order),
       })
-      if (!res.ok) return json({ ok: false, error: await schwabError(res) }, res.status)
-      const text = await res.text()
-      const preview = text ? (() => { try { return JSON.parse(text) } catch { return { message: text } } })() : {}
-      await orderStore.setJSON(`previews/${body.requestId}`, { digest, previewedAt: Date.now() })
-      return json({ ok: true, preview })
+      if (!res.ok) {
+        const error = await schwabError(res)
+        await orderStore.setJSON(`placements/${body.requestId}`, { digest, state: 'rejected', error, createdAt: deps.now() })
+        return json({ ok: false, error }, res.status)
+      }
+
+      const location = res.headers.get('location') ?? ''
+      const orderId = location.split('/').filter(Boolean).pop()
+      if (!orderId) {
+        await orderStore.setJSON(`placements/${body.requestId}`, { digest, state: 'accepted_unknown_id', createdAt: deps.now() })
+        return json({ ok: false, error: 'accepted_but_order_id_missing' }, 502)
+      }
+      await orderStore.setJSON(`placements/${body.requestId}`, { digest, state: 'accepted', orderId, createdAt: deps.now() })
+      return json({ ok: true, orderId, status: 'ACCEPTED' }, 201)
+    } catch (e: any) {
+      const message = String(e?.message ?? e)
+      const known = ['INVALID_ACCOUNT', 'ACCOUNT_NOT_FOUND', 'AMBIGUOUS_ACCOUNT', 'INVALID_ORDER', 'UNSUPPORTED_ORDER', 'INVALID_ORDER_LEG', 'OPTION_LIMIT_ORDERS_ONLY', 'BUY_ORDERS_ONLY', 'INVALID_SYMBOL', 'INVALID_QUANTITY', 'INVALID_PRICE']
+      if (known.includes(message)) return json({ ok: false, error: message.toLowerCase() }, 400)
+      if (message.includes('NOT_CONNECTED')) return json({ ok: false, error: 'not_connected' }, 401)
+      if (message.includes('REFRESH_EXPIRED')) return json({ ok: false, error: 'refresh_expired' }, 401)
+      return json({ ok: false, error: 'order_request_failed' }, 500)
     }
-
-    if (process.env.SCHWAB_ORDER_PLACEMENT_ENABLED !== 'true')
-      return json({ ok: false, error: 'placement_disabled' }, 503)
-    if (body.confirm !== true) return json({ ok: false, error: 'confirmation_required' }, 400)
-
-    const preview: any = await orderStore.get(`previews/${body.requestId}`, { type: 'json' })
-    if (!preview || preview.digest !== digest || Date.now() - Number(preview.previewedAt) > 10 * 60_000)
-      return json({ ok: false, error: 'preview_required' }, 409)
-
-    const claim = await orderStore.setJSON(
-      `placements/${body.requestId}`,
-      { digest, state: 'submitting', createdAt: Date.now() },
-      { onlyIfNew: true },
-    )
-    if (!claim.modified) return json({ ok: false, error: 'duplicate_request' }, 409)
-
-    const res = await fetch(`${API_BASE}/accounts/${encodeURIComponent(hash)}/orders`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify(order),
-    })
-    if (!res.ok) {
-      const error = await schwabError(res)
-      await orderStore.setJSON(`placements/${body.requestId}`, { digest, state: 'rejected', error, createdAt: Date.now() })
-      return json({ ok: false, error }, res.status)
-    }
-
-    const location = res.headers.get('location') ?? ''
-    const orderId = location.split('/').filter(Boolean).pop()
-    if (!orderId) {
-      await orderStore.setJSON(`placements/${body.requestId}`, { digest, state: 'accepted_unknown_id', createdAt: Date.now() })
-      return json({ ok: false, error: 'accepted_but_order_id_missing' }, 502)
-    }
-    await orderStore.setJSON(`placements/${body.requestId}`, { digest, state: 'accepted', orderId, createdAt: Date.now() })
-    return json({ ok: true, orderId, status: 'ACCEPTED' }, 201)
-  } catch (e: any) {
-    const message = String(e?.message ?? e)
-    const known = ['INVALID_ACCOUNT', 'ACCOUNT_NOT_FOUND', 'AMBIGUOUS_ACCOUNT', 'INVALID_ORDER', 'UNSUPPORTED_ORDER', 'INVALID_ORDER_LEG', 'OPTION_LIMIT_ORDERS_ONLY', 'BUY_ORDERS_ONLY', 'INVALID_SYMBOL', 'INVALID_QUANTITY', 'INVALID_PRICE']
-    if (known.includes(message)) return json({ ok: false, error: message.toLowerCase() }, 400)
-    if (message.includes('NOT_CONNECTED')) return json({ ok: false, error: 'not_connected' }, 401)
-    if (message.includes('REFRESH_EXPIRED')) return json({ ok: false, error: 'refresh_expired' }, 401)
-    return json({ ok: false, error: 'order_request_failed' }, 500)
   }
 }
+
+export default (req: Request) => createSchwabOrderHandler({
+  appUrl: env().appUrl,
+  placementEnabled: process.env.SCHWAB_ORDER_PLACEMENT_ENABLED === 'true',
+  accessToken,
+  accountHash,
+  store: () => getStore('schwab-orders'),
+  fetch,
+  now: Date.now,
+})(req)

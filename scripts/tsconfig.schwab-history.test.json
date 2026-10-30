@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.protection.test.json",
+  "compilerOptions": { "outDir": "/tmp/simonfire-schwab-history-tests" },
+  "include": ["test-schwab-history.ts"]
+}

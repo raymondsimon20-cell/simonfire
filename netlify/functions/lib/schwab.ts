@@ -307,8 +307,10 @@ export async function fetchDailyCloses(
   startMs: number,
   endMs: number,
 ): Promise<Map<string, number>> {
+  // Schwab uses slash share classes for Berkshire; retain caller symbols elsewhere.
+  const historySymbol = /^BRK[.-][AB]$/.test(symbol) ? symbol.replace(/[.-]/, '/') : symbol
   const p = new URLSearchParams({
-    symbol,
+    symbol: historySymbol,
     periodType: 'year',
     frequencyType: 'daily',
     frequency: '1',

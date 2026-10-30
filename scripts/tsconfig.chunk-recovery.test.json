@@ -1,0 +1,5 @@
+{
+  "extends":"./tsconfig.review-cache.test.json",
+  "compilerOptions":{"outDir":"/tmp/simonfire-chunk-recovery-tests"},
+  "include":["test-chunk-recovery.ts"]
+}

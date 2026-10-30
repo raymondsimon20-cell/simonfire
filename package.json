@@ -32,7 +32,9 @@
     "test:historical-balances": "tsc -p scripts/tsconfig.historical-balances.test.json && node /tmp/simonfire-historical-balances-tests/scripts/test-historical-balances.js",
     "test:balance-snapshots": "tsc -p scripts/tsconfig.balance-snapshots.test.json && NODE_PATH=./node_modules node /tmp/simonfire-balance-snapshot-tests/scripts/test-balance-snapshots.js",
     "test:fire": "tsc -p scripts/tsconfig.fire.test.json && node /tmp/simonfire-fire-tests/scripts/test-fire-model.js",
-    "test:protection": "tsc -p scripts/tsconfig.protection.test.json && node /tmp/simonfire-protection-tests/scripts/test-portfolio-protection.js && NODE_PATH=./node_modules node /tmp/simonfire-protection-tests/scripts/test-hedge-advisory.js && node /tmp/simonfire-protection-tests/scripts/test-schwab-protection-data.js"
+    "test:protection": "tsc -p scripts/tsconfig.protection.test.json && node /tmp/simonfire-protection-tests/scripts/test-portfolio-protection.js && NODE_PATH=./node_modules node /tmp/simonfire-protection-tests/scripts/test-hedge-advisory.js && node /tmp/simonfire-protection-tests/scripts/test-schwab-protection-data.js",
+    "test:chunk-recovery": "tsc -p scripts/tsconfig.chunk-recovery.test.json && node /tmp/simonfire-chunk-recovery-tests/scripts/test-chunk-recovery.js",
+    "test:schwab-history": "tsc -p scripts/tsconfig.schwab-history.test.json && NODE_PATH=./node_modules node /tmp/simonfire-schwab-history-tests/scripts/test-schwab-history.js"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1",

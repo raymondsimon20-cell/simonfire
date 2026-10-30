@@ -31,7 +31,8 @@
     "test:equity-bridge": "tsc -p scripts/tsconfig.equity-bridge.test.json && node /tmp/simonfire-equity-bridge-tests/scripts/test-equity-bridge.js",
     "test:historical-balances": "tsc -p scripts/tsconfig.historical-balances.test.json && node /tmp/simonfire-historical-balances-tests/scripts/test-historical-balances.js",
     "test:balance-snapshots": "tsc -p scripts/tsconfig.balance-snapshots.test.json && NODE_PATH=./node_modules node /tmp/simonfire-balance-snapshot-tests/scripts/test-balance-snapshots.js",
-    "test:fire": "tsc -p scripts/tsconfig.fire.test.json && node /tmp/simonfire-fire-tests/scripts/test-fire-model.js"
+    "test:fire": "tsc -p scripts/tsconfig.fire.test.json && node /tmp/simonfire-fire-tests/scripts/test-fire-model.js",
+    "test:protection": "tsc -p scripts/tsconfig.protection.test.json && node /tmp/simonfire-protection-tests/scripts/test-portfolio-protection.js && NODE_PATH=./node_modules node /tmp/simonfire-protection-tests/scripts/test-hedge-advisory.js"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1",

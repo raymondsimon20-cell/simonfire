@@ -1,3 +1,4 @@
+import { HEDGE_ADVISORY_ONLY } from '../../src/lib/portfolio-protection'
 // Preview and place one reviewed equity order. Live placement is disabled unless
 // SCHWAB_ORDER_PLACEMENT_ENABLED=true is set in the Netlify environment.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -85,6 +86,7 @@ export default async (req: Request) => {
   try {
     const body = (await req.json()) as OrderRequest
     const action = body.action
+    if (HEDGE_ADVISORY_ONLY && action === 'place' && (body.order as any)?.orderLegCollection?.some((leg: any) => String(leg?.instrument?.assetType).toUpperCase() === 'OPTION')) return json({ ok: false, error: 'hedge_advisory_only', detail: 'Option trades and roll approvals are disabled. Compare holding versus rolling in the portfolio protection review.' }, 403)
     if (!body.accountId) return json({ ok: false, error: 'account_required' }, 400)
 
     const token = await accessToken()

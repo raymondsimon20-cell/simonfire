@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "ignoreDeprecations": "6.0",
+    "types": [
+      "node"
+    ],
+    "rootDir": "..",
+    "outDir": "/tmp/simonfire-protection-tests",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true
+  },
+  "include": [
+    "test-portfolio-protection.ts",
+    "../src/lib/portfolio-protection.ts",
+    "../netlify/functions/schwab-risk-history.ts",
+    "../netlify/functions/schwab-order.ts",
+    "test-hedge-advisory.ts"
+  ]
+}

@@ -301,7 +301,7 @@ async function fetchDividendFundamentals(symbols: string[], token: string) {
 }
 
 // Daily closing prices for one symbol over [startMs, endMs]. Returns date→close.
-async function fetchDailyCloses(
+export async function fetchDailyCloses(
   symbol: string,
   token: string,
   startMs: number,

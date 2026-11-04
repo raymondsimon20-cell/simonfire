@@ -52,4 +52,9 @@ assert.equal(deposits.total, 11_000)
 assert.equal(deposits.monthlyAverage, +(11_000 / 11).toFixed(2))
 assert.equal(deposits.transactionCount, 3)
 assert.equal(averageMonthlyContributions([txn('only', '2026-09-02', 'Contribution', 100)], '2026-09-12'), null)
+// A loan deposit is outside money but not a contribution, and a loan
+// repayment is not living spending.
+const withLoan = [txn('w2', '2026-07-01', 'Contribution', 4_000), txn('loan', '2026-07-10', 'Loan', 20_000), txn('repay', '2026-08-10', 'Loan', -1_000)]
+assert.equal(averageMonthlyContributions(withLoan, '2026-09-12')!.total, 4_000)
+assert.equal(averagePortfolioSpending(withLoan, '2026-09-12')!.total, 0)
 console.log('portfolio spending tests passed')

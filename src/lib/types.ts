@@ -65,6 +65,7 @@ export type TxnType =
   | 'Dividend'
   | 'Interest'
   | 'Contribution'
+  | 'Loan' // borrowed money deposited (+) or loan principal repaid (−); outside money, not income
   | 'Withdrawal'
   | 'Bill Payment'
   | 'Transfer'

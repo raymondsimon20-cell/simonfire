@@ -92,6 +92,7 @@ export function investmentReturn(
   let fees = 0
   let contributions = 0
   let withdrawals = 0
+  let loans = 0 // net borrowed money in (+) / principal repaid (−); outside money, not income
   for (const t of transactions) {
     if (t.type === 'Dividend') dividends += t.amount
     else if (t.type === 'Interest') {
@@ -99,11 +100,12 @@ export function investmentReturn(
       else fees += -t.amount // margin interest is a cost
     } else if (t.type === 'Fee') fees += Math.abs(t.amount)
     else if (t.type === 'Contribution') contributions += Math.max(0, t.amount)
+    else if (t.type === 'Loan') loans += t.amount
     else if (t.type === 'Withdrawal' || t.type === 'Bill Payment') withdrawals += Math.abs(t.amount)
   }
   const income = dividends + interestIncome
   const investmentChange = investmentGainLoss + income - fees
-  const netContributions = contributions - withdrawals
+  const netContributions = contributions + loans - withdrawals
   const endingValue = endingValueOverride ?? value
   const beginningValue = endingValue - netContributions - investmentChange
   return {

@@ -543,6 +543,7 @@ export const TXN_TYPES: TxnType[] = [
   'Dividend',
   'Interest',
   'Contribution',
+  'Loan',
   'Withdrawal',
   'Bill Payment',
   'Transfer',

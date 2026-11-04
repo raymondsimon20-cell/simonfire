@@ -20,7 +20,8 @@ export function snapshotFlows(transactions: Transaction[], accountId: string, da
   for (const row of transactions) {
     if (row.accountId !== accountId || row.date.slice(0, 7) !== date.slice(0, 7) || row.date > date) continue
     if (!Number.isFinite(row.amount)) { totals.reviewRequired = true; continue }
-    if (row.type === 'Contribution') totals.deposits += row.amount
+    if (row.type === 'Contribution' || (row.type === 'Loan' && row.amount > 0)) totals.deposits += row.amount
+    else if (row.type === 'Loan') totals.withdrawals += row.amount
     else if (row.type === 'Withdrawal' || row.type === 'Bill Payment') totals.withdrawals += row.amount
     else if (row.type === 'Dividend' || (row.type === 'Interest' && row.amount >= 0)) totals.dividendsInterest += row.amount
     else if (row.type === 'Interest' || row.type === 'Fee' || row.type === 'Tax Withholding') totals.expenses += row.amount

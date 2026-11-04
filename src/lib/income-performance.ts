@@ -35,9 +35,10 @@ export function incomePerformance(series: TwrPoint[], transactions: Transaction[
   const costs = -sum('Fee') - txns.filter((t) => t.type === 'Interest' && t.amount < 0).reduce((n, t) => n + t.amount, 0)
   const taxes = -sum('Tax Withholding')
   const contributions = sum('Contribution')
+  const loans = sum('Loan')
   const withdrawals = -sum('Withdrawal') - sum('Bill Payment')
   const netFlows = [...flowsByDate(txns).values()].reduce((n, value) => n + value, 0)
-  const optionCash = netFlows - (contributions - withdrawals)
+  const optionCash = netFlows - (contributions + loans - withdrawals)
   const investmentChange = end.value - start.value - netFlows
   const netIncome = dividends + interest - costs - taxes
   const priceChange = investmentChange - netIncome

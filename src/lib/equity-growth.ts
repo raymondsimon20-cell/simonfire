@@ -88,8 +88,8 @@ export function equityGrowth(rows: StatementMonth[], transactions: Transaction[]
       // Snapshots sum Contribution rows only; statements can include transfers
       // in their deposit/withdrawal totals. Never subtract an internal transfer
       // a second time if it was already excluded from snapshot funding.
-      const deposits = monthly.filter((t) => t.type === 'Contribution' || (!automatic && t.type === 'Transfer' && !journal(t) && t.amount > 0))
-      const outflows = monthly.filter((t) => ['Withdrawal', 'Bill Payment'].includes(t.type) || (!automatic && t.type === 'Transfer' && !journal(t) && t.amount < 0))
+      const deposits = monthly.filter((t) => t.type === 'Contribution' || (t.type === 'Loan' && t.amount > 0) || (!automatic && t.type === 'Transfer' && !journal(t) && t.amount > 0))
+      const outflows = monthly.filter((t) => ['Withdrawal', 'Bill Payment'].includes(t.type) || (t.type === 'Loan' && t.amount < 0) || (!automatic && t.type === 'Transfer' && !journal(t) && t.amount < 0))
       const ledgerDeposits = deposits.reduce((n, t) => n + t.amount, 0)
       const ledgerWithdrawals = -outflows.reduce((n, t) => n + t.amount, 0)
       const proposed = deposits.filter((t) => internal.ids.has(t.id)).reduce((n, t) => n + t.amount, 0)

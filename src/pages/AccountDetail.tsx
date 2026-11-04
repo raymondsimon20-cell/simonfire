@@ -438,6 +438,8 @@ function BalanceHistoryTab({
           s +
           (t.type === 'Contribution'
             ? Math.max(0, t.amount)
+            : t.type === 'Loan'
+              ? t.amount
             : t.type === 'Withdrawal' || t.type === 'Bill Payment'
               ? -Math.abs(t.amount)
               : 0),

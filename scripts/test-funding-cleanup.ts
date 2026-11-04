@@ -58,3 +58,8 @@ assert.equal(equityGrowth(fullRows,[...journalRows,explicitExtra],accounts,'','2
 const manualExtra={...journal,id:'manual-category-extra',type:'Contribution' as const,fundingReview:undefined,classificationSource:'manual' as const}
 assert.equal(equityGrowth(fullRows,[...journalRows,manualExtra],accounts,'','2026-09-30',[group]).fundingNeedsReview,true,'manual funding categories on extra rows must stay visible')
 assert.equal(snapshotFlows([journal], 'a','2026-09-30',true).reviewRequired,true,'unexplained API journals cannot be dismissed without statement evidence')
+// Loans are outside money: proceeds count as deposits, repayments as withdrawals.
+const loanFlows=snapshotFlows([{...journal,id:'loan-in',type:'Loan',amount:5000,description:'LOAN PROCEEDS',fundingReview:undefined},{...journal,id:'loan-out',type:'Loan',amount:-400,description:'LOAN PAYMENT',fundingReview:undefined}],'a','2026-09-30',true)
+assert.equal(loanFlows.deposits,5000)
+assert.equal(loanFlows.withdrawals,-400)
+assert.equal(loanFlows.reviewRequired,false)

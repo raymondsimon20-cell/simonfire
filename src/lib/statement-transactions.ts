@@ -160,7 +160,7 @@ export function reconcileStatementTransactions(accounts: Account[], existing: Tr
         const gap = (Date.parse(row.date) - Date.parse(old.date)) / 86_400_000
         if (old.date !== row.date && !(trade && gap > 0 && gap <= 7)) return []
         const sameSecurity = !!row.symbol && normalize(old.symbol ?? '') === normalize(row.symbol) || !!row.securityId && old.securityId === row.securityId
-        const cashFlow = ['Contribution', 'Withdrawal', 'Transfer', 'Bill Payment', 'Other']
+        const cashFlow = ['Contribution', 'Loan', 'Withdrawal', 'Transfer', 'Bill Payment', 'Other']
         const compatible = old.type === row.type || old.type === 'Other' || old.classificationSource === 'manual' ||
           (cashFlow.includes(old.type) && cashFlow.includes(row.type)) ||
           (sameSecurity && ((row.type === 'Tax Withholding' && ['Dividend', 'Fee', 'Withdrawal'].includes(old.type)) || (trade && old.type === 'Dividend')))

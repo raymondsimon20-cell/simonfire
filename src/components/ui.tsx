@@ -117,6 +117,7 @@ export function PageHeader({
 const badgeStyle: Record<string, string> = {
   Dividend: 'bg-[#123024] text-[#3fd88a]',
   Contribution: 'bg-[#10233f] text-[#5aa2ff]',
+  Loan: 'bg-[#38240f] text-[#e7c88f]',
   Buy: 'bg-[#10233f] text-[#5aa2ff]',
   Sell: 'bg-[#241a3a] text-[#b18aff]',
   Interest: 'bg-[#0e2e2e] text-[#3fd6c8]',

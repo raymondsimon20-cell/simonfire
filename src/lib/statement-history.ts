@@ -211,7 +211,7 @@ export function flowContext(transactions: Transaction[]): FlowContext {
     if (t.type === 'Tax Withholding' && t.amount < 0) {
       withheld.set(t.date.slice(0, 7), (withheld.get(t.date.slice(0, 7)) ?? 0) - t.amount)
       daily.set(t.date, (daily.get(t.date) ?? 0) + t.amount)
-    } else if ((t.type === 'Contribution' || t.type === 'Withdrawal' || t.type === 'Bill Payment') && !internal.has(t.id)) {
+    } else if ((t.type === 'Contribution' || t.type === 'Loan' || t.type === 'Withdrawal' || t.type === 'Bill Payment') && !internal.has(t.id)) {
       daily.set(t.date, (daily.get(t.date) ?? 0) + t.amount)
     }
   }

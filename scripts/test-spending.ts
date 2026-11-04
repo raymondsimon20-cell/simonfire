@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { averagePortfolioSpending, spendingExclusionKey } from '../src/lib/spending'
+import { averageMonthlyContributions, averagePortfolioSpending, spendingExclusionKey } from '../src/lib/spending'
 import type { Transaction, TxnType } from '../src/lib/types'
 
 const txn = (id: string, date: string, type: TxnType, amount: number): Transaction => ({ id, date, type, amount, accountId: 'a1', description: type, units: 0, tags: [] })
@@ -34,4 +34,22 @@ const excluded = averagePortfolioSpending([
 assert.ok(excluded)
 assert.equal(excluded.total, 0)
 assert.equal(averagePortfolioSpending([], '2026-09-12'), null)
+// Contributions: partial first month and the current month are skipped,
+// internal transfers and non-deposit types are ignored.
+const deposits = averageMonthlyContributions([
+  txn('dep-partial', '2025-09-12', 'Contribution', 9_999),
+  txn('dep-oct', '2025-10-01', 'Contribution', 3_000),
+  txn('dep-nov', '2025-11-01', 'Contribution', 3_000),
+  txn('dep-internal', '2025-11-20', 'Contribution', 5_000),
+  txn('dep-div', '2025-12-01', 'Dividend', 800),
+  txn('dep-neg', '2026-01-01', 'Contribution', -50),
+  txn('dep-aug', '2026-08-15', 'Contribution', 5_000),
+  txn('dep-current', '2026-09-05', 'Contribution', 7_000),
+], '2026-09-12', new Set(['dep-internal']))
+assert.ok(deposits)
+assert.equal(deposits.months, 11)
+assert.equal(deposits.total, 11_000)
+assert.equal(deposits.monthlyAverage, +(11_000 / 11).toFixed(2))
+assert.equal(deposits.transactionCount, 3)
+assert.equal(averageMonthlyContributions([txn('only', '2026-09-02', 'Contribution', 100)], '2026-09-12'), null)
 console.log('portfolio spending tests passed')

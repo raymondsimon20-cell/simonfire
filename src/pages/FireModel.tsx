@@ -5,6 +5,8 @@ import { useStore, DEFAULT_INCOME_PLAN } from '../lib/store'
 import { firePortfolio } from '../lib/fire-portfolio'
 import { cleanFireSettings, projectFire, type FireSettings, type FireMonth } from '../lib/fire-model'
 import { localISODate } from '../lib/date-range'
+import { averageMonthlyContributions } from '../lib/spending'
+import { internalTransferIds } from '../lib/statement-history'
 import { usd, pct, num, relTime } from '../lib/format'
 import { downloadCsv } from '../lib/csv'
 import { PageHeader, KpiCard, Button } from '../components/ui'
@@ -32,8 +34,13 @@ export default function FireModel() {
   const scopeKey = scope === 'all' ? 'taxable' : `account-${accounts[0]?.mask ?? scope}`
   const scopeLabel = scope === 'all' ? 'All taxable accounts' : accounts[0]?.name ?? 'No taxable account selected'
   const plan = { ...DEFAULT_INCOME_PLAN, ...data.incomePlan }
-  const settings = cleanFireSettings(plan.fireModels?.[scopeKey] ?? { annualSalary: plan.annualW2Target, monthlyExpenses: plan.monthlySpending })
-  const update = (patch: Partial<FireSettings>) => setIncomePlan({ ...plan, fireModels: { ...plan.fireModels, [scopeKey]: cleanFireSettings({ ...settings, ...patch }) } })
+  const savedSettings = cleanFireSettings(plan.fireModels?.[scopeKey] ?? { annualSalary: plan.annualW2Target, monthlyExpenses: plan.monthlySpending })
+  const update = (patch: Partial<FireSettings>) => setIncomePlan({ ...plan, fireModels: { ...plan.fireModels, [scopeKey]: cleanFireSettings({ ...savedSettings, ...patch }) } })
+  const accountIds = new Set(accounts.map((a) => a.id))
+  const internal = internalTransferIds(data.transactions)
+  const contributions = averageMonthlyContributions(data.transactions.filter((t) => accountIds.has(t.accountId)), today, internal)
+  const salaryFromAverage = savedSettings.salaryFromContributions !== false && !!contributions
+  const settings: FireSettings = salaryFromAverage ? { ...savedSettings, annualSalary: +(contributions.monthlyAverage * 12).toFixed(2) } : savedSettings
   const portfolio = firePortfolio(data.accounts, data.positions, data.transactions, scope, settings.dripKeys, today)
   const held = portfolio.holdings
   const start = portfolio.start
@@ -66,7 +73,7 @@ export default function FireModel() {
     {noMarginAccount && <p role="status" className="mb-4 rounded-lg border border-brand/30 p-3 text-sm text-brand">No margin-enabled account is selected. This is a hypothetical borrowing scenario, not available brokerage capacity.</p>}
     <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><KpiCard label="DRIP holdings" value={usd(dripValue)} sub={`${pct(start.dripYieldPct)} estimated annual yield`} icon={<TrendingUp size={18}/>} tile="teal"/><KpiCard label="Cash-dividend holdings" value={usd(cashValue)} sub={`${pct(start.cashYieldPct)} estimated annual yield`} icon={<DollarSign size={18}/>} tile="orange"/><KpiCard label="Starting gross assets" value={usd(result.startingGross)} sub={`Net equity ${usd(result.startingNet)}`} icon={<Flame size={18}/>} tile="blue"/><KpiCard label="Starting margin debt" value={usd(result.startingDebt)} sub={settings.startingDebt == null ? 'From current selected accounts' : 'Scenario override'} icon={<Shield size={18}/>} tile="purple"/></div>
     <section className="card mb-5"><h2 className="text-lg font-semibold">Scenario inputs</h2><p className="mb-4 mt-1 text-xs text-faint">Saved for this account scope when you finish editing a field. These assumptions do not change holdings, brokerage DRIP settings, or orders.</p><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <NumberField label="Annual salary available ($)" value={settings.annualSalary} onChange={(annualSalary) => update({ annualSalary })} hint="Available after payroll deductions. Invested normally; routed to margin during an investment pause."/>
+      <div><NumberField key={salaryFromAverage ? 'average' : 'manual'} label="Annual salary available ($)" value={settings.annualSalary} onChange={(annualSalary) => { if (annualSalary !== settings.annualSalary) update({ annualSalary, salaryFromContributions: false }) }} hint={salaryFromAverage && contributions ? `Average deposits ${usd(contributions.monthlyAverage)}/mo × 12 · ${contributions.months} full month${contributions.months === 1 ? '' : 's'} (${contributions.from} to ${contributions.to}), ${contributions.transactionCount} deposits. Transfers between your accounts are excluded. Type a number to override.` : contributions ? 'Manual amount. Invested normally; routed to margin during an investment pause.' : 'No full month of deposit history yet, so enter an amount. Invested normally; routed to margin during an investment pause.'}/>{!salaryFromAverage && contributions && <button onClick={() => update({ salaryFromContributions: true })} className="mt-1 text-[11px] font-semibold text-brand">Use average deposits · {usd(contributions.monthlyAverage * 12)}/yr</button>}</div>
       <NumberField label="Monthly living expenses ($)" value={settings.monthlyExpenses} onChange={(monthlyExpenses) => update({ monthlyExpenses })}/>
       <NumberField label="Starting margin debt ($)" value={result.startingDebt} max={100000000} onChange={(startingDebt) => update({ startingDebt })}/>
       <NumberField label="Projection timeline (months)" value={settings.months} min={1} max={360} onChange={(months) => update({ months })}/>

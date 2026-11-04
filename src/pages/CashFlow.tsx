@@ -11,7 +11,7 @@ import {
   RefreshCcw,
   Wallet,
 } from 'lucide-react'
-import { useScoped, useStore } from '../lib/store'
+import { useInternalTransferIds, useScoped, useStore } from '../lib/store'
 import { cashFlow } from '../lib/calc'
 import { usd, pct, shortDate } from '../lib/format'
 import { KpiCard, PageHeader, Button, Badge } from '../components/ui'
@@ -38,6 +38,7 @@ const shift = (iso: string, days: number) => {
 export default function CashFlow() {
   const { transactions, accounts } = useScoped()
   const { dateRange, setDateRange } = useStore()
+  const internalIds = useInternalTransferIds()
   const [category, setCategory] = usePersistentState('simonfire.cash-flow.category', 'all')
   const [modal, setModal] = useState(false)
 
@@ -48,7 +49,7 @@ export default function CashFlow() {
     () => transactions.filter((t) => category === 'all' || t.type === category),
     [transactions, category],
   )
-  const cf = useMemo(() => cashFlow(scopedTxns, from, TODAY), [scopedTxns, from])
+  const cf = useMemo(() => cashFlow(scopedTxns, from, TODAY, internalIds), [scopedTxns, from, internalIds])
 
   const dailyData = cf.daily.map((d) => ({
     label: new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),

@@ -26,7 +26,7 @@ import { mergeStatementTransactions, reconcileStatementTransactions } from './st
 import { createBalanceSnapshot, hydrateSnapshotFlows, mergeSnapshotMonths, snapshotMonth } from './balance-snapshots'
 import { transactionOverrideKeys, applyTransactionOverrides, mergeTransactionOverrides, migrateTransactionOverrides, recordTransactionOverride } from './transaction-overrides'
 import { applyPositionBuckets } from './position-buckets'
-import { saveFundingReview } from './funding-review'
+import { fundingTransfers, saveFundingReview } from './funding-review'
 import { mergeLiveAccounts } from './live-accounts'
 
 const soldKey = (accountId: string, symbol: string) => `${accountId}|${symbol}`
@@ -1095,6 +1095,12 @@ export function useStore() {
 }
 
 // Convenience: positions/transactions filtered by current account scope.
+/** Ids of both legs of every matched transfer between your own accounts. */
+export function useInternalTransferIds(): ReadonlySet<string> {
+  const { data } = useStore()
+  return useMemo(() => fundingTransfers(data.transactions).ids, [data.transactions])
+}
+
 export function useScoped() {
   const { data, scope } = useStore()
   return useMemo(() => {

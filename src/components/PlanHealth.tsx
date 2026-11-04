@@ -12,7 +12,7 @@ import { IncomePerformance } from './IncomePerformance'
 import { EquityGrowth } from './EquityGrowth'
 import { equityGrowth } from '../lib/equity-growth'
 import { brokerageDate } from '../lib/balance-snapshots'
-import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
+import { DEFAULT_INCOME_PLAN, useInternalTransferIds, useScoped, useStore } from '../lib/store'
 import type { Account, IncomePlan, Transaction } from '../lib/types'
 import { averagePortfolioSpending, spendingExclusionKey } from '../lib/spending'
 import { isClosingSale } from '../lib/transaction-review'
@@ -27,6 +27,7 @@ type Action = { tone: 'danger' | 'warn' | 'good'; title: string; detail: string;
 
 export function PlanHealth() {
   const { data, setIncomePlan, dateRange } = useStore()
+  const internalIds = useInternalTransferIds()
   const { positions, accounts, transactions, scope, lastSyncAt } = useScoped()
   const [editing, setEditing] = useState(false)
   const [audit, setAudit] = useState<'income' | 'w2' | 'spending' | 'cash' | 'stress' | null>(null)
@@ -35,7 +36,7 @@ export function PlanHealth() {
   const model = useMemo(() => {
     const summary = portfolioSummary(positions, accounts, scope, transactions)
     const dividends = dividendStats(positions, transactions, localToday())
-    const observedSpending = averagePortfolioSpending(transactions, localToday(), data.spendingExclusions)
+    const observedSpending = averagePortfolioSpending(transactions, localToday(), data.spendingExclusions, internalIds)
     const buckets = bucketStats(positions, transactions)
     const afterTaxAnnual = dividends.estAnnual * (1 - plan.estimatedTaxRate / 100)
     const afterTaxMonthly = afterTaxAnnual / 12
@@ -73,7 +74,7 @@ export function PlanHealth() {
     const priority = { danger: 0, warn: 1, good: 2 }
     actions.sort((a, b) => priority[a.tone] - priority[b.tone])
     return { summary, dividends, observedSpending, afterTaxMonthly, carryingCostsMonthly, spendableMonthly, stressedMonthly, w2Coverage, spendingCoverage, cashRunway, unassigned, uncategorized, missingPl, actions }
-  }, [accounts, data.hedgeRolls, data.spendingExclusions, lastSyncAt, plan, positions, scope, transactions])
+  }, [accounts, data.hedgeRolls, data.spendingExclusions, internalIds, lastSyncAt, plan, positions, scope, transactions])
 
   // Time-weighted return over the window chosen in the header. The label states
   // the span actually measured, which is shorter than the selected range when

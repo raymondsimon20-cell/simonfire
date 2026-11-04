@@ -1,3 +1,6 @@
+import { transferSuggestions, fundingTransfers as pairsOf } from '../src/lib/funding-review'
+import { averagePortfolioSpending } from '../src/lib/spending'
+import { cashFlow } from '../src/lib/calc'
 import assert from 'node:assert/strict'
 import { fundingLedger, bankFundingCandidates, saveBankFundingBatch } from '../src/lib/funding-cleanup'
 import { isFundingCash, fundingTransfers } from '../src/lib/funding-review'
@@ -63,3 +66,27 @@ const loanFlows=snapshotFlows([{...journal,id:'loan-in',type:'Loan',amount:5000,
 assert.equal(loanFlows.deposits,5000)
 assert.equal(loanFlows.withdrawals,-400)
 assert.equal(loanFlows.reviewRequired,false)
+
+// Transfer matching: a move between your accounts is suggested, and once
+// matched it leaves spending; money that leaves Schwab still counts once.
+{
+  const base = { units: 0, tags: [] as string[] }
+  const out = { ...base, id: 'xfer-out', accountId: 'a', date: '2026-07-01', type: 'Withdrawal' as const, amount: -2000, description: 'TRANSFER TO JOINT' }
+  const into = { ...base, id: 'xfer-in', accountId: 'b', date: '2026-07-07', type: 'Contribution' as const, amount: 2000, description: 'TRANSFER FROM INDIVIDUAL' }
+  const spend = { ...base, id: 'real-out', accountId: 'b', date: '2026-07-10', type: 'Withdrawal' as const, amount: -2000, description: 'ACH TO OUTSIDE BANK' }
+  const rows = [out, into, spend]
+  assert.equal(pairsOf(rows).ids.size, 0, 'six days apart is not matched automatically')
+  const s = transferSuggestions(rows)
+  assert.equal(s.length, 1)
+  assert.equal(s[0].outgoing.id, 'xfer-out')
+  assert.deepEqual(s[0].candidates.map((c) => c.id), ['xfer-in'])
+  const paired = rows.map((t) => t.id === 'xfer-out' || t.id === 'xfer-in' ? { ...t, fundingReview: { kind: 'internal' as const, pairId: 'p1' } } : t)
+  const ids = pairsOf(paired).ids
+  assert.deepEqual([...ids].sort(), ['xfer-in', 'xfer-out'])
+  assert.equal(transferSuggestions(paired).length, 0)
+  assert.equal(averagePortfolioSpending([...paired, { ...base, id: 'start', accountId: 'a', date: '2026-06-01', type: 'Other' as const, amount: 1, description: '' }], '2026-09-12', [], ids)!.livingSpending, 2000, 'only the outside withdrawal counts')
+  const cf = cashFlow(paired, '2026-07-01', '2026-07-31', ids)
+  assert.equal(cf.totalExpenses, 2000)
+  assert.equal(cf.contributions, 0)
+}
+console.log('transfer matching tests passed')

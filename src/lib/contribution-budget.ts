@@ -4,12 +4,12 @@ import { averagePortfolioSpending, spendingExclusionKey } from './spending'
 
 // One month of outflows is reserved against current balances. Do not add future
 // wages/dividends or treat a withdrawal like a purchase: withdrawals reduce equity.
-export function contributionBudget(account: Account | undefined, positionValue: number, transactions: Transaction[], today: string, exclusions: string[] = []) {
+export function contributionBudget(account: Account | undefined, positionValue: number, transactions: Transaction[], today: string, exclusions: string[] = [], internalIds: ReadonlySet<string> = new Set()) {
   const rows = transactions.filter((row) => row.accountId === account?.id)
-  const spending = averagePortfolioSpending(rows, today, exclusions)
+  const spending = averagePortfolioSpending(rows, today, exclusions, internalIds)
   const current = marginCapacity(account, positionValue)
   const excluded = new Set(exclusions)
-  const reviewRows = rows.filter((row) => spending && row.date.slice(0, 7) >= spending.from && row.date.slice(0, 7) <= spending.to && row.amount < 0 && (row.type === 'Other' || row.type === 'Transfer') && !excluded.has(spendingExclusionKey(row)))
+  const reviewRows = rows.filter((row) => spending && row.date.slice(0, 7) >= spending.from && row.date.slice(0, 7) <= spending.to && row.amount < 0 && (row.type === 'Other' || row.type === 'Transfer') && !excluded.has(spendingExclusionKey(row)) && !internalIds.has(row.id))
   if (!account || !spending || !current) return { spending, current, reserved: null, reviewRows }
   const reserve = spending.monthlyAverage
   const cash = Math.max(0, account.cash || 0)

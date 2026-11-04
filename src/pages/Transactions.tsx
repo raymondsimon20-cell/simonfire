@@ -10,6 +10,7 @@ import { AddContributionModal } from '../components/AddContributionModal'
 import { downloadCsv } from '../lib/csv'
 import clsx from 'clsx'
 import { TransactionDrawer } from '../components/TransactionDrawer'
+import { TransferMatcher } from '../components/TransferMatcher'
 import type { Transaction } from '../lib/types'
 import { usePersistentState } from '../lib/persistent-state'
 import { dateRangeStart, localISODate } from '../lib/date-range'
@@ -210,6 +211,7 @@ export default function Transactions() {
         <span className="ml-auto text-xs text-faint">{filtered.length} transactions</span>
       </div>
 
+      <TransferMatcher onSelect={setSelectedTransaction}/>
       <AiCategorization transactions={filtered} selectedIds={selectedVisible}/>
       <p className="mb-3 text-xs text-muted">Transactions before {shortDate(automaticReviewCutoff())} are automatically reviewed to keep your queue focused on the last four months. Data-quality warnings still apply. Undo review to bring an older record back into the queue.</p>
       <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">

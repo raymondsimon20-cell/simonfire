@@ -41,7 +41,9 @@ function completeMonthWindow(dated: Transaction[], todayISO: string) {
 // Average portfolio-funded spending over as many as 12 complete calendar months.
 // Explicit withdrawals and bill payments count as living spending. Negative
 // interest and fee transactions are included as portfolio carrying costs.
-export function averagePortfolioSpending(transactions: Transaction[], todayISO: string, exclusions: Iterable<string> = []): SpendingAverage | null {
+// Pass internalIds (matched transfers between your own accounts) so moving money
+// between accounts is not counted as spending.
+export function averagePortfolioSpending(transactions: Transaction[], todayISO: string, exclusions: Iterable<string> = [], internalIds: ReadonlySet<string> = new Set()): SpendingAverage | null {
   const excluded = new Set(exclusions)
   const dated = transactions.filter((transaction) => /^\d{4}-\d{2}-\d{2}$/.test(transaction.date) && transaction.date <= todayISO)
   if (!dated.length) return null
@@ -54,7 +56,7 @@ export function averagePortfolioSpending(transactions: Transaction[], todayISO: 
     && (transaction.type === 'Bill Payment' || transaction.type === 'Withdrawal' || transaction.type === 'Interest' || transaction.type === 'Fee')
     && transaction.date.slice(0, 7) >= from
     && transaction.date.slice(0, 7) <= to,
-  ).filter((transaction) => !excluded.has(spendingExclusionKey(transaction)))
+  ).filter((transaction) => !excluded.has(spendingExclusionKey(transaction)) && !internalIds.has(transaction.id))
   const sumTypes = (...types: Transaction['type'][]) => spending
     .filter((transaction) => types.includes(transaction.type))
     .reduce((sum, transaction) => sum + Math.abs(transaction.amount), 0)

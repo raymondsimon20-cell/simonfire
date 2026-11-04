@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Download, Printer } from 'lucide-react'
-import { useScoped, useStore } from '../lib/store'
+import { useInternalTransferIds, useScoped, useStore } from '../lib/store'
 import { availableMonths, cashFlow, dividendStats, monthClose, portfolioSummary } from '../lib/calc'
 import { averagePortfolioSpending } from '../lib/spending'
 import { downloadCsv } from '../lib/csv'
@@ -12,6 +12,7 @@ import { isActiveProtectivePut } from '../lib/hedge'
 
 export default function Reports() {
   const { data } = useStore()
+  const internalIds = useInternalTransferIds()
   const { accounts, positions, transactions, scope } = useScoped()
   const history = statementHistory(data.historicalBalances ?? [], accounts, scope, data.balanceSnapshots, data.accountOpenMonths)
   const months = availableMonths(transactions, history)
@@ -23,17 +24,17 @@ export default function Reports() {
   const report = useMemo(() => {
     const summary = portfolioSummary(positions, accounts, scope, transactions)
     const close = monthClose(accounts, transactions, scope, month, summary, data.historicalBalances, data.balanceSnapshots, data.accountOpenMonths)
-    const flow = cashFlow(transactions, `${month}-01`, `${month}-31`)
+    const flow = cashFlow(transactions, `${month}-01`, `${month}-31`, internalIds)
     const dividends = transactions.filter((row) => row.type === 'Dividend' && row.date.slice(0, 7) === month).reduce((sum, row) => sum + row.amount, 0)
     const dividendRunRate = dividendStats(positions, transactions, `${month}-28`).estMonthly
-    const spending = averagePortfolioSpending(transactions, `${month}-28`)
+    const spending = averagePortfolioSpending(transactions, `${month}-28`, data.spendingExclusions, internalIds)
     const realizedPl = transactions.filter((row) => row.date.slice(0, 7) === month && row.pl != null).reduce((sum, row) => sum + (row.pl ?? 0), 0)
     const selected = new Date(`${month}-01T12:00:00`); selected.setMonth(selected.getMonth() - 1)
     const priorMonth = selected.toISOString().slice(0, 7)
     const priorDividends = transactions.filter((row) => row.type === 'Dividend' && row.date.slice(0, 7) === priorMonth).reduce((sum, row) => sum + row.amount, 0)
-    const priorExpenses = cashFlow(transactions, `${priorMonth}-01`, `${priorMonth}-31`).totalExpenses
+    const priorExpenses = cashFlow(transactions, `${priorMonth}-01`, `${priorMonth}-31`, internalIds).totalExpenses
     return { close, flow, dividends, dividendRunRate, spending, realizedPl, priorDividends, priorExpenses }
-  }, [accounts, data.historicalBalances, data.balanceSnapshots, month, positions, scope, transactions])
+  }, [accounts, data.historicalBalances, data.balanceSnapshots, data.spendingExclusions, internalIds, month, positions, scope, transactions])
   const livePuts = positions.filter((row) => isActiveProtectivePut(row)).length
   // Live brokerage positions are authoritative. Retain manually tracked active
   // hedges as a fallback for imported/offline portfolios without option holdings.

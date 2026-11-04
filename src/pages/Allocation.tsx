@@ -6,7 +6,7 @@ import { SummaryMetric } from '../components/SummaryMetric'
 import { protectionContextKey } from '../lib/protection-context'
 import { useEffect, useMemo, useState } from 'react'
 import { Target, Wand2, Eraser, Calculator, Activity, TrendingDown, Copy, Check, ClipboardList, ShieldCheck, LoaderCircle, ListChecks, CircleAlert, Lock, Unlock, Scale, ShoppingCart, ChevronRight } from 'lucide-react'
-import { DEFAULT_INCOME_PLAN, useScoped, useStore } from '../lib/store'
+import { DEFAULT_INCOME_PLAN, useInternalTransferIds, useScoped, useStore } from '../lib/store'
 import { bucketOf, bucketStats, bucketClassification, BUCKETS, BUCKET_COLOR, type Bucket } from '../lib/buckets'
 import { normTicker } from '../lib/plan'
 import { buildInsights, SIGNAL_STYLE, ACTION_STYLE, type HoldingInsight } from '../lib/insights'
@@ -31,6 +31,7 @@ const roundWeights = (buckets: Record<Bucket, { weight: number }>): Record<strin
 export default function Allocation() {
   const { positions, transactions, scope } = useScoped()
   const { data, setTargetAlloc, setPositionBucket, setIncomePlan } = useStore()
+  const internalIds = useInternalTransferIds()
 
   const allocationPositions = useMemo(() => positions.filter((row) => !row.isOption && row.shares > 0), [positions])
   const stats = useMemo(() => bucketStats(allocationPositions, transactions), [allocationPositions, transactions])
@@ -131,7 +132,7 @@ export default function Allocation() {
   const expenseReserveEnabled = data.incomePlan?.allocationExpenseReserve !== false
   const expenseBudget = useMemo(() => contributionBudget(selectedOrderAccount,
     data.positions.filter((row) => row.accountId === orderAccount).reduce((sum, row) => sum + row.shares * row.lastPrice, 0),
-    data.transactions, brokerageDate(), data.spendingExclusions), [selectedOrderAccount, orderAccount, data.positions, data.transactions, data.spendingExclusions])
+    data.transactions, brokerageDate(), data.spendingExclusions, internalIds), [selectedOrderAccount, orderAccount, data.positions, data.transactions, data.spendingExclusions, internalIds])
   const capacity = expenseReserveEnabled ? expenseBudget.reserved : expenseBudget.current
   const contribution = expenseReserveEnabled ? Math.min(requestedContribution, capacity?.maxOrderSpend ?? 0) : requestedContribution
   const spending = expenseBudget.spending

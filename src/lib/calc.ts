@@ -1,7 +1,7 @@
 import type { Account, HistoricalBalance, MonthlyBalanceSnapshot, Position, Transaction } from './types'
 import { normTicker } from './plan'
 import { isClosingSale } from './transaction-review'
-import { statementBridgeValues, statementHistory, type StatementMonth } from './statement-history'
+import { internalTransferIds, statementBridgeValues, statementHistory, type StatementMonth } from './statement-history'
 import { brokerageDate } from './balance-snapshots'
 
 // ---------- Position-level ----------
@@ -233,8 +233,10 @@ export interface CashFlow {
   daily: { date: string; net: number }[]
 }
 
-export function cashFlow(txns: Transaction[], fromISO: string, toISO: string): CashFlow {
-  const inRange = txns.filter((t) => t.date >= fromISO && t.date <= toISO)
+// internalIds: matched transfers between your own accounts. Both legs are left
+// out, so moving money between accounts is neither spending nor a contribution.
+export function cashFlow(txns: Transaction[], fromISO: string, toISO: string, internalIds: ReadonlySet<string> = new Set()): CashFlow {
+  const inRange = txns.filter((t) => t.date >= fromISO && t.date <= toISO && !internalIds.has(t.id))
   let totalIncome = 0
   let totalExpenses = 0
   let marginCost = 0
@@ -602,8 +604,9 @@ export function monthClose(
   snapshots: MonthlyBalanceSnapshot[] = [],
   openMonths: Record<string, string> = {},
 ): MonthClose {
+  const internal = internalTransferIds(txns)
   const flowsOf = (m: string) => {
-    const t = txns.filter((x) => x.date.slice(0, 7) === m)
+    const t = txns.filter((x) => x.date.slice(0, 7) === m && !internal.has(x.id))
     const contributions = t
       .filter((x) => x.type === 'Contribution' || x.type === 'W-2')
       .reduce((s, x) => s + x.amount, 0)

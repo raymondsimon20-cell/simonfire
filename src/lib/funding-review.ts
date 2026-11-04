@@ -60,3 +60,38 @@ export function saveFundingReview(data: AppData, id: string, kind: FundingReview
   applyTransactionOverrides(data.transactions, data.accounts, overrides)
   return true
 }
+
+export interface TransferSuggestion {
+  /** The money-out leg that may really be a move between your own accounts. */
+  outgoing: Transaction
+  /** Equal, opposite deposits in another account within the window, closest date first. */
+  candidates: Transaction[]
+}
+
+const DAY = 86_400_000
+const transferOut = (t: Transaction) => t.amount < 0 && ['Withdrawal', 'Transfer', 'Other'].includes(t.type)
+
+// Unmatched outgoing cash that has at least one equal, opposite deposit in
+// another account. Automatic matching only pairs unique matches within four
+// days; this widens the window so you can confirm the rest yourself.
+export function transferSuggestions(txns: Transaction[], windowDays = 10): TransferSuggestion[] {
+  const { ids } = fundingTransfers(txns)
+  const open = (t: Transaction) => isFundingCash(t) && !isKnownBankFunding(t) && !ids.has(t.id) && (!t.fundingReview || t.fundingReview.kind === 'auto')
+  const deposits = txns.filter((t) => open(t) && t.amount > 0)
+  return txns.filter((t) => open(t) && transferOut(t)).flatMap((outgoing) => {
+    const when = Date.parse(outgoing.date)
+    const candidates = deposits
+      .filter((d) => canPairFunding(outgoing, d) && Math.abs(Date.parse(d.date) - when) <= windowDays * DAY)
+      .sort((a, b) => Math.abs(Date.parse(a.date) - when) - Math.abs(Date.parse(b.date) - when))
+    return candidates.length ? [{ outgoing, candidates }] : []
+  }).sort((a, b) => b.outgoing.date.localeCompare(a.outgoing.date))
+}
+
+// Unmatched "Transfer" cash rows with no possible partner. They usually mean
+// the other account is not in the app yet, or the row is really an outside
+// payment. They stay out of spending until you decide.
+export function unmatchedTransfers(txns: Transaction[], suggested: ReadonlySet<string>) {
+  const { ids } = fundingTransfers(txns)
+  return txns.filter((t) => t.type === 'Transfer' && isFundingCash(t) && !isKnownBankFunding(t) && !ids.has(t.id) && !suggested.has(t.id) && t.fundingReview?.kind !== 'external')
+    .sort((a, b) => b.date.localeCompare(a.date))
+}

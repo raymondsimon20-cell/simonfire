@@ -8,8 +8,6 @@ export interface FireMilestone {
 export interface FireSettings {
   mode: 'margin' | 'cash'
   annualSalary: number
-  /** When not false, annual salary comes from average monthly contributions × 12. */
-  salaryFromContributions?: boolean
   monthlyExpenses: number
   startingDebt?: number
   inflationPct: number
@@ -44,7 +42,7 @@ export function cleanFireSettings(raw: unknown): FireSettings {
   const optional = (v: unknown, min: number, max: number) => typeof v === 'number' && Number.isFinite(v) ? bound(v, min, max) : undefined
   return {
     mode: r.mode === 'cash' ? 'cash' : 'margin',
-    annualSalary: bound(r.annualSalary, 0, 10_000_000), salaryFromContributions: r.salaryFromContributions !== false, monthlyExpenses: bound(r.monthlyExpenses, 0, 1_000_000),
+    annualSalary: bound(r.annualSalary, 0, 10_000_000), monthlyExpenses: bound(r.monthlyExpenses, 0, 1_000_000),
     startingDebt: optional(r.startingDebt, 0, 100_000_000),
     inflationPct: bound(r.inflationPct, 0, 30, 3), interestPct: bound(r.interestPct, 0, 50, 8),
     growthPct: bound(r.growthPct, -95, 50, 0), months: Math.round(bound(r.months, 1, 360, 60)),

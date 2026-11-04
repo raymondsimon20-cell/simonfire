@@ -65,6 +65,7 @@ export type TxnType =
   | 'Dividend'
   | 'Interest'
   | 'Contribution'
+  | 'W-2' // paycheck deposit; a kind of contribution
   | 'Loan' // borrowed money deposited (+) or loan principal repaid (−); outside money, not income
   | 'Withdrawal'
   | 'Bill Payment'
@@ -413,3 +414,7 @@ export interface TagRule {
   amountDirection?: 'positive' | 'negative' | 'zero' // optional cash-direction guard
   enabled: boolean
 }
+
+/** Deposits of your own new money. W-2 is a paycheck; Contribution is any other deposit. */
+export const CONTRIBUTION_TYPES: ReadonlySet<TxnType> = new Set<TxnType>(['Contribution', 'W-2'])
+export const isContributionType = (type: TxnType) => CONTRIBUTION_TYPES.has(type)

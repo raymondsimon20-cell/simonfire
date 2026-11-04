@@ -77,7 +77,7 @@ export function migrateTransactionOverrides(transactions: Transaction[], account
   return migrated
 }
 
-const categories = new Set<TxnType>(['Buy', 'Sell', 'Dividend', 'Interest', 'Contribution', 'Loan', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action', 'Other'])
+const categories = new Set<TxnType>(['Buy', 'Sell', 'Dividend', 'Interest', 'Contribution', 'W-2', 'Loan', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action', 'Other'])
 
 export function cleanTransactionOverrides(input: unknown): Overrides {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {}

@@ -42,7 +42,7 @@ export interface TwrResult {
 // or remove) — the flows TWR must neutralise. Dividends, interest, fees, and
 // equity buys/sells are internal to the portfolio and are NOT external flows
 // (an equity buy is cash→securities, already value-neutral in the series).
-export const EXTERNAL_FLOW_TYPES = new Set<TxnType>(['Contribution', 'Loan', 'Withdrawal', 'Bill Payment'])
+export const EXTERNAL_FLOW_TYPES = new Set<TxnType>(['Contribution', 'W-2', 'Loan', 'Withdrawal', 'Bill Payment'])
 
 const OSI_RE = /\d{6}[CP]\d{8}$/
 function isOptionSymbol(sym?: string) {

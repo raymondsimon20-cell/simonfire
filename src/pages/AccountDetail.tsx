@@ -436,7 +436,7 @@ function BalanceHistoryTab({
       const net = flows.reduce(
         (s, t) =>
           s +
-          (t.type === 'Contribution'
+          (t.type === 'Contribution' || t.type === 'W-2'
             ? Math.max(0, t.amount)
             : t.type === 'Loan'
               ? t.amount

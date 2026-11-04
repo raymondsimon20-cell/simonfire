@@ -88,7 +88,7 @@ export function equityGrowth(rows: StatementMonth[], transactions: Transaction[]
       // Snapshots sum Contribution rows only; statements can include transfers
       // in their deposit/withdrawal totals. Never subtract an internal transfer
       // a second time if it was already excluded from snapshot funding.
-      const deposits = monthly.filter((t) => t.type === 'Contribution' || (t.type === 'Loan' && t.amount > 0) || (!automatic && t.type === 'Transfer' && !journal(t) && t.amount > 0))
+      const deposits = monthly.filter((t) => t.type === 'Contribution' || t.type === 'W-2' || (t.type === 'Loan' && t.amount > 0) || (!automatic && t.type === 'Transfer' && !journal(t) && t.amount > 0))
       const outflows = monthly.filter((t) => ['Withdrawal', 'Bill Payment'].includes(t.type) || (t.type === 'Loan' && t.amount < 0) || (!automatic && t.type === 'Transfer' && !journal(t) && t.amount < 0))
       const ledgerDeposits = deposits.reduce((n, t) => n + t.amount, 0)
       const ledgerWithdrawals = -outflows.reduce((n, t) => n + t.amount, 0)
@@ -103,7 +103,7 @@ export function equityGrowth(rows: StatementMonth[], transactions: Transaction[]
       if (monthly.some((t) => internal.ambiguous.has(t.id))) issues.push('Multiple equal cash movements could be transfer matches. Review these records.')
       if (monthly.some((t) => t.type === 'Transfer' && !journal(t) && (t.amount !== 0 || t.units !== 0) && !internal.ids.has(t.id) && t.fundingReview?.kind !== 'external')) issues.push('Unmatched transfers need an outside-funding or internal-transfer classification.')
       if (monthly.some((t) => t.type === 'Other' && (t.amount !== 0 || t.units !== 0))) issues.push('Unclassified activity may change outside funding.')
-      result.funding.push({ accountId: account?.id ?? statement.accountMask, account: account?.name ?? `····${statement.accountMask}`, month: row.month, statementVerified: ledger.verifiedMonths.has(`${account?.id}|${row.month}`), deposits: statement.deposits, ledgerDeposits, withdrawals: -statement.withdrawals, ledgerWithdrawals, internalDeposits: matched, issues, transactions: monthly.filter((t) => (['Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Other'].includes(t.type) && !journal(t) && (t.amount !== 0 || t.units !== 0)) || t.fundingReview?.kind === 'internal') })
+      result.funding.push({ accountId: account?.id ?? statement.accountMask, account: account?.name ?? `····${statement.accountMask}`, month: row.month, statementVerified: ledger.verifiedMonths.has(`${account?.id}|${row.month}`), deposits: statement.deposits, ledgerDeposits, withdrawals: -statement.withdrawals, ledgerWithdrawals, internalDeposits: matched, issues, transactions: monthly.filter((t) => (['Contribution', 'W-2', 'Loan', 'Withdrawal', 'Bill Payment', 'Transfer', 'Other'].includes(t.type) && !journal(t) && (t.amount !== 0 || t.units !== 0)) || t.fundingReview?.kind === 'internal') })
       internalDeposits += matched
     }
     result.deposits += row.deposits

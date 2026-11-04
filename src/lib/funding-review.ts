@@ -2,7 +2,7 @@ import type { AppData, FundingReview, Transaction } from './types'
 import { applyTransactionOverrides, recordTransactionOverride } from './transaction-overrides'
 
 export const isFundingJournal = (t: Transaction) => t.type === 'Transfer' && (/\bTYPE ?[12]\b/i.test(t.description) || (t.units === 0 && /^(?:BROKERAGE SWEEP TO BANK|BANK SWEEP FR(?:OM)? BROKERAGE|OBATCH SMA ADJ[A-Z]*)\b/i.test(t.description.trim())))
-export const isFundingCash = (t: Transaction) => !isFundingJournal(t) && t.units === 0 && Number.isFinite(t.amount) && t.amount !== 0 && ['Contribution', 'Withdrawal', 'Bill Payment', 'Transfer', 'Other'].includes(t.type)
+export const isFundingCash = (t: Transaction) => !isFundingJournal(t) && t.units === 0 && Number.isFinite(t.amount) && t.amount !== 0 && ['Contribution', 'W-2', 'Withdrawal', 'Bill Payment', 'Transfer', 'Other'].includes(t.type)
 
 export const isKnownBankFunding = (t: Transaction) => t.units === 0 && ((t.amount > 0 && /\bTRANSFER FUNDS FROM SCHW\s?AB BANK\b/i.test(t.description)) || (t.amount < 0 && /\bTRANSFER FUNDS TO SCHW\s?AB BANK\b/i.test(t.description)))
 
@@ -26,7 +26,7 @@ export function fundingTransfers(txns: Transaction[], windowDays = 4) {
     } else group.forEach((t) => invalid.add(t.id))
   }
   const eligible = txns.filter((t) => isFundingCash(t) && !isKnownBankFunding(t) && (!t.fundingReview || t.fundingReview.kind === 'auto'))
-  const incoming = eligible.filter((t) => t.amount > 0 && ['Contribution', 'Transfer'].includes(t.type))
+  const incoming = eligible.filter((t) => t.amount > 0 && ['Contribution', 'W-2', 'Transfer'].includes(t.type))
   const outgoing = eligible.filter((t) => t.amount < 0 && ['Withdrawal', 'Transfer'].includes(t.type))
   const matches = (a: Transaction, b: Transaction) => canPairFunding(a, b) && Math.abs(Date.parse(a.date) - Date.parse(b.date)) <= windowDays * 86_400_000
   const ambiguous = new Set<string>()
@@ -53,7 +53,7 @@ export function saveFundingReview(data: AppData, id: string, kind: FundingReview
     const fundingReview: FundingReview = kind === 'internal' ? { kind, pairId } : { kind }
     // Keep cash flows in account snapshots; portfolio matching removes only
     // the incoming internal contribution in the equity-growth diagnostic.
-    const type = kind === 'auto' ? undefined : t.amount > 0 ? 'Contribution' : t.type === 'Bill Payment' && kind === 'external' ? 'Bill Payment' : 'Withdrawal'
+    const type = kind === 'auto' ? undefined : t.amount > 0 ? (t.type === 'W-2' ? 'W-2' : 'Contribution') : t.type === 'Bill Payment' && kind === 'external' ? 'Bill Payment' : 'Withdrawal'
     overrides = recordTransactionOverride(data.transactions, data.accounts, overrides, t.id, { fundingReview, ...(type ? { type } : {}) })
   }
   data.transactionOverrides = overrides

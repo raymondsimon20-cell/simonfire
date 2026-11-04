@@ -99,7 +99,7 @@ export function investmentReturn(
       if (t.amount >= 0) interestIncome += t.amount
       else fees += -t.amount // margin interest is a cost
     } else if (t.type === 'Fee') fees += Math.abs(t.amount)
-    else if (t.type === 'Contribution') contributions += Math.max(0, t.amount)
+    else if (t.type === 'Contribution' || t.type === 'W-2') contributions += Math.max(0, t.amount)
     else if (t.type === 'Loan') loans += t.amount
     else if (t.type === 'Withdrawal' || t.type === 'Bill Payment') withdrawals += Math.abs(t.amount)
   }
@@ -253,7 +253,7 @@ export function cashFlow(txns: Transaction[], fromISO: string, toISO: string): C
       perDay.set(t.date, (perDay.get(t.date) ?? 0) + t.amount)
     }
     if (t.type === 'Interest' && t.amount < 0) marginCost += -t.amount
-    if (t.type === 'Contribution') contributions += t.amount
+    if (t.type === 'Contribution' || t.type === 'W-2') contributions += t.amount
     if (t.type === 'Withdrawal') cashWithdrawals += -t.amount
     if (t.type === 'Buy') capitalDeployed += -t.amount
   }
@@ -580,7 +580,7 @@ export interface MonthClose {
 // Match each transaction-backed bridge step, including missing sale P/L for review.
 export function bridgeTransactions(transactions: Transaction[], ym: string, step: number | null) {
   return transactions.filter((t) => t.date.slice(0, 7) === ym).flatMap((transaction) => {
-    if (step === 1 && transaction.type === 'Contribution') return [{ transaction, value: transaction.amount }]
+    if (step === 1 && (transaction.type === 'Contribution' || transaction.type === 'W-2')) return [{ transaction, value: transaction.amount }]
     if (step === 2 && operatingAmount(transaction) !== 0) return [{ transaction, value: operatingAmount(transaction) }]
     if (step === 3 && transaction.type === 'Sell' && (transaction.pl != null || isClosingSale(transaction))) return [{ transaction, value: transaction.pl ?? 0 }]
     return []
@@ -605,7 +605,7 @@ export function monthClose(
   const flowsOf = (m: string) => {
     const t = txns.filter((x) => x.date.slice(0, 7) === m)
     const contributions = t
-      .filter((x) => x.type === 'Contribution')
+      .filter((x) => x.type === 'Contribution' || x.type === 'W-2')
       .reduce((s, x) => s + x.amount, 0)
     const cf = cashFlow(t, m + '-01', m + '-31')
     const realized = t

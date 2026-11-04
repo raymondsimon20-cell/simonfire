@@ -105,3 +105,7 @@ export function classifySchwabTransaction({
   if (/TRANSFER/.test(text)) return 'Transfer'
   return 'Other'
 }
+
+// Paycheck deposits: payroll, salary, military pay (DFAS) or direct deposit.
+const PAYROLL = /\b(?:PAYROLL|PAYRL|SALARY|DFAS|DIR(?:ECT)?[ -]?DEP(?:OSIT)?)\b/i
+export const isPayrollDeposit = (description: string, amount: number) => amount > 0 && PAYROLL.test(description)

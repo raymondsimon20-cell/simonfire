@@ -89,16 +89,16 @@ export interface ContributionAverage {
 }
 
 // Average new money deposited over as many as 12 complete calendar months.
-// Only positive Contribution transactions count. Pass the ids of internal
+// Only positive deposits of the given types count (default: W-2 and Contribution). Pass the ids of internal
 // transfers between your own accounts so moving money is not counted as new.
-export function averageMonthlyContributions(transactions: Transaction[], todayISO: string, excludeIds: ReadonlySet<string> = new Set()): ContributionAverage | null {
+export function averageMonthlyContributions(transactions: Transaction[], todayISO: string, excludeIds: ReadonlySet<string> = new Set(), types: readonly Transaction['type'][] = ['Contribution', 'W-2']): ContributionAverage | null {
   const dated = transactions.filter((transaction) => /^\d{4}-\d{2}-\d{2}$/.test(transaction.date) && transaction.date <= todayISO)
   if (!dated.length) return null
   const window = completeMonthWindow(dated, todayISO)
   if (!window) return null
   const { months, from, to } = window
   const deposits = dated.filter((transaction) =>
-    transaction.type === 'Contribution' && transaction.amount > 0 && !excludeIds.has(transaction.id)
+    types.includes(transaction.type) && transaction.amount > 0 && !excludeIds.has(transaction.id)
     && transaction.date.slice(0, 7) >= from && transaction.date.slice(0, 7) <= to)
   const total = deposits.reduce((sum, transaction) => sum + transaction.amount, 0)
   return { monthlyAverage: +(total / months).toFixed(2), total: +total.toFixed(2), months, from, to, transactionCount: deposits.length }

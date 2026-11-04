@@ -121,7 +121,7 @@ export function reconcileCsvAuthority(
         const descriptionKey = (s: string) => normalizeTransactionPattern(s).replace(/[^A-Z0-9]/g, '')
         const sameDescription = descriptionKey(t.description) === descriptionKey(row.transaction.description)
         const compatible = t.type === row.transaction.type || t.type === 'Other' || row.transaction.type === 'Other' ||
-          [t.type, row.transaction.type].every((type) => ['Other', 'Transfer', 'Contribution', 'Loan', 'Withdrawal', 'Bill Payment'].includes(type))
+          [t.type, row.transaction.type].every((type) => ['Other', 'Transfer', 'Contribution', 'W-2', 'Loan', 'Withdrawal', 'Bill Payment'].includes(type))
         if (!compatible) return []
         // Conflicting trade symbols are different securities. Dividend symbols
         // may be inferred incorrectly by the API; CSV supplies the actual payer.

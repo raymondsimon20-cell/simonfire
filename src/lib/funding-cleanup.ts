@@ -17,7 +17,7 @@ export function fundingLedger(rows: StatementMonth[], transactions: Transaction[
     if(!account)continue
     const group=groups.filter(g=>g.complete&&g.month===row.month&&statementAccount(g,accounts)?.id===account.id).sort((a,b)=>b.importedAt.localeCompare(a.importedAt))[0]
     if(!group)continue
-    const deposit=group.transactions.filter(t=>t.type==='Contribution').reduce((n,t)=>n+t.amount,0)
+    const deposit=group.transactions.filter(t=>t.type==='Contribution'||t.type==='W-2').reduce((n,t)=>n+t.amount,0)
     const withdrawal=group.transactions.filter(t=>['Withdrawal','Bill Payment'].includes(t.type)).reduce((n,t)=>n+t.amount,0)
     if(Math.abs(deposit-statement.deposits)>.01||Math.abs(withdrawal-statement.withdrawals)>.01)continue
     const funding=group.transactions.filter(t=>isFundingCash(t as Transaction))
@@ -34,7 +34,7 @@ export function fundingLedger(rows: StatementMonth[], transactions: Transaction[
     }
     if(valid){
       const mappedIds=new Set(mapped.map(t=>t.id))
-      mapped.push(...transactions.filter(t=>t.accountId===account.id&&t.date.slice(0,7)===row.month&&!mappedIds.has(t.id)&&((!!t.fundingReview&&t.fundingReview.kind!=='auto')||(t.classificationSource==='manual'&&['Contribution','Withdrawal','Bill Payment','Transfer','Other'].includes(t.type)&&(t.amount!==0||t.units!==0)))))
+      mapped.push(...transactions.filter(t=>t.accountId===account.id&&t.date.slice(0,7)===row.month&&!mappedIds.has(t.id)&&((!!t.fundingReview&&t.fundingReview.kind!=='auto')||(t.classificationSource==='manual'&&['Contribution','W-2','Loan','Withdrawal','Bill Payment','Transfer','Other'].includes(t.type)&&(t.amount!==0||t.units!==0)))))
       const key=`${account.id}|${row.month}`;replacements.set(key,mapped);verifiedMonths.add(key)}
   }
   return {transactions:[...transactions.filter(t=>!replacements.has(`${t.accountId}|${t.date.slice(0,7)}`)),...[...replacements.values()].flat()],verifiedMonths}
@@ -50,9 +50,10 @@ export function saveBankFundingBatch(data: AppData, candidates: BankFundingCandi
   if(candidates.some(c=>current.get(c.id)!==c.fingerprint))return 0
   const ids=new Set(candidates.map(c=>c.id)), selected=data.transactions.filter(t=>ids.has(t.id))
   let overrides=data.transactionOverrides??{}
-  for(const positive of [true,false]){
-    const group=selected.filter(t=>(t.amount>0)===positive).map(t=>t.id)
-    if(group.length)overrides=recordTransactionOverride(data.transactions,data.accounts,overrides,group,{fundingReview:{kind:'external'},type:positive?'Contribution':'Withdrawal'})
+  // Keep a deposit already marked W-2 as W-2; other deposits become Contribution.
+  for(const [type,match] of [['W-2',(t:Transaction)=>t.amount>0&&t.type==='W-2'],['Contribution',(t:Transaction)=>t.amount>0&&t.type!=='W-2'],['Withdrawal',(t:Transaction)=>t.amount<=0]] as const){
+    const group=selected.filter(match).map(t=>t.id)
+    if(group.length)overrides=recordTransactionOverride(data.transactions,data.accounts,overrides,group,{fundingReview:{kind:'external'},type})
   }
   data.transactionOverrides=overrides
   applyTransactionOverrides(data.transactions,data.accounts,overrides)

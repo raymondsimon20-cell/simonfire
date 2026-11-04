@@ -52,6 +52,7 @@ const TYPE_OPTIONS: TxnType[] = [
   'Dividend',
   'Interest',
   'Contribution',
+  'W-2',
   'Loan',
   'Withdrawal',
   'Bill Payment',

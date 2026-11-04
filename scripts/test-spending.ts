@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { averageMonthlyContributions, averagePortfolioSpending, spendingExclusionKey } from '../src/lib/spending'
+import { isPayrollDeposit } from '../src/lib/transaction-classification'
 import type { Transaction, TxnType } from '../src/lib/types'
 
 const txn = (id: string, date: string, type: TxnType, amount: number): Transaction => ({ id, date, type, amount, accountId: 'a1', description: type, units: 0, tags: [] })
@@ -57,4 +58,12 @@ assert.equal(averageMonthlyContributions([txn('only', '2026-09-02', 'Contributio
 const withLoan = [txn('w2', '2026-07-01', 'Contribution', 4_000), txn('loan', '2026-07-10', 'Loan', 20_000), txn('repay', '2026-08-10', 'Loan', -1_000)]
 assert.equal(averageMonthlyContributions(withLoan, '2026-09-12')!.total, 4_000)
 assert.equal(averagePortfolioSpending(withLoan, '2026-09-12')!.total, 0)
+// W-2 counts as a contribution by default; the FIRE salary average uses W-2 only.
+const paychecks = [txn('pay', '2026-07-01', 'W-2', 4_000), txn('gift', '2026-07-03', 'Contribution', 1_000), txn('loan2', '2026-07-05', 'Loan', 9_000)]
+assert.equal(averageMonthlyContributions(paychecks, '2026-09-12')!.total, 5_000)
+assert.equal(averageMonthlyContributions(paychecks, '2026-09-12', new Set(), ['W-2'])!.total, 4_000)
+assert.equal(averageMonthlyContributions(paychecks, '2026-09-12', new Set(), ['W-2'])!.transactionCount, 1)
+for (const d of ['ACH Deposit — Payroll', 'DFAS-CLEVELAND MIL PAY', 'DIR DEP ACME', 'Direct Deposit Salary']) assert.ok(isPayrollDeposit(d, 100), d)
+for (const d of ['TRANSFER FUNDS FROM SCHWAB BANK', 'LOAN PROCEEDS', 'MONEYLINK DEPOSIT']) assert.ok(!isPayrollDeposit(d, 100), d)
+assert.ok(!isPayrollDeposit('PAYROLL', -100))
 console.log('portfolio spending tests passed')

@@ -12,7 +12,7 @@ import clsx from 'clsx'
 
 const OPEN_MONTHS = 3 // months expanded by default
 const PAGE = 100 // rows shown per month before "Show more"
-const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'Loan', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action', 'Buy', 'Sell', 'Other']
+const CATEGORIES = ['Dividend', 'Interest', 'Contribution', 'W-2', 'Loan', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action', 'Buy', 'Sell', 'Other']
 
 export default function Ledger() {
   const { transactions, accounts } = useScoped()
@@ -162,7 +162,7 @@ export default function Ledger() {
 // Collapse a description to a stable pattern by dropping account numbers, masks,
 // and long digit runs, so "OVERDRAFT TO INVESTOR CHECKING 3142" and "…3143"
 // group together.
-const CLEANUP_CATS: TxnType[] = ['Dividend', 'Interest', 'Contribution', 'Loan', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action']
+const CLEANUP_CATS: TxnType[] = ['Dividend', 'Interest', 'Contribution', 'W-2', 'Loan', 'Withdrawal', 'Bill Payment', 'Transfer', 'Fee', 'Tax Withholding', 'Corporate Action']
 
 // Surfaces every transaction still sitting in the catch-all "Other" category,
 // grouped by description pattern, and lets you categorize each group in one

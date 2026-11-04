@@ -419,7 +419,7 @@ const connections: Connection[] = [
 // client's TWR math recovers the intended weekly returns.
 function buildSampleTwr(): TwrSeries {
   const rng = mulberry32(99)
-  const extType = new Set<TxnType>(['Contribution', 'Withdrawal', 'Bill Payment'])
+  const extType = new Set<TxnType>(['Contribution', 'W-2', 'Withdrawal', 'Bill Payment'])
   const osi = /\d{6}[CP]\d{8}$/
   const isOpt = (s?: string) => !!s && osi.test((s || '').replace(/\s+/g, ''))
   const flowOf = (t: Transaction) =>
@@ -543,6 +543,7 @@ export const TXN_TYPES: TxnType[] = [
   'Dividend',
   'Interest',
   'Contribution',
+  'W-2',
   'Loan',
   'Withdrawal',
   'Bill Payment',

@@ -117,6 +117,7 @@ export function PageHeader({
 const badgeStyle: Record<string, string> = {
   Dividend: 'bg-[#123024] text-[#3fd88a]',
   Contribution: 'bg-[#10233f] text-[#5aa2ff]',
+  'W-2': 'bg-[#123024] text-[#7fe3b0]',
   Loan: 'bg-[#38240f] text-[#e7c88f]',
   Buy: 'bg-[#10233f] text-[#5aa2ff]',
   Sell: 'bg-[#241a3a] text-[#b18aff]',
@@ -133,7 +134,7 @@ export function Badge({ children }: { children: string }) {
   return (
     <span
       className={clsx(
-        'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium',
+        'inline-flex items-center whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium',
         badgeStyle[children] ?? 'bg-[#20293a] text-[#9fb0c9]',
       )}
     >

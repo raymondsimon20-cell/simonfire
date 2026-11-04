@@ -15,7 +15,7 @@ import {
 import type { Account, AppData, Connection, HedgeRoll, HistoricalBalance, StatementTransactions, IncomePlan, Insights, Position, TagRule, Transaction, TwrSeries } from './types'
 import { buildSeed } from './seed'
 import { DEFAULT_KEEP } from './plan'
-import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches } from './transaction-classification'
+import { classifySchwabTransaction, normalizeTransactionPattern, transactionPatternMatches, isPayrollDeposit } from './transaction-classification'
 import { loadBalanceHistory, loadSharedPreferences, saveBackup, saveSharedPreferences, type SharedPreferences } from './api'
 import { dividendDescriptionKey, hasDividendIdentity, resolveDividendSymbols } from './dividend-symbol'
 import { applyRealizedPlOverrides, populateRealizedProfitLoss, realizedPlOverrideKey } from './realized-pl'
@@ -46,6 +46,8 @@ function applyRulesTo(d: AppData, extraManaged?: Iterable<string>) {
     .filter((r) => r.enabled && r.contains.trim())
     .sort((a, b) => a.contains.length - b.contains.length)
   for (const t of d.transactions) {
+    // Payroll deposits default to W-2. Rules and saved manual changes below still win.
+    if (t.type === 'Contribution' && t.classificationSource !== 'manual' && isPayrollDeposit(t.description, t.amount)) t.type = 'W-2'
     if (managed.size && t.tags.some((tg) => managed.has(tg))) {
       t.tags = t.tags.filter((tg) => !managed.has(tg))
     }
@@ -138,6 +140,7 @@ function load(): AppData {
     /* ignore */
   }
   const seed = buildSeed()
+  applyRulesTo(seed)
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(seed))
   } catch {
@@ -796,6 +799,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const reset: StoreCtx['reset'] = useCallback(() => {
     const seed = buildSeed()
+    applyRulesTo(seed)
     setData(seed)
     setScope('all')
   }, [])

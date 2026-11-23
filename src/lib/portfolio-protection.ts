@@ -86,7 +86,7 @@ export function protectionStress(input: ProtectionInput, candidate?: { quote: Pr
         maintenance += payoff // Conservative: option value is fully funded; no broker offset assumed.
       } else if (p.shares !== 0) omitted.push(`${p.symbol}: option value held fixed; result incomplete`)
     }
-    const newPayoff = candidate ? Math.max(0, candidate.quote.strike - qqq) * 100 * candidate.contracts : 0
+    const newPayoff = candidate && candidate.quote.expiration >= horizon ? Math.max(0, candidate.quote.strike - qqq) * 100 * candidate.contracts : 0
     const gross = input.gross - loss + putChange - (close ? close.shares * close.lastPrice : 0) + newPayoff + excessCredit
     const debt = postDebt + financing, equity = gross - debt
     maintenance += newPayoff
@@ -154,35 +154,60 @@ export interface ProtectionAiScenario {
   maintenanceGap: number | null; premium: number; closeCredit: number; fees: number; financing: number
 }
 export interface ProtectionAiEvidence {
+  userDirected?: boolean
+  quoteCurrent?: boolean
   targetEquityPct: 50; horizonDays: number; ratePct: number; evidenceComplete: boolean
   missingCount: number; quoteFetchedAt: string; hold: ProtectionAiScenario[]
   candidate: { meetsTargets: boolean; withinBudget: boolean; entryEquityPct: number; entryFloorGap: number; action: 'ADD' | 'ROLL'; strike: number; expiration: string; contracts: number; stress: ProtectionAiScenario[] } | null
 }
 // Send only aggregate comparison values. No account identifiers, raw positions,
 // free-text evidence labels, or credentials belong in an AI request.
-export function protectionAiEvidence(input: ProtectionInput, balancesConfirmed: boolean): ProtectionAiEvidence {
+export function protectionAiEvidence(input: ProtectionInput, balancesConfirmed: boolean, selection?: {symbol:string;contracts:number}): ProtectionAiEvidence {
   const ranking = rankPortfolioProtection(input)
   const scenario = (s: ReturnType<typeof protectionStress>[number]): ProtectionAiScenario => ({declinePct:s.declinePct,equity:s.equity,equityPct:s.equityPct,floorGap:s.floorGap,maintenanceGap:s.maintenanceGap,premium:s.premium,closeCredit:s.closeCredit,fees:s.fees,financing:s.financing})
-  const candidate = ranking.recommendation ?? ranking.candidates[0]
-  return {targetEquityPct:50,horizonDays:input.horizonDays,ratePct:input.ratePct,evidenceComplete:ranking.ready && balancesConfirmed,missingCount:ranking.missing.length + Number(!balancesConfirmed),quoteFetchedAt:input.quoteFetchedAt ?? '',hold:ranking.hold.map(scenario),candidate:candidate ? {meetsTargets:candidate.meetsFloor,withinBudget:candidate.withinBudget,entryEquityPct:candidate.entry.equityPct,entryFloorGap:candidate.entry.floorGap,action:input.closePositionId?'ROLL':'ADD',strike:candidate.quote.strike,expiration:candidate.quote.expiration,contracts:candidate.contracts,stress:candidate.stress.map(scenario)} : null}
+  const candidate = selection ? protectionChoice(input,selection) : ranking.recommendation ?? ranking.candidates[0]
+  const age=(input.now??Date.now())-Date.parse(input.quoteFetchedAt??'')
+  return {...(selection ? {userDirected:true} : {}),quoteCurrent:Number.isFinite(age)&&age>=0&&age<=5*60000&&input.delayed===false,targetEquityPct:50,horizonDays:input.horizonDays,ratePct:input.ratePct,evidenceComplete:ranking.ready && balancesConfirmed,missingCount:ranking.missing.length + Number(!balancesConfirmed),quoteFetchedAt:input.quoteFetchedAt ?? '',hold:ranking.hold.map(scenario),candidate:candidate ? {meetsTargets:candidate.meetsFloor,withinBudget:candidate.withinBudget,entryEquityPct:candidate.entry.equityPct,entryFloorGap:candidate.entry.floorGap,action:input.closePositionId?'ROLL':'ADD',strike:candidate.quote.strike,expiration:candidate.quote.expiration,contracts:candidate.contracts,stress:candidate.stress.map(scenario)} : null}
+}
+
+// Quotes that a user may explicitly choose, independent of model sizing or
+// the model's preferred roll window. Contract identity and deliverable still apply.
+export function protectionTradeQuotes(input: ProtectionInput) {
+  const close=input.positions.find(p=>p.id===input.closePositionId)
+  return input.quotes.filter(q=>finite(q.ask)&&q.ask>0&&finite(q.bid)&&q.bid>=0&&q.bid<=q.ask&&q.multiplier===100
+    &&q.expiration>input.today&&(!close||q.symbol.replace(/\s/g,'')!==close.symbol.replace(/\s/g,''))
+    &&putPlanMatchesContract({optionSymbol:q.symbol,proxy:'QQQ',strike:q.strike,expiration:q.expiration,contracts:1,premiumPerShare:q.ask},input.today))
+}
+export function protectionChoice(input: ProtectionInput, selection: {symbol:string;contracts:number}) {
+  if(!Number.isSafeInteger(selection.contracts)||selection.contracts<1||selection.contracts>100)return null
+  const quote=protectionTradeQuotes(input).find(q=>q.symbol===selection.symbol)
+  if(!quote)return null
+  const stress=protectionStress(input,{quote,contracts:selection.contracts})
+  const entry=protectionEntry(input,quote,selection.contracts)
+  const worstGap=Math.max(entry.floorGap+(entry.maintenanceGap??0),...stress.map(s=>s.floorGap+(s.maintenanceGap??0)))
+  const debit=stress[0].premium+stress[0].fees
+  return {quote,contracts:selection.contracts,stress,entry,worstGap,debit,withinBudget:debit<=input.budget,meetsFloor:worstGap<.01&&entry.maintenanceGap!=null&&stress.every(s=>s.maintenanceGap!=null)}
 }
 
 export type ProtectionOrderDraft = Omit<HedgeRoll, 'id' | 'createdAt'>
-export function buildProtectionOrderDraft(input: ProtectionInput, selection: {symbol:string;contracts:number}, accountId: string, balancesConfirmed: boolean): ProtectionOrderDraft | null {
-  if (!balancesConfirmed || !accountId || accountId.startsWith('csv:') || input.positions.some(p=>p.shares!==0 && p.accountId!==accountId)) return null
+export function buildProtectionOrderDraft(input: ProtectionInput, selection: {symbol:string;contracts:number}, accountId: string, balancesConfirmed: boolean, mode: 'model' | 'on-demand' = 'model'): ProtectionOrderDraft | null {
+  if (!balancesConfirmed || (input.accountCount??1)!==1 || !finite(input.gross) || input.gross<=0 || !finite(input.debt) || input.debt<0 || !accountId || accountId.startsWith('csv:') || input.positions.some(p=>p.shares!==0 && p.accountId!==accountId)) return null
   const close = input.closePositionId ? input.positions.find(p=>p.id===input.closePositionId) : undefined
   if (input.closePositionId && (!close || !isActiveProtectivePut(close,input.today) || close.underlying?.toUpperCase()!=='QQQ' || !Number.isSafeInteger(close.shares) || close.shares<=0)) return null
-  const ranking = rankPortfolioProtection(input)
-  if (!ranking.ready || ranking.holdMeetsFloor) return null
-  const candidate = ranking.candidates.find(c=>c.quote.symbol===selection.symbol && c.contracts===selection.contracts)
-  if (!candidate?.meetsFloor || !candidate.withinBudget) return null
+  const fetched=Date.parse(input.quoteFetchedAt??'')
+  const age=(input.now??Date.now())-fetched
+  if(!Number.isFinite(age)||age < -60000||age>5*60000||input.delayed!==false)return null
+  const ranking=mode==='model'?rankPortfolioProtection(input):null
+  if(ranking&&(!ranking.ready||ranking.holdMeetsFloor))return null
+  const candidate=ranking?ranking.candidates.find(c=>c.quote.symbol===selection.symbol&&c.contracts===selection.contracts):protectionChoice(input,selection)
+  if(!candidate||(mode==='model'&&(!candidate.meetsFloor||!candidate.withinBudget)))return null
   const closeQuote = close ? input.quotes.find(q=>q.symbol.replace(/\s/g,'')===close.symbol.replace(/\s/g,'')) : undefined
   if (close && (!finite(closeQuote?.bid) || closeQuote.bid<=0 || closeQuote.multiplier!==100)) return null
   return {
     proxy:'QQQ',accountId,optionSymbol:candidate.quote.symbol,contracts:candidate.contracts,
     strike:candidate.quote.strike,expiration:candidate.quote.expiration,
     premiumPerShare:candidate.quote.ask!,grossPremium:candidate.stress[0].premium,rollDate:input.today,
-    status:'queued',source:'planning',previewState:'not_previewed',
+    status:'queued',source:mode==='on-demand'?'manual':'planning',previewState:'not_previewed',
     ...(close ? {closeOptionSymbol:close.symbol,closeContracts:close.shares,closeLimitCredit:closeQuote!.bid!,
       closeCostBasis:close.avgCost*close.shares,closeEstimatedValue:close.shares*close.lastPrice,
       closeEstimatedPL:(close.lastPrice-close.avgCost)*close.shares,closePreviewState:'not_previewed' as const} : {}),

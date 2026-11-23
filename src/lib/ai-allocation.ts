@@ -117,7 +117,7 @@ export function validateAllocationEvidence(raw: unknown): AllocationEvidence {
         return {declinePct:v.declinePct,equity:v.equity,equityPct:v.equityPct,floorGap:v.floorGap,maintenanceGap:v.maintenanceGap,premium:v.premium,closeCredit:v.closeCredit,fees:v.fees,financing:v.financing}
       })
     }
-    if (p.targetEquityPct !== 50 || !bounded(p.horizonDays,30,180) || !bounded(p.ratePct,0,50) || typeof p.evidenceComplete !== 'boolean' || !Number.isSafeInteger(p.missingCount) || !bounded(p.missingCount,0,1000) || !text(p.quoteFetchedAt,40)) throw new Error('invalid_protection_review')
+    if ((p.quoteCurrent!=null && typeof p.quoteCurrent!=='boolean') || (p.userDirected!=null && typeof p.userDirected!=='boolean') || p.targetEquityPct !== 50 || !bounded(p.horizonDays,30,180) || !bounded(p.ratePct,0,50) || typeof p.evidenceComplete !== 'boolean' || !Number.isSafeInteger(p.missingCount) || !bounded(p.missingCount,0,1000) || !text(p.quoteFetchedAt,40)) throw new Error('invalid_protection_review')
     let candidate: ProtectionAiEvidence['candidate'] = null
     if(p.candidate) {
       const c=p.candidate
@@ -125,7 +125,7 @@ export function validateAllocationEvidence(raw: unknown): AllocationEvidence {
       candidate={meetsTargets:c.meetsTargets,withinBudget:c.withinBudget,entryEquityPct:c.entryEquityPct,entryFloorGap:c.entryFloorGap,action:c.action,strike:c.strike,expiration:c.expiration,contracts:c.contracts,stress:scenarios(c.stress)}
     }
     const age = Date.now()-Date.parse(p.quoteFetchedAt)
-    protectionReview={targetEquityPct:50,horizonDays:p.horizonDays,ratePct:p.ratePct,evidenceComplete:p.evidenceComplete && p.missingCount===0 && age>=0 && age<=300000,missingCount:p.missingCount,quoteFetchedAt:p.quoteFetchedAt,hold:scenarios(p.hold),candidate}
+    protectionReview={...(p.quoteCurrent!=null?{quoteCurrent:p.quoteCurrent&&age>=0&&age<=300000}:{}),...(p.userDirected!=null?{userDirected:p.userDirected}:{}),targetEquityPct:50,horizonDays:p.horizonDays,ratePct:p.ratePct,evidenceComplete:p.evidenceComplete && p.missingCount===0 && age>=0 && age<=300000,missingCount:p.missingCount,quoteFetchedAt:p.quoteFetchedAt,hold:scenarios(p.hold),candidate}
   }
   return { ...(protectionReview ? {protectionReview} : {}), asOf: r.asOf, source: r.source, horizonMonths: 12, monitorMonths: [3, 6], budget: r.budget, longExposure: r.longExposure, shortExposure: r.shortExposure, marginDebt: r.marginDebt, netEquity: r.netEquity, candidates, hedgeAlternatives, targets, proxies, activePuts, hedge }
 }

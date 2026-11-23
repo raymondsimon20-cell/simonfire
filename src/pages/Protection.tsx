@@ -48,12 +48,12 @@ function HedgeWorkspace({ positions, accounts, onAiEvidence, initialEvidence, on
   const [orderNote, setOrderNote] = useState('')
   const prepareOrder = (draft: ProtectionOrderDraft) => {
     const contractKey = (symbol?: string) => symbol?.replace(/\s+/g, '').toUpperCase()
-    const exists = (data.hedgeRolls ?? []).some((roll) =>
+    const exists = (data.hedgeRolls ?? []).find((roll) =>
       roll.accountId === draft.accountId && !['closed', 'rolled'].includes(roll.status) &&
       (contractKey(roll.optionSymbol) === contractKey(draft.optionSymbol) ||
         (!!draft.closeOptionSymbol && contractKey(roll.closeOptionSymbol) === contractKey(draft.closeOptionSymbol))))
     if (!exists) addHedgeRoll(draft)
-    setOrderNote(exists ? 'This order already has a plan in the queue. Review the existing plan below.' : 'Order ready for review. Preview with Schwab before confirming.')
+    setOrderNote(exists ? `Your new choice was not added because a related plan already exists. The existing ticket below is for ${exists.contracts} contracts at ${usd(exists.premiumPerShare)} per share. Review that ticket before proceeding.` : 'Order ready for review. Preview with Schwab before confirming.')
     setMode('manage')
   }
   const tabs = [['manage', `My puts${activePuts + openPlans ? ` · ${activePuts + openPlans}` : ''}`], ['portfolio', 'Protect portfolio'], ['holding', 'Protect a holding']] as const

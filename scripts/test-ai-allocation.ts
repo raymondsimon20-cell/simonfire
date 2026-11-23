@@ -90,3 +90,8 @@ const protectionReview = {targetEquityPct:50,horizonDays:30,ratePct:8,evidenceCo
 assert.deepEqual(validateAllocationEvidence({...evidence,protectionReview}).protectionReview,protectionReview,'AI receives the portfolio stress comparison')
 assert.throws(()=>validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,hold:[{...protectionReview.hold[0],financing:NaN}]}}))
 assert.ok(!JSON.stringify(validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,accountId:'private-account'}})).includes('private-account'))
+const manualReview=validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,userDirected:true,quoteCurrent:true,quoteFetchedAt:new Date().toISOString()}}).protectionReview!
+assert.equal(manualReview.userDirected,true)
+assert.equal(manualReview.quoteCurrent,true,'fresh protection quotes do not depend on a separate legacy hedge quote')
+assert.equal(manualReview.evidenceComplete,false,'fresh quotes do not imply complete model evidence')
+assert.equal(validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,userDirected:true,quoteCurrent:true,quoteFetchedAt:'2020-01-01T00:00:00Z'}}).protectionReview!.quoteCurrent,false)

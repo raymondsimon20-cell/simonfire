@@ -3,7 +3,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createHash } from 'node:crypto'
 import { getStore } from '@netlify/blobs'
-import { accessToken, accountHash, API_BASE, env, json } from './lib/schwab'
+import { accessToken, accountHash, API_BASE, fetchDailyCloses, env, json } from './lib/schwab'
+
+import { validateSurvivalPolicy, type SurvivalPolicy } from '../../src/lib/survival-policy'
+import { optionPreflight } from './lib/option-preflight'
 
 type OrderRequest = {
   action?: 'preview' | 'place' | 'status'
@@ -12,6 +15,7 @@ type OrderRequest = {
   orderId?: string
   order?: unknown
   confirm?: boolean
+  survivalPolicy?: unknown
 }
 
 const requestIdPattern = /^[a-f0-9-]{20,64}$/i
@@ -64,8 +68,8 @@ function validateOrder(value: any) {
   return normalized
 }
 
-function fingerprint(accountId: string, order: unknown) {
-  return createHash('sha256').update(JSON.stringify({ accountId, order })).digest('hex')
+function fingerprint(accountId: string, order: unknown, survivalPolicy?: SurvivalPolicy) {
+  return createHash('sha256').update(JSON.stringify({ accountId, order, survivalPolicy })).digest('hex')
 }
 
 async function schwabError(res: Response) {
@@ -86,6 +90,7 @@ export interface OrderDependencies {
   store: () => Pick<ReturnType<typeof getStore>, 'get' | 'setJSON'>
   fetch: typeof fetch
   now: () => number
+  fetchDailyCloses?: typeof fetchDailyCloses
 }
 
 export function createSchwabOrderHandler(deps: OrderDependencies) {
@@ -102,6 +107,12 @@ export function createSchwabOrderHandler(deps: OrderDependencies) {
         if (body.confirm !== true) return json({ ok: false, error: 'confirmation_required' }, 400)
       }
 
+      let validatedOrder: any
+      let validatedPolicy: SurvivalPolicy | undefined
+      if (action === 'preview' || action === 'place') {
+        validatedOrder = validateOrder(body.order)
+        if (validatedOrder.orderLegCollection[0].instrument.assetType === 'OPTION') validatedPolicy = validateSurvivalPolicy(body.survivalPolicy)
+      }
       const token = await deps.accessToken()
       const hash = await deps.accountHash(body.accountId, token)
 
@@ -112,16 +123,19 @@ export function createSchwabOrderHandler(deps: OrderDependencies) {
         })
         if (!res.ok) return json({ ok: false, error: await schwabError(res) }, res.status)
         const order: any = await res.json()
-        return json({ ok: true, orderId: String(body.orderId), status: order.status ?? 'UNKNOWN' })
+        return json({ ok: true, orderId: String(body.orderId), status: order.status ?? 'UNKNOWN', quantity: typeof order.quantity === 'number' ? order.quantity : null, filledQuantity: typeof order.filledQuantity === 'number' ? order.filledQuantity : null, remainingQuantity: typeof order.remainingQuantity === 'number' ? order.remainingQuantity : null })
       }
 
       if (action !== 'preview' && action !== 'place') return json({ ok: false, error: 'invalid_action' }, 400)
       if (!requestIdPattern.test(String(body.requestId ?? ''))) return json({ ok: false, error: 'invalid_request_id' }, 400)
-      const order = validateOrder(body.order)
-      const digest = fingerprint(body.accountId, order)
+      const order = validatedOrder
+      const isOption = order.orderLegCollection[0].instrument.assetType === 'OPTION'
+      const survivalPolicy = validatedPolicy
+      const digest = fingerprint(body.accountId, order, survivalPolicy)
       const orderStore = deps.store()
 
       if (action === 'preview') {
+        const preflight = isOption ? await optionPreflight(deps, hash, token, order, survivalPolicy!) : undefined
         const res = await deps.fetch(`${API_BASE}/accounts/${encodeURIComponent(hash)}/previewOrder`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -130,17 +144,25 @@ export function createSchwabOrderHandler(deps: OrderDependencies) {
         if (!res.ok) return json({ ok: false, error: await schwabError(res) }, res.status)
         const text = await res.text()
         const preview = text ? (() => { try { return JSON.parse(text) } catch { return { message: text } } })() : {}
-        await orderStore.setJSON(`previews/${body.requestId}`, { digest, previewedAt: deps.now() })
-        return json({ ok: true, preview })
+        await orderStore.setJSON(`previews/${body.requestId}`, { digest, previewedAt: deps.now(), optionExecutable: preflight?.executable === true })
+        return json({ ok: true, preview, preflight })
       }
 
       const preview: any = await orderStore.get(`previews/${body.requestId}`, { type: 'json' })
       if (!preview || preview.digest !== digest || !Number.isFinite(preview.previewedAt) || deps.now() < preview.previewedAt || deps.now() - preview.previewedAt > 10 * 60_000)
         return json({ ok: false, error: 'preview_required' }, 409)
 
+      let placementPreflight: Awaited<ReturnType<typeof optionPreflight>> | undefined
+      if (isOption) {
+        const preflight = await optionPreflight(deps, hash, token, order, survivalPolicy!)
+        if (!preflight.executable) return json({ ok: false, error: 'option_preflight_unverified', preflight }, 409)
+        if (preview.optionExecutable !== true) return json({ ok: false, error: 'preview_required', preflight }, 409)
+        placementPreflight = preflight
+      }
+
       const claim = await orderStore.setJSON(
         `placements/${body.requestId}`,
-        { digest, state: 'submitting', createdAt: deps.now() },
+        { digest, state: 'submitting', createdAt: deps.now(), preflight: placementPreflight },
         { onlyIfNew: true },
       )
       if (!claim.modified) return json({ ok: false, error: 'duplicate_request' }, 409)
@@ -162,11 +184,11 @@ export function createSchwabOrderHandler(deps: OrderDependencies) {
         await orderStore.setJSON(`placements/${body.requestId}`, { digest, state: 'accepted_unknown_id', createdAt: deps.now() })
         return json({ ok: false, error: 'accepted_but_order_id_missing' }, 502)
       }
-      await orderStore.setJSON(`placements/${body.requestId}`, { digest, state: 'accepted', orderId, createdAt: deps.now() })
-      return json({ ok: true, orderId, status: 'ACCEPTED' }, 201)
+      await orderStore.setJSON(`placements/${body.requestId}`, { digest, state: 'accepted', orderId, createdAt: deps.now(), preflight: placementPreflight })
+      return json({ ok: true, orderId, status: 'ACCEPTED', preflight: placementPreflight }, 201)
     } catch (e: any) {
       const message = String(e?.message ?? e)
-      const known = ['INVALID_ACCOUNT', 'ACCOUNT_NOT_FOUND', 'AMBIGUOUS_ACCOUNT', 'INVALID_ORDER', 'UNSUPPORTED_ORDER', 'INVALID_ORDER_LEG', 'OPTION_LIMIT_ORDERS_ONLY', 'BUY_ORDERS_ONLY', 'INVALID_SYMBOL', 'INVALID_QUANTITY', 'INVALID_PRICE']
+      const known = ['SURVIVAL_POLICY_REQUIRED', 'INVALID_SURVIVAL_POLICY', 'INVALID_ACCOUNT', 'ACCOUNT_NOT_FOUND', 'AMBIGUOUS_ACCOUNT', 'INVALID_ORDER', 'UNSUPPORTED_ORDER', 'INVALID_ORDER_LEG', 'OPTION_LIMIT_ORDERS_ONLY', 'BUY_ORDERS_ONLY', 'INVALID_SYMBOL', 'INVALID_QUANTITY', 'INVALID_PRICE']
       if (known.includes(message)) return json({ ok: false, error: message.toLowerCase() }, 400)
       if (message.includes('NOT_CONNECTED')) return json({ ok: false, error: 'not_connected' }, 401)
       if (message.includes('REFRESH_EXPIRED')) return json({ ok: false, error: 'refresh_expired' }, 401)
@@ -183,4 +205,5 @@ export default (req: Request) => createSchwabOrderHandler({
   store: () => getStore('schwab-orders'),
   fetch,
   now: Date.now,
+  fetchDailyCloses,
 })(req)

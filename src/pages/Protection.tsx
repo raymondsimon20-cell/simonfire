@@ -39,7 +39,7 @@ export default function Protection() {
 
 function HedgeWorkspace({ positions, accounts, onAiEvidence, initialEvidence, onReviewEvidence }: { positions: Position[]; accounts: Account[]; initialEvidence?: AiHedgeContext; onReviewEvidence: (value: ProtectionAiEvidence | null) => void; onAiEvidence: (value: AiHedgeContext) => void }) {
   const [plan, setPlan] = useState<HedgePlanSnapshot | null>(null)
-  const { data, addHedgeRoll } = useStore()
+  const { data, addHedgeRoll, updateHedgeRoll } = useStore()
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [proxyOpen, setProxyOpen] = useState(false)
   const reviewRef = useRef<HTMLElement>(null)
@@ -58,8 +58,10 @@ function HedgeWorkspace({ positions, accounts, onAiEvidence, initialEvidence, on
       roll.accountId === draft.accountId && !['closed', 'rolled'].includes(roll.status) &&
       (contractKey(roll.optionSymbol) === contractKey(draft.optionSymbol) ||
         (!!draft.closeOptionSymbol && contractKey(roll.closeOptionSymbol) === contractKey(draft.closeOptionSymbol))))
-    if (!exists) addHedgeRoll(draft)
-    setOrderNote(exists ? `Your new choice was not added because a related plan already exists. The existing ticket below is for ${exists.contracts} contracts at ${usd(exists.premiumPerShare)} per share. Review that ticket before proceeding.` : 'Order ready for review. Preview with Schwab before confirming.')
+    const canRefresh = exists && !exists.orderId && !exists.closeOrderId && !!draft.survivalPolicy
+    if (canRefresh) updateHedgeRoll(exists.id, { ...draft, survivalPolicy: structuredClone(draft.survivalPolicy), previewState: 'not_previewed', previewSurvivalPolicy: undefined, previewRequestId: undefined, previewedAt: undefined, closePreviewState: 'not_previewed', closePreviewRequestId: undefined, executionPreflight: undefined, previewError: undefined })
+    else if (!exists) addHedgeRoll({ ...draft, survivalPolicy: draft.survivalPolicy ? structuredClone(draft.survivalPolicy) : undefined })
+    setOrderNote(canRefresh ? 'Updated the prepared order with your current protection settings. Preview it again before confirming.' : exists ? `Your new choice was not added because a related plan already exists. The existing ticket below is for ${exists.contracts} contracts at ${usd(exists.premiumPerShare)} per share. Review that ticket before proceeding.` : 'Order ready for review. Preview with Schwab before confirming.')
     setReviewRequest((request) => request + 1)
   }
   return <div className="space-y-4">
@@ -209,6 +211,10 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding, 
   useEffect(() => { const timer = window.setInterval(() => setQuoteClock(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
   const preview = async (roll: HedgeRoll) => {
     const order = buildPutPreviewOrder(roll.optionSymbol ?? '', roll.contracts, roll.premiumPerShare)
+    if (!roll.survivalPolicy) {
+      updateHedgeRoll(roll.id, { previewState: 'rejected', previewRequestId: undefined, executionPreflight: undefined, previewError: 'This legacy ticket has no survival policy. Review it in current Protection and prepare the order again.' })
+      return
+    }
     if (!order || !roll.accountId) {
       updateHedgeRoll(roll.id, { previewState: 'rejected', previewedAt: new Date().toISOString(), previewError: 'Select a fresh option quote and Schwab account.' })
       return
@@ -219,36 +225,41 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding, 
       const closeOrder = buildPutCloseOrder(roll.closeOptionSymbol, roll.closeContracts, roll.closeLimitCredit)
       if (!closeOrder) { setPreviewing(null); updateHedgeRoll(roll.id, { closePreviewState: 'rejected', previewError: 'The close-leg payload is invalid.' }); return }
       closeRequestId = crypto.randomUUID()
-      const closeResult = await schwabPreviewOption(roll.accountId, closeRequestId, closeOrder)
-      if (!closeResult.ok) {
-        const closeError = typeof closeResult.error === 'string' ? closeResult.error : closeResult.error ? JSON.stringify(closeResult.error) : 'Schwab rejected the close leg.'
-        updateHedgeRoll(roll.id, { closePreviewState: 'rejected', previewState: 'rejected', previewError: `Close preview: ${closeError}` })
+      const closeResult = await schwabPreviewOption(roll.accountId, closeRequestId, closeOrder, roll.survivalPolicy)
+      if (!closeResult.ok || closeResult.preflight?.executable !== true) {
+        const closeError = closeResult.preflight?.issues.join(' ') || (typeof closeResult.error === 'string' ? closeResult.error : closeResult.error ? JSON.stringify(closeResult.error) : 'Schwab rejected the close leg.')
+        updateHedgeRoll(roll.id, { executionPreflight: closeResult.preflight, closePreviewState: 'rejected', previewState: 'rejected', previewError: `Close preview: ${closeError}` })
         setPreviewing(null)
         return
       }
     }
     const requestId = crypto.randomUUID()
-    const result = await schwabPreviewOption(roll.accountId, requestId, order)
-    const error = typeof result.error === 'string' ? result.error : result.error ? JSON.stringify(result.error) : 'Schwab rejected this preview.'
+    const result = await schwabPreviewOption(roll.accountId, requestId, order, roll.survivalPolicy)
+    const error = result.error === 'invalid_survival_policy' ? 'The saved survival settings are incomplete or outside supported limits. Review current Protection and prepare this ticket again.' : typeof result.error === 'string' ? result.error.replaceAll('_', ' ') : result.error ? JSON.stringify(result.error) : 'Schwab rejected this preview.'
     const previewedAt = Date.now()
     setQuoteClock(previewedAt)
-    updateHedgeRoll(roll.id, { previewState: result.ok ? 'accepted' : 'rejected', closePreviewState: closeRequestId ? 'accepted' : roll.closePreviewState, closePreviewRequestId: result.ok ? closeRequestId : undefined, previewedAt: new Date(previewedAt).toISOString(), previewRequestId: result.ok ? requestId : undefined, previewError: result.ok ? undefined : error })
+    updateHedgeRoll(roll.id, { executionPreflight: result.preflight, previewSurvivalPolicy: result.ok ? structuredClone(roll.survivalPolicy) : undefined, previewState: result.ok ? 'accepted' : 'rejected', closePreviewState: closeRequestId ? 'accepted' : roll.closePreviewState, closePreviewRequestId: result.ok ? closeRequestId : undefined, previewedAt: new Date(previewedAt).toISOString(), previewRequestId: result.ok ? requestId : undefined, previewError: result.ok ? undefined : error })
     setPreviewing(null)
   }
   // Read the actual click time here, not the display timer; this handler never runs during render.
   // oxlint-disable-next-line react/purity
-  const openPlacement = (roll: HedgeRoll) => { if (!previewIsCurrent(roll, Date.now()) || roll.orderId || (roll.closeOrderId && roll.closeOrderStatus !== 'FILLED')) return; setConfirmRoll(roll); setConfirmationText('') }
+  const openPlacement = (roll: HedgeRoll) => { if (roll.executionPreflight?.executable !== true || !previewIsCurrent(roll, Date.now()) || roll.orderId || (roll.closeOrderId && roll.closeOrderStatus !== 'FILLED')) return; setConfirmRoll(roll); setConfirmationText('') }
   const place = async () => {
     // Recheck expiration at submission even if the confirmation dialog has remained open.
     // oxlint-disable-next-line react/purity
-    if (placing || !confirmRoll?.accountId || !confirmRoll.previewRequestId || confirmationText !== 'PLACE' || confirmRoll.orderId || !previewIsCurrent(confirmRoll, Date.now())) return
+    if (placing || confirmRoll?.executionPreflight?.executable !== true || !confirmRoll?.accountId || !confirmRoll.previewRequestId || confirmationText !== 'PLACE' || confirmRoll.orderId || !previewIsCurrent(confirmRoll, Date.now())) return
+    const currentRoll = (data.hedgeRolls ?? []).find((roll) => roll.id === confirmRoll.id)
+    if (!currentRoll || currentRoll.previewRequestId !== confirmRoll.previewRequestId || JSON.stringify(currentRoll.survivalPolicy) !== JSON.stringify(confirmRoll.survivalPolicy)) {
+      setConfirmRoll(null)
+      return
+    }
     if (confirmRoll.closeOptionSymbol && !confirmRoll.closeOrderId) {
       const closeOrder = buildPutCloseOrder(confirmRoll.closeOptionSymbol, confirmRoll.closeContracts ?? 0, confirmRoll.closeLimitCredit ?? 0)
       if (!closeOrder || !confirmRoll.closePreviewRequestId) return
       setPlacing(true)
-      const closeResult = await schwabPlaceOption(confirmRoll.accountId, confirmRoll.closePreviewRequestId, closeOrder)
+      const closeResult = await schwabPlaceOption(confirmRoll.accountId, confirmRoll.closePreviewRequestId, closeOrder, confirmRoll.survivalPolicy)
       if (!closeResult.ok || !closeResult.orderId) {
-        const error = typeof closeResult.error === 'string' ? closeResult.error.replaceAll('_', ' ') : 'Schwab rejected the close order.'
+        const error = closeResult.preflight?.issues.join(' ') || (closeResult.error === 'survival_policy_required' ? 'Review current Protection and prepare this order again.' : typeof closeResult.error === 'string' ? closeResult.error.replaceAll('_', ' ') : 'Schwab rejected the close order.')
         updateHedgeRoll(confirmRoll.id, { closePreviewState: 'rejected', previewError: `Close order: ${error}` })
         setPlacing(false); setConfirmRoll((current) => current ? { ...current, previewError: `Close order: ${error}` } : current)
         return
@@ -257,7 +268,7 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding, 
       updateHedgeRoll(confirmRoll.id, { closeOrderId, closeOrderStatus: closeResult.status ?? 'ACCEPTED', closePlacedAt: new Date().toISOString() })
       await new Promise((resolve) => setTimeout(resolve, 3000))
       const closeStatus = await schwabOrderStatus(confirmRoll.accountId, closeOrderId)
-      if (closeStatus.ok) updateHedgeRoll(confirmRoll.id, { closeOrderStatus: closeStatus.status ?? 'UNKNOWN' })
+      if (closeStatus.ok) updateHedgeRoll(confirmRoll.id, { closeOrderStatus: closeStatus.status ?? 'UNKNOWN', closeFilledQuantity: closeStatus.filledQuantity, closeRemainingQuantity: closeStatus.remainingQuantity })
       setPlacing(false); setConfirmRoll(null)
       return
     }
@@ -265,9 +276,9 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding, 
     const order = buildPutPreviewOrder(confirmRoll.optionSymbol ?? '', confirmRoll.contracts, confirmRoll.premiumPerShare)
     if (!order) return
     setPlacing(true)
-    const result = await schwabPlaceOption(confirmRoll.accountId, confirmRoll.previewRequestId, order)
+    const result = await schwabPlaceOption(confirmRoll.accountId, confirmRoll.previewRequestId, order, confirmRoll.survivalPolicy)
     if (!result.ok || !result.orderId) {
-      const error = typeof result.error === 'string' ? result.error.replaceAll('_', ' ') : result.error ? JSON.stringify(result.error) : 'Schwab rejected the order.'
+      const error = result.preflight?.issues.join(' ') || (result.error === 'survival_policy_required' ? 'Review current Protection and prepare this order again.' : typeof result.error === 'string' ? result.error.replaceAll('_', ' ') : result.error ? JSON.stringify(result.error) : 'Schwab rejected the order.')
       updateHedgeRoll(confirmRoll.id, { previewState: 'rejected', previewError: error })
       setPlacing(false)
       setConfirmRoll((current) => current ? { ...current, previewState: 'rejected', previewError: error } : current)
@@ -277,7 +288,7 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding, 
     updateHedgeRoll(confirmRoll.id, { status: 'queued', orderId, orderStatus: result.status ?? 'ACCEPTED', placedAt: new Date().toISOString(), previewError: undefined })
     await new Promise((resolve) => setTimeout(resolve, 3000))
     const status = await schwabOrderStatus(confirmRoll.accountId, orderId)
-    if (status.ok) updateHedgeRoll(confirmRoll.id, { orderStatus: status.status ?? 'UNKNOWN', status: status.status === 'FILLED' ? 'active' : 'queued' })
+    if (status.ok) updateHedgeRoll(confirmRoll.id, { filledQuantity: status.filledQuantity, remainingQuantity: status.remainingQuantity, orderStatus: status.status ?? 'UNKNOWN', status: status.status === 'FILLED' ? 'active' : 'queued' })
     setPlacing(false)
     setConfirmRoll(null)
   }
@@ -285,7 +296,7 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding, 
     if (!roll.accountId || !roll.closeOrderId) return
     setPreviewing(roll.id)
     const result = await schwabOrderStatus(roll.accountId, roll.closeOrderId)
-    if (result.ok) updateHedgeRoll(roll.id, { closeOrderStatus: result.status ?? 'UNKNOWN' })
+    if (result.ok) updateHedgeRoll(roll.id, { closeOrderStatus: result.status ?? 'UNKNOWN', closeFilledQuantity: result.filledQuantity, closeRemainingQuantity: result.remainingQuantity })
     else updateHedgeRoll(roll.id, { previewError: `Close status: ${String(result.error ?? 'unavailable')}` })
     setPreviewing(null)
   }
@@ -293,11 +304,11 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding, 
     if (!roll.accountId || !roll.orderId) return
     setPreviewing(roll.id)
     const result = await schwabOrderStatus(roll.accountId, roll.orderId)
-    if (result.ok) updateHedgeRoll(roll.id, { orderStatus: result.status ?? 'UNKNOWN', status: result.status === 'FILLED' ? 'active' : roll.status })
+    if (result.ok) updateHedgeRoll(roll.id, { filledQuantity: result.filledQuantity, remainingQuantity: result.remainingQuantity, orderStatus: result.status ?? 'UNKNOWN', status: result.status === 'FILLED' ? 'active' : roll.status })
     else updateHedgeRoll(roll.id, { previewError: `Open status: ${String(result.error ?? 'unavailable')}` })
     setPreviewing(null)
   }
-  const previewIsCurrent = (roll: HedgeRoll, now = quoteClock) => accounts.some((account) => account.id === roll.accountId) && roll.expiration >= brokerageDate() && roll.previewState === 'accepted' && (!roll.closeOptionSymbol || roll.closeOrderStatus === 'FILLED' || roll.closePreviewState === 'accepted') && !!roll.previewRequestId && !!roll.previewedAt && now >= new Date(roll.previewedAt).getTime() && now - new Date(roll.previewedAt).getTime() < 10 * 60_000
+  const previewIsCurrent = (roll: HedgeRoll, now = quoteClock) => !!roll.survivalPolicy && JSON.stringify(roll.survivalPolicy) === JSON.stringify(roll.previewSurvivalPolicy) && accounts.some((account) => account.id === roll.accountId) && roll.expiration >= brokerageDate() && roll.previewState === 'accepted' && (!roll.closeOptionSymbol || roll.closeOrderStatus === 'FILLED' || roll.closePreviewState === 'accepted') && !!roll.previewRequestId && !!roll.previewedAt && now >= new Date(roll.previewedAt).getTime() && now - new Date(roll.previewedAt).getTime() < 10 * 60_000
   const confirmingClose = !!confirmRoll?.closeOptionSymbol && !confirmRoll.closeOrderId
   const confirmSymbol = confirmingClose ? confirmRoll?.closeOptionSymbol : confirmRoll?.optionSymbol
   const confirmContracts = confirmingClose ? confirmRoll?.closeContracts : confirmRoll?.contracts
@@ -339,6 +350,7 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding, 
       const closeCredit = r.closeOptionSymbol ? r.closeContracts != null && r.closeLimitCredit != null ? r.closeContracts * r.closeLimitCredit * 100 : null : 0
       const netDebit = closeCredit == null ? null : r.grossPremium - closeCredit
       return <article key={r.id} className="card space-y-4 p-5" aria-label={`${r.closeOptionSymbol ? 'Roll' : 'Buy'} order`}>
+        {!r.survivalPolicy && <p role="status" className="text-xs text-neg">This legacy ticket needs your current survival settings. Review it in Protection and prepare the order again before execution.</p>}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-semibold">{accounts.find((a) => a.id === r.accountId)?.name ?? 'No account'} · {r.closeOptionSymbol ? 'Roll' : 'Buy'}</h3>
           <button onClick={() => removeHedgeRoll(r.id)} disabled={placing} className="text-xs text-faint hover:text-neg disabled:opacity-40">Remove</button>
@@ -348,12 +360,21 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding, 
           <div><div className="font-medium">Buy {r.contracts} × <span className="break-all">{r.optionSymbol ?? `${r.proxy} ${usd(r.strike)} put · quote required`}</span></div><div className="mt-1 text-xs text-muted">Buy to open · limit {usd(r.premiumPerShare)} per share · expires {shortDate(r.expiration)} · gross purchase {usd(r.grossPremium)}</div></div>
         </div>
         <div className="rounded-lg bg-surface-2/50 p-3 text-sm"><span className="text-muted">Estimated net cash {netDebit != null && netDebit < 0 ? 'released' : 'cost'} before fees</span><div className="num mt-1 text-lg font-semibold">{netDebit == null ? 'Unavailable' : usd(Math.abs(netDebit))}</div><p className="mt-1 text-xs text-faint">Gross purchase less estimated close proceeds. Fees are excluded.</p></div>
-        <div className="space-y-2"><div className="flex flex-wrap gap-1"><button onClick={() => preview(r)} disabled={!r.optionSymbol || !r.accountId || r.status === 'closed' || !!r.orderId || previewing === r.id || (!!r.closeOrderId && r.closeOrderStatus !== 'FILLED')} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">{previewing === r.id ? 'Working…' : previewIsCurrent(r) ? 'Preview again' : 'Preview with Schwab'}</button>{r.closeOrderId && r.closeOrderStatus !== 'FILLED' && <button onClick={() => refreshCloseStatus(r)} disabled={previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted hover:border-brand hover:text-brand disabled:opacity-40">Refresh close status</button>}{r.orderId && !['FILLED', 'CANCELED', 'REJECTED', 'EXPIRED'].includes(r.orderStatus ?? '') && <button onClick={() => refreshOpenStatus(r)} disabled={previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted hover:border-brand hover:text-brand disabled:opacity-40">Refresh open status</button>}{previewIsCurrent(r) && !r.orderId && (!r.closeOrderId || r.closeOrderStatus === 'FILLED') && <button onClick={() => openPlacement(r)} className="rounded-md bg-neg px-2 py-1 text-xs font-semibold text-white hover:brightness-110">{r.closeOptionSymbol && !r.closeOrderId ? 'Review close order' : r.closeOrderStatus === 'FILLED' ? 'Review replacement order' : 'Review purchase order'}</button>}</div><div className={clsx('mt-1 text-[10px]', r.previewState === 'accepted' ? 'text-pos' : r.previewState === 'rejected' ? 'text-neg' : 'text-faint')}>{r.orderId ? `Replacement submitted ${r.placedAt ? shortDate(r.placedAt) : ''}` : r.closeOrderId && r.closeOrderStatus !== 'FILLED' ? 'Waiting for close fill before replacement' : r.closeOrderStatus === 'FILLED' && !previewIsCurrent(r) ? 'Close filled · preview replacement again' : r.previewState === 'accepted' ? previewIsCurrent(r) ? r.closeOptionSymbol && !r.closeOrderId ? 'Both legs previewed · close submits first' : 'Schwab preview passed · expires in 10 minutes' : 'Preview expired · preview again' : r.previewState === 'rejected' ? r.previewError : 'Not previewed'}</div></div>
+        <div className="space-y-2"><div className="flex flex-wrap gap-1"><button onClick={() => preview(r)} disabled={!r.optionSymbol || !r.accountId || r.status === 'closed' || !!r.orderId || previewing === r.id || (!!r.closeOrderId && r.closeOrderStatus !== 'FILLED')} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">{previewing === r.id ? 'Working…' : previewIsCurrent(r) ? 'Preview again' : 'Preview with Schwab'}</button>{r.closeOrderId && r.closeOrderStatus !== 'FILLED' && <button onClick={() => refreshCloseStatus(r)} disabled={previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted hover:border-brand hover:text-brand disabled:opacity-40">Refresh close status</button>}{r.orderId && !['FILLED', 'CANCELED', 'REJECTED', 'EXPIRED'].includes(r.orderStatus ?? '') && <button onClick={() => refreshOpenStatus(r)} disabled={previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted hover:border-brand hover:text-brand disabled:opacity-40">Refresh open status</button>}{previewIsCurrent(r) && !r.orderId && (!r.closeOrderId || r.closeOrderStatus === 'FILLED') && <button disabled={r.executionPreflight?.executable !== true} onClick={() => openPlacement(r)} className="rounded-md bg-neg px-2 py-1 text-xs font-semibold text-white hover:brightness-110">{r.closeOptionSymbol && !r.closeOrderId ? 'Review close order' : r.closeOrderStatus === 'FILLED' ? 'Review replacement order' : 'Review purchase order'}</button>}</div><div className={clsx('mt-1 text-[10px]', r.previewState === 'accepted' ? 'text-pos' : r.previewState === 'rejected' ? 'text-neg' : 'text-faint')}>{r.orderId ? `Replacement submitted ${r.placedAt ? shortDate(r.placedAt) : ''}` : r.closeOrderId && r.closeOrderStatus !== 'FILLED' ? 'Waiting for close fill before replacement' : r.closeOrderStatus === 'FILLED' && !previewIsCurrent(r) ? 'Close filled · preview replacement again' : r.previewState === 'accepted' ? previewIsCurrent(r) ? r.closeOptionSymbol && !r.closeOrderId ? 'Both legs previewed · close submits first' : 'Schwab preview passed · expires in 10 minutes' : 'Preview expired · preview again' : r.previewState === 'rejected' ? r.previewError : 'Not previewed'}</div></div>
+        {r.executionPreflight && <div role="status" className="rounded-xl border border-border-soft p-4 text-xs text-muted">
+          <div className="font-semibold text-ink">Execution safety review · {r.executionPreflight.executable ? 'Verified' : 'Execution blocked'}</div>
+          <p className="mt-2">Checked {new Date(r.executionPreflight.checkedAt).toLocaleString()} · requested {r.executionPreflight.quantity} contracts · live holding {r.executionPreflight.heldQuantity ?? 'unverified'}</p>
+          <p>Bid {r.executionPreflight.bid == null ? 'unverified' : usd(r.executionPreflight.bid)} · ask {r.executionPreflight.ask == null ? 'unverified' : usd(r.executionPreflight.ask)} · quote {r.executionPreflight.quoteTime == null ? 'unverified' : new Date(r.executionPreflight.quoteTime).toLocaleString()}</p>
+          <p>Current maintenance requirement {r.executionPreflight.maintenanceRequirement == null ? 'unverified' : usd(r.executionPreflight.maintenanceRequirement)} · current excess {r.executionPreflight.maintenanceExcess == null ? 'unverified' : usd(r.executionPreflight.maintenanceExcess)}</p>
+          <p>Limit premium estimate {usd(r.executionPreflight.estimatedPremium)} before fees. A close-first roll can leave a gap without protection.</p>
+          {r.executionPreflight.modeledRisk ? <><p>Server model: post-trade equity {pct(r.executionPreflight.modeledRisk.postEquityPct)} · worst maintenance excess {r.executionPreflight.modeledRisk.minimumExcess == null ? 'unverified' : usd(r.executionPreflight.modeledRisk.minimumExcess)} · maximum deficiency {usd(r.executionPreflight.modeledRisk.maximumDeficiency)}</p><p>Reviewed horizon {r.executionPreflight.modeledRisk.policy.horizonDays} days · monthly expenses {usd(r.executionPreflight.modeledRisk.policy.settings.monthlyExpense)} · financing {pct(r.executionPreflight.modeledRisk.policy.ratePct)} · budget {usd(r.executionPreflight.modeledRisk.policy.budget)} · limit {r.executionPreflight.modeledRisk.policy.maxContracts} contracts. Model estimates, not broker guarantees.</p></> : <p>Post-trade risk is unverified.</p>}
+          {r.executionPreflight.issues.map((issue) => <p key={issue} className="mt-1 text-neg">{issue}</p>)}
+        </div>}
         <details className="border-t border-border-soft pt-3"><summary className="cursor-pointer text-xs text-muted">Details · tracking and order references</summary><div className="mt-3 space-y-2 text-xs text-muted">
           <label className="flex flex-wrap items-center gap-2">Manual tracking status <select aria-label="Manual tracking status" disabled={!!r.orderId || !!r.closeOrderId} value={r.status} onChange={(e) => updateHedgeRoll(r.id, { status: e.target.value as HedgeRoll['status'] })} className={clsx('rounded-md border-0 px-2 py-1 text-xs outline-none', statusStyle[r.status])}><option value="queued">Queued</option><option value="active">Active</option><option value="rolled">Rolled</option><option value="closed">Closed</option></select></label>
           <div>Roll by {shortDate(r.rollDate)}</div>
-          {r.closeOrderId && <div className="break-all">Close #{r.closeOrderId} · {r.closeOrderStatus ?? 'ACCEPTED'}</div>}
-          {r.orderId && <div className="break-all">Open #{r.orderId} · {r.orderStatus ?? 'ACCEPTED'}</div>}
+          {r.closeOrderId && <div className="break-all">Close #{r.closeOrderId} · {r.closeOrderStatus ?? 'ACCEPTED'} · filled {r.closeFilledQuantity ?? 'unknown'} · remaining {r.closeRemainingQuantity ?? 'unknown'}</div>}
+          {r.orderId && <div className="break-all">Open #{r.orderId} · {r.orderStatus ?? 'ACCEPTED'} · filled {r.filledQuantity ?? 'unknown'} · remaining {r.remainingQuantity ?? 'unknown'}</div>}
         </div></details>
       </article>
     })}

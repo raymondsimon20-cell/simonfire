@@ -111,21 +111,28 @@ export function validateAllocationEvidence(raw: unknown): AllocationEvidence {
   if (r.protectionReview != null) {
     const p = r.protectionReview
     const scenarios = (rows: ProtectionAiScenario[]) => {
-      if (!Array.isArray(rows) || rows.length !== 4) throw new Error('invalid_protection_scenarios')
+      if (!Array.isArray(rows) || rows.length !== PROTECTION_SHOCKS.length) throw new Error('invalid_protection_scenarios')
       return rows.map((v,i) => {
         if (!v || v.declinePct !== PROTECTION_SHOCKS[i] || !bounded(v.equity,-1e12,1e12) || !bounded(v.equityPct,-1e9,1e9) || !bounded(v.floorGap,0,1e12) || !(v.maintenanceGap === null || bounded(v.maintenanceGap,0,1e12)) || ![v.premium,v.closeCredit,v.fees,v.financing].every(n=>bounded(n,0,1e12))) throw new Error('invalid_protection_scenario')
         return {declinePct:v.declinePct,equity:v.equity,equityPct:v.equityPct,floorGap:v.floorGap,maintenanceGap:v.maintenanceGap,premium:v.premium,closeCredit:v.closeCredit,fees:v.fees,financing:v.financing}
       })
     }
-    if ((p.quoteCurrent!=null && typeof p.quoteCurrent!=='boolean') || (p.userDirected!=null && typeof p.userDirected!=='boolean') || p.targetEquityPct !== 50 || !bounded(p.horizonDays,30,180) || !bounded(p.ratePct,0,50) || typeof p.evidenceComplete !== 'boolean' || !Number.isSafeInteger(p.missingCount) || !bounded(p.missingCount,0,1000) || !text(p.quoteFetchedAt,40)) throw new Error('invalid_protection_review')
+    if ((p.quoteCurrent!=null && typeof p.quoteCurrent!=='boolean') || (p.userDirected!=null && typeof p.userDirected!=='boolean') || !bounded(p.targetEquityPct,1,99) || !bounded(p.horizonDays,30,36500) || !bounded(p.ratePct,0,50) || typeof p.evidenceComplete !== 'boolean' || !Number.isSafeInteger(p.missingCount) || !bounded(p.missingCount,0,1000) || !text(p.quoteFetchedAt,40)) throw new Error('invalid_protection_review')
     let candidate: ProtectionAiEvidence['candidate'] = null
     if(p.candidate) {
       const c=p.candidate
       if (typeof c.meetsTargets !== 'boolean' || typeof c.withinBudget !== 'boolean' || !bounded(c.entryEquityPct,-1e9,1e9) || !bounded(c.entryFloorGap,0,1e12) || !['ADD','ROLL'].includes(c.action) || !bounded(c.strike,.001,1e7) || !/^\d{4}-\d{2}-\d{2}$/.test(c.expiration) || !Number.isSafeInteger(c.contracts) || !bounded(c.contracts,1,100)) throw new Error('invalid_protection_candidate')
       candidate={meetsTargets:c.meetsTargets,withinBudget:c.withinBudget,entryEquityPct:c.entryEquityPct,entryFloorGap:c.entryFloorGap,action:c.action,strike:c.strike,expiration:c.expiration,contracts:c.contracts,stress:scenarios(c.stress)}
     }
+    let survival: ProtectionAiEvidence['survival']
+    if (p.survival !== undefined) {
+      const s = p.survival
+      const validDate = (date: unknown) => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0,10) === date
+      if (!s || !(s.minimumExcess === null || bounded(s.minimumExcess,-1e12,1e12)) || !bounded(s.maximumDeficiency,0,1e12) || !(s.firstDeficiency === null || validDate(s.firstDeficiency)) || !Number.isSafeInteger(s.scenarioCount) || !bounded(s.scenarioCount,1,10000) || !['NORMAL','CAUTION','DEFENSIVE','CRITICAL','EMERGENCY'].includes(s.policy)) throw new Error('invalid_protection_survival')
+      survival = {minimumExcess:s.minimumExcess,maximumDeficiency:s.maximumDeficiency,firstDeficiency:s.firstDeficiency,scenarioCount:s.scenarioCount,policy:s.policy}
+    }
     const age = Date.now()-Date.parse(p.quoteFetchedAt)
-    protectionReview={...(p.quoteCurrent!=null?{quoteCurrent:p.quoteCurrent&&age>=0&&age<=300000}:{}),...(p.userDirected!=null?{userDirected:p.userDirected}:{}),targetEquityPct:50,horizonDays:p.horizonDays,ratePct:p.ratePct,evidenceComplete:p.evidenceComplete && p.missingCount===0 && age>=0 && age<=300000,missingCount:p.missingCount,quoteFetchedAt:p.quoteFetchedAt,hold:scenarios(p.hold),candidate}
+    protectionReview={...(p.quoteCurrent!=null?{quoteCurrent:p.quoteCurrent&&age>=0&&age<=300000}:{}),...(p.userDirected!=null?{userDirected:p.userDirected}:{}),...(survival ? {survival} : {}),targetEquityPct:p.targetEquityPct,horizonDays:p.horizonDays,ratePct:p.ratePct,evidenceComplete:p.evidenceComplete && p.missingCount===0 && age>=0 && age<=300000,missingCount:p.missingCount,quoteFetchedAt:p.quoteFetchedAt,hold:scenarios(p.hold),candidate}
   }
   return { ...(protectionReview ? {protectionReview} : {}), asOf: r.asOf, source: r.source, horizonMonths: 12, monitorMonths: [3, 6], budget: r.budget, longExposure: r.longExposure, shortExposure: r.shortExposure, marginDebt: r.marginDebt, netEquity: r.netEquity, candidates, hedgeAlternatives, targets, proxies, activePuts, hedge }
 }

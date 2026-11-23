@@ -82,16 +82,73 @@ async function endpointTests() {
   assert.equal((await createAiAllocationHandler({ ...deps, fetch: incomplete })(req())).status, 502)
   const invented: typeof fetch = async () => Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify({ ...review, candidates: [{ symbol: 'FAKE', reason: 'Buy', risk: 'None' }] }) }] }] })
   assert.equal((await createAiAllocationHandler({ ...deps, fetch: invented })(req())).status, 502)
+  const scenarioRows = [5,10,15,20,30,40].map(declinePct => ({declinePct,equity:10000,equityPct:50,floorGap:500,maintenanceGap:250,premium:0,closeCredit:0,fees:0,financing:50}))
+  const dailySummary = {minimumExcess:-5000,maximumDeficiency:5000,firstDeficiency:'2026-12-01',scenarioCount:23,policy:'EMERGENCY'}
+  const dailyReview = {survival:dailySummary,targetEquityPct:57,horizonDays:365,ratePct:8,evidenceComplete:false,missingCount:1,quoteFetchedAt:'',candidate:null,hold:scenarioRows}
+  const beforeLegacy = calls
+  const legacyResponse = await createAiAllocationHandler(deps)(req('https://app.example',{...evidence,protectionReview:{...dailyReview,hold:scenarioRows.filter(s=>[5,10,20,30].includes(s.declinePct))}}))
+  assert.equal(legacyResponse.status,400,'old cached four-shock evidence requires a refresh')
+  assert.match((await legacyResponse.json()).error,/Refresh/)
+  assert.equal(calls,beforeLegacy,'invalid cached evidence must not reach the provider')
+  const dailyFetch: typeof fetch = async (_url,init) => {
+    const body = JSON.parse(String(init?.body))
+    const supplied = JSON.parse(body.input)
+    assert.deepEqual(supplied.protectionReview.hold.map((s:{declinePct:number})=>s.declinePct),[5,10,15,20,30,40])
+    assert.equal(supplied.protectionReview.targetEquityPct,57)
+    assert.equal(supplied.protectionReview.horizonDays,365)
+    assert.deepEqual(supplied.protectionReview.survival,dailySummary)
+    assert.match(body.instructions,/prioritize protectionReview\.survival/)
+    assert.match(body.instructions,/ALL modeled paths/)
+    assert.match(body.instructions,/configured equity floor/)
+    assert.doesNotMatch(body.instructions,/the 50% equity floor/)
+    assert.match(body.instructions,/daily/i)
+    assert.match(body.instructions,/worst.*(?:point|checkpoint)|(?:point|checkpoint).*worst/i)
+    assert.match(body.instructions,/risk reduction/i)
+    assert.match(body.instructions,/imperfect/i)
+    assert.doesNotMatch(body.instructions,/four 5\/10\/20\/30|Intrinsic-only horizon/)
+    return Response.json({status:'completed',output:[{content:[{type:'output_text',text:JSON.stringify(review)}]}]})
+  }
+  assert.equal((await createAiAllocationHandler({...deps,fetch:dailyFetch})(req('https://app.example',{...evidence,protectionReview:dailyReview}))).status,200)
   console.log('Allocation API validation, shared quota, provider failures, existing insurance and expiration alignment passed')
 }
 void endpointTests().catch((error) => { console.error(error); process.exitCode = 1 })
 
-const protectionReview = {targetEquityPct:50,horizonDays:30,ratePct:8,evidenceComplete:false,missingCount:1,quoteFetchedAt:'',candidate:null,hold:[5,10,20,30].map(declinePct=>({declinePct,equity:10000,equityPct:50,floorGap:0,maintenanceGap:null,premium:0,closeCredit:0,fees:0,financing:50}))}
+const protectionReview = {targetEquityPct:50,horizonDays:30,ratePct:8,evidenceComplete:false,missingCount:1,quoteFetchedAt:'',candidate:null,hold:[5,10,15,20,30,40].map(declinePct=>({declinePct,equity:10000,equityPct:50,floorGap:0,maintenanceGap:null,premium:0,closeCredit:0,fees:0,financing:50}))}
 assert.deepEqual(validateAllocationEvidence({...evidence,protectionReview}).protectionReview,protectionReview,'AI receives the portfolio stress comparison')
-assert.throws(()=>validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,hold:[{...protectionReview.hold[0],financing:NaN}]}}))
+assert.throws(()=>validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,hold:protectionReview.hold.map((s,i)=>i===2?{...s,financing:NaN}:s)}}))
 assert.ok(!JSON.stringify(validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,accountId:'private-account'}})).includes('private-account'))
 const manualReview=validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,userDirected:true,quoteCurrent:true,quoteFetchedAt:new Date().toISOString()}}).protectionReview!
 assert.equal(manualReview.userDirected,true)
 assert.equal(manualReview.quoteCurrent,true,'fresh protection quotes do not depend on a separate legacy hedge quote')
 assert.equal(manualReview.evidenceComplete,false,'fresh quotes do not imply complete model evidence')
 assert.equal(validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,userDirected:true,quoteCurrent:true,quoteFetchedAt:'2020-01-01T00:00:00Z'}}).protectionReview!.quoteCurrent,false)
+
+// Reject cached endpoint-era evidence instead of silently padding missing shocks.
+const legacyHold = protectionReview.hold.filter(s => [5,10,20,30].includes(s.declinePct))
+assert.throws(() => validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,hold:legacyHold}}), /invalid_protection_scenarios/)
+for (const hold of [protectionReview.hold.slice(1), [...protectionReview.hold].reverse(), protectionReview.hold.map((s,i) => i === 2 ? {...s,declinePct:10} : s)]) {
+  assert.throws(() => validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,hold}}), /invalid_protection_scenario/)
+}
+const candidate = {meetsTargets:false,withinBudget:true,entryEquityPct:52,entryFloorGap:0,action:'ADD',strike:500,expiration:'2027-03-19',contracts:1,stress:protectionReview.hold}
+assert.equal(validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,candidate}}).protectionReview!.candidate!.stress.length,6)
+assert.throws(() => validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,candidate:{...candidate,stress:legacyHold}}}), /invalid_protection_scenarios/)
+assert.throws(() => validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,hold:protectionReview.hold.map((s,i)=>i===5?{...s,maintenanceGap:-1}:s)}}), /invalid_protection_scenario/)
+
+const survival = {minimumExcess:-2500,maximumDeficiency:2500,firstDeficiency:'2026-12-01',scenarioCount:23,policy:'EMERGENCY'}
+const allPathReview = {...protectionReview,targetEquityPct:57,horizonDays:365,survival:{...survival,accountId:'private-account'}}
+const validatedAllPath = validateAllocationEvidence({...evidence,protectionReview:allPathReview}).protectionReview!
+assert.equal(validatedAllPath.targetEquityPct,57)
+assert.equal(validatedAllPath.horizonDays,365)
+assert.deepEqual(validatedAllPath.survival,survival,'all-path HOLD summary is preserved and unknown fields are stripped')
+assert.equal(validateAllocationEvidence({...evidence,protectionReview}).protectionReview!.survival,undefined,'older six-shock evidence without a summary remains supported')
+for (const [targetEquityPct,horizonDays] of [[1,30],[99,36500],[55.5,730]]) {
+  const accepted = validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,targetEquityPct,horizonDays}}).protectionReview!
+  assert.equal(accepted.targetEquityPct,targetEquityPct)
+  assert.equal(accepted.horizonDays,horizonDays)
+}
+for (const targetEquityPct of [0,100,NaN,Infinity,'55']) assert.throws(()=>validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,targetEquityPct}}),/invalid_protection_review/)
+for (const horizonDays of [29,36501,NaN,Infinity,'365']) assert.throws(()=>validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,horizonDays}}),/invalid_protection_review/)
+assert.deepEqual(validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,survival:{...survival,minimumExcess:null,firstDeficiency:null}}}).protectionReview!.survival,{...survival,minimumExcess:null,firstDeficiency:null})
+for (const invalid of [null,{}, {...survival,minimumExcess:NaN}, {...survival,maximumDeficiency:-1}, {...survival,maximumDeficiency:Infinity}, {...survival,scenarioCount:0}, {...survival,scenarioCount:1.5}, {...survival,firstDeficiency:'2026-02-30'}, {...survival,firstDeficiency:'tomorrow'}, {...survival,policy:'IGNORE SAFETY'}]) {
+  assert.throws(()=>validateAllocationEvidence({...evidence,protectionReview:{...protectionReview,survival:invalid}}),/invalid_protection_survival/)
+}

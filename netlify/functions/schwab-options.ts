@@ -6,8 +6,15 @@ const symbolPattern = /^[A-Z][A-Z0-9./-]{0,14}$/
 const optionSymbolPattern = /^[A-Z]{1,6}\d{6}[CP]\d{8}$/
 const datePattern = /^\d{4}-\d{2}-\d{2}$/
 const finite = (value: unknown): number | null => {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null
   const n = Number(value)
   return Number.isFinite(n) ? n : null
+}
+
+// Contract size must come from broker metadata, including adjusted contracts.
+const multiplier = (value: unknown): number | null => {
+  const n = finite(value)
+  return n != null && n > 0 ? n : null
 }
 
 export default async (req: Request) => {
@@ -58,11 +65,13 @@ export default async (req: Request) => {
           last: finite(row.last),
           delta: finite(row.delta),
           theta: finite(row.theta),
+          gamma: finite(row.gamma),
+          vega: finite(row.vega),
           volatility: finite(row.volatility),
           openInterest: finite(row.openInterest),
           volume: finite(row.totalVolume),
           quoteTime: finite(row.quoteTimeInLong),
-          multiplier: finite(row.multiplier),
+          multiplier: multiplier(row.multiplier),
         })
       }
     }
@@ -76,7 +85,8 @@ export default async (req: Request) => {
       })
       if (quoteResponse.ok) {
         const quoteBody: any = await quoteResponse.json()
-        const item = quoteBody[includeSymbol] ?? Object.values(quoteBody)[0]
+        const item = Object.entries(quoteBody).find(([key]) => key.replace(/\s+/g, '').toUpperCase() === includeSymbol)?.[1] as any
+        if (!item || String(item.symbol ?? includeSymbol).replace(/\s+/g, '').toUpperCase() !== includeSymbol) throw new Error('Requested option quote missing or mismatched')
         const quote = item?.quote ?? {}
         const tail = includeSymbol.slice(-15)
         const expiration = `20${tail.slice(0, 2)}-${tail.slice(2, 4)}-${tail.slice(4, 6)}`
@@ -90,13 +100,15 @@ export default async (req: Request) => {
           ask: finite(quote.askPrice),
           mark: finite(quote.mark),
           last: finite(quote.lastPrice),
-          delta: null,
-          theta: null,
+          delta: finite(quote.delta),
+          theta: finite(quote.theta),
+          gamma: finite(quote.gamma),
+          vega: finite(quote.vega),
           volatility: finite(quote.volatility),
           openInterest: finite(quote.openInterest),
           volume: finite(quote.totalVolume),
           quoteTime: finite(quote.quoteTime),
-          multiplier: 100,
+          multiplier: multiplier(item?.reference?.multiplier),
         })
       }
     }

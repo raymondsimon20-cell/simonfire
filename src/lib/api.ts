@@ -133,10 +133,30 @@ export interface OptionOrder {
   }]
 }
 
+export type { SurvivalPolicy } from './survival-policy'
+import type { OrderModeledRisk, SurvivalPolicy } from './survival-policy'
+
 export interface SchwabOrderResult {
   ok: boolean
   error?: unknown
   preview?: unknown
+  preflight?: {
+    modeledRisk?: OrderModeledRisk | null
+    executable: boolean
+    checkedAt: number
+    quantity: number
+    heldQuantity: number | null
+    bid: number | null
+    ask: number | null
+    quoteTime: number | null
+    maintenanceRequirement: number | null
+    maintenanceExcess: number | null
+    estimatedPremium: number
+    issues: string[]
+  }
+  quantity?: number | null
+  filledQuantity?: number | null
+  remainingQuantity?: number | null
   orderId?: string
   status?: string
 }
@@ -155,17 +175,17 @@ async function orderRequest(body: Record<string, unknown>): Promise<SchwabOrderR
   }
 }
 
-export const schwabPreviewOrder = (accountId: string, requestId: string, order: EquityOrder | OptionOrder) =>
-  orderRequest({ action: 'preview', accountId, requestId, order })
+export const schwabPreviewOrder = (accountId: string, requestId: string, order: EquityOrder | OptionOrder, survivalPolicy?: SurvivalPolicy) =>
+  orderRequest({ action: 'preview', accountId, requestId, order, survivalPolicy })
 
-export const schwabPreviewOption = (accountId: string, requestId: string, order: OptionOrder) =>
-  orderRequest({ action: 'preview', accountId, requestId, order })
+export const schwabPreviewOption = (accountId: string, requestId: string, order: OptionOrder, survivalPolicy?: SurvivalPolicy) =>
+  orderRequest({ action: 'preview', accountId, requestId, order, survivalPolicy })
 
 export const schwabPlaceOrder = (accountId: string, requestId: string, order: EquityOrder) =>
   orderRequest({ action: 'place', accountId, requestId, order, confirm: true })
 
-export const schwabPlaceOption = (accountId: string, requestId: string, order: OptionOrder) =>
-  orderRequest({ action: 'place', accountId, requestId, order, confirm: true })
+export const schwabPlaceOption = (accountId: string, requestId: string, order: OptionOrder, survivalPolicy?: SurvivalPolicy) =>
+  orderRequest({ action: 'place', accountId, requestId, order, survivalPolicy, confirm: true })
 
 export const schwabOrderStatus = (accountId: string, orderId: string) =>
   orderRequest({ action: 'status', accountId, orderId })
@@ -181,6 +201,8 @@ export interface PutQuote {
   last: number | null
   delta: number | null
   theta: number | null
+  gamma?: number | null
+  vega?: number | null
   volatility: number | null
   openInterest: number | null
   volume: number | null

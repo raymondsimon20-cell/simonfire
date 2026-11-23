@@ -1,6 +1,16 @@
 export interface SchwabProtectionAccount {
   accountId: string; mask: string; cash: number | null; debt: number | null
-  positions: { symbol: string; shares: number; lastPrice: number; maintenancePct?: number }[]
+  // Raw broker concepts remain separate; none is a proxy for maintenance excess.
+  maintenanceRequirement?: number | null; maintenanceExcess?: number | null
+  equity?: number | null; equityPercentage?: number | null; initialMarginRequirement?: number | null
+  sma?: number | null; buyingPower?: number | null; availableFunds?: number | null
+  cashAvailableForWithdrawal?: number | null; liquidationValue?: number | null
+  positions: {
+    symbol: string; shares: number; lastPrice: number; maintenancePct?: number
+    maintenanceRequirement?: number | null; marginEligible?: boolean | null
+    specialMaintenanceRequirement?: number | null; concentrationRequirement?: number | null
+    optionMarginTreatment?: string | null; leveragedEtfTreatment?: string | null
+  }[]
 }
 const number = (n: unknown): number | null => typeof n === 'number' && Number.isFinite(n) ? n : null
 // Only explicit position-level requirements can establish a holding's rate.
@@ -16,6 +26,14 @@ export function schwabProtectionData(raw: unknown): SchwabProtectionAccount[] {
     const balance = account.currentBalances ?? {}, margin = number(balance.marginBalance)
     return {
       accountId: `acc_${mask}`, mask, cash: number(balance.cashBalance), debt: margin == null ? null : Math.abs(margin),
+      maintenanceRequirement: number(balance.maintenanceRequirement),
+      maintenanceExcess: number(balance.maintenanceExcess),
+      equity: number(balance.equity), equityPercentage: number(balance.equityPercentage),
+      initialMarginRequirement: number(balance.initialMarginRequirement),
+      sma: number(balance.sma), buyingPower: number(balance.buyingPower),
+      availableFunds: number(balance.availableFunds),
+      cashAvailableForWithdrawal: number(balance.cashAvailableForWithdrawal),
+      liquidationValue: number(balance.liquidationValue),
       positions: (Array.isArray(account.positions) ? account.positions : []).flatMap((p: Record<string, any>) => {
         const symbol = String(p.instrument?.symbol ?? '').trim().toUpperCase()
         const long = number(p.longQuantity), short = number(p.shortQuantity)
@@ -23,7 +41,16 @@ export function schwabProtectionData(raw: unknown): SchwabProtectionAccount[] {
         if (!symbol || (long == null && short == null) || marketValue == null || !shares) return []
         const requirement = number(p.maintenanceRequirement)
         const rate = requirement != null && requirement >= 0 && marketValue > 0 ? requirement / marketValue * 100 : undefined
-        return [{symbol, shares, lastPrice: marketValue / shares, ...(rate != null && rate <= 100 ? { maintenancePct: rate } : {})}]
+        return [{symbol, shares, lastPrice: marketValue / shares,
+          maintenanceRequirement: requirement,
+          // These optional extensions are evidence only when explicitly supplied.
+          // Standard account/position responses need not expose house rules.
+          marginEligible: typeof p.marginEligible === 'boolean' ? p.marginEligible : null,
+          specialMaintenanceRequirement: number(p.specialMaintenanceRequirement),
+          concentrationRequirement: number(p.concentrationRequirement),
+          optionMarginTreatment: typeof p.optionMarginTreatment === 'string' && p.optionMarginTreatment.trim() ? p.optionMarginTreatment : null,
+          leveragedEtfTreatment: typeof p.leveragedEtfTreatment === 'string' && p.leveragedEtfTreatment.trim() ? p.leveragedEtfTreatment : null,
+          ...(rate != null ? { maintenancePct: rate } : {})}]
       }),
     }
   })

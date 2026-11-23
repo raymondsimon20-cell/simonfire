@@ -1,7 +1,8 @@
+import { DEFAULT_SURVIVAL, buildSurvivalReport, simulateSurvival, survivalEvidence, type SurvivalSettings, type SurvivalBroker, type StrategyResult } from './margin-survival'
 import type { HedgeRoll, Position } from './types'
 import { isActiveProtectivePut, putPlanMatchesContract } from './hedge'
 export const PROTECTION_FLOOR = 0.5
-export const PROTECTION_SHOCKS = [5, 10, 20, 30] as const
+export const PROTECTION_SHOCKS = [5, 10, 15, 20, 30, 40] as const
 export interface HoldingRisk {
   beta?: number; correlation?: number; leverage?: number; maintenancePct?: number
   source?: string; maintenanceSource?: string
@@ -9,8 +10,11 @@ export interface HoldingRisk {
 export interface ProtectionQuote {
   symbol: string; expiration: string; strike: number; ask: number | null; bid: number | null
   multiplier?: number | null; openInterest?: number | null; volume?: number | null
+  quoteTime?: number | null; volatility?: number | null; delta?:number|null; gamma?:number|null; theta?:number|null; vega?:number|null
 }
 export interface ProtectionInput {
+  survivalSettings?: Partial<SurvivalSettings>; broker?: SurvivalBroker
+  riskAcknowledged?:boolean; limitOverride?:boolean
   accountCount?: number
   positions: Position[]; risks: Record<string, HoldingRisk>; gross: number; debt: number
   qqqPrice: number; today: string; horizonDays: number; ratePct: number; feePerContract: number
@@ -45,108 +49,54 @@ export function protectionEvidence(input: ProtectionInput) {
     const r = input.risks[riskKey(p)]
     if (p.shares < 0) missing.push(`${p.symbol}: short exposure requires a separate model`)
     if (!finite(r?.beta) || Math.abs(r.beta) > 8 || !finite(r?.correlation) || Math.abs(r.correlation) > 1 || !r.source?.trim()) missing.push(`${p.symbol}: QQQ beta/correlation missing`)
-    if (!finite(r?.maintenancePct) || r.maintenancePct < 0 || r.maintenancePct > 100 || !r?.maintenanceSource?.trim()) missing.push(`${p.symbol}: broker maintenance evidence missing`)
+    if (!finite(r?.maintenancePct) || r.maintenancePct < 0 || r.maintenancePct > 1000 || !r?.maintenanceSource?.trim()) missing.push(`${p.symbol}: broker maintenance evidence missing`)
   }
   return missing
 }
 export function protectionStress(input: ProtectionInput, candidate?: { quote: ProtectionQuote; contracts: number }) {
-  const horizon = new Date(Date.parse(`${input.today}T12:00:00Z`) + input.horizonDays * 86400000).toISOString().slice(0, 10)
-  const close = candidate ? input.positions.find((p) => p.id === input.closePositionId) : undefined
-  const closeQuote = close ? input.quotes.find((q) => q.symbol.replace(/\s/g, '') === close.symbol.replace(/\s/g, '')) : undefined
-  const closeCredit = close && closeQuote?.multiplier === 100 ? (closeQuote.bid ?? 0) * 100 * close.shares : 0
-  const premium = candidate ? candidate.quote.ask! * 100 * candidate.contracts : 0
-  const fees = candidate ? input.feePerContract * (candidate.contracts + (close?.shares ?? 0)) : 0
-  const netDebit = premium + fees - closeCredit
-  const postDebt = Math.max(0, input.debt + netDebit)
-  const excessCredit = Math.max(0, -(input.debt + netDebit))
-  const financing = postDebt * input.ratePct / 100 * input.horizonDays / 365
-  return PROTECTION_SHOCKS.map((declinePct) => {
-    const decline = declinePct / 100, qqq = input.qqqPrice * (1 - decline)
-    let loss = 0, putChange = 0, maintenance = 0, unknownMaintenance = false
-    const omitted: string[] = []
-    for (const p of input.positions) {
-      if (p.id === close?.id) continue
-      const current = p.shares * p.lastPrice
-      if (!p.isOption) {
-        const risk = input.risks[riskKey(p)]
-        const beta = finite(risk?.beta) ? risk.beta : 1
-        // Observed beta already incorporates leverage. Never multiply it twice.
-        const stressed = Math.max(0, current * (1 - beta * decline))
-        loss += current - stressed
-        if (finite(risk?.maintenancePct)) maintenance += stressed * risk.maintenancePct / 100
-        else unknownMaintenance = true
-      } else if (isActiveProtectivePut(p, input.today)) {
-        const underlying = (p.underlying ?? p.symbol.replace(/\s*\d{6}P\d{8}$/, '')).trim().toUpperCase()
-        const stock = input.positions.find((s) => !s.isOption && s.symbol.toUpperCase() === underlying)
-        const beta = stock ? input.risks[riskKey(stock)]?.beta : underlying === 'QQQ' ? 1 : undefined
-        const price = underlying === 'QQQ' ? qqq : stock && finite(beta) ? Math.max(0, stock.lastPrice * (1 - beta * decline)) : undefined
-        const payoff = p.expiration! >= horizon && price != null ? Math.max(0, p.strike! - price) * 100 * p.shares : 0
-        if (p.expiration! < horizon || price == null) omitted.push(`${p.symbol}: no protection credited at this horizon`)
-        putChange += payoff - current
-        maintenance += payoff // Conservative: option value is fully funded; no broker offset assumed.
-      } else if (p.shares !== 0) omitted.push(`${p.symbol}: option value held fixed; result incomplete`)
-    }
-    const newPayoff = candidate && candidate.quote.expiration >= horizon ? Math.max(0, candidate.quote.strike - qqq) * 100 * candidate.contracts : 0
-    const gross = input.gross - loss + putChange - (close ? close.shares * close.lastPrice : 0) + newPayoff + excessCredit
-    const debt = postDebt + financing, equity = gross - debt
-    maintenance += newPayoff
-    const floorGap = Math.max(0, gross * PROTECTION_FLOOR - equity)
-    return { declinePct, portfolioLoss: loss, putChange, newPayoff, premium, closeCredit, fees, netDebit, financing,
-      gross, debt, equity, equityPct: gross > 0 ? equity / gross * 100 : 0, floorGap,
-      maintenanceGap: unknownMaintenance ? null : Math.max(0, maintenance - equity), omitted,
-      lossFromToday: input.gross - input.debt - equity }
+  const close = candidate ? input.positions.find(p=>p.id===input.closePositionId) : undefined
+  const closing = close ? input.quotes.find(q=>q.symbol.replace(/\s/g,'')===close.symbol.replace(/\s/g,'')) : undefined
+  const slippage=(input.survivalSettings?.slippagePct??0)/100
+  const premium=candidate?candidate.quote.ask!*100*candidate.contracts*(1+slippage):0
+  const closeCredit=close&&closing?.multiplier===100?(closing.bid??0)*100*close.shares*(1-slippage):0
+  const fees=candidate?input.feePerContract*(candidate.contracts+(close?.shares??0)):0
+  return PROTECTION_SHOCKS.map(declinePct=>{
+    const path=simulateSurvival(input,{id:candidate?'candidate':'hold',label:candidate?'Change':'Hold',quote:candidate?.quote,contracts:candidate?.contracts,closeContracts:close?.shares??0},{id:`crash-${declinePct}`,label:`Crash −${declinePct}%`,declinePct,kind:'crash'},input.survivalSettings,input.broker)
+    const point=path.points.at(-1)!
+    const portfolioLoss=input.positions.filter(p=>!p.isOption).reduce((n,p)=>n+Math.min(p.shares*p.lastPrice,p.shares*p.lastPrice*(input.risks[riskKey(p)]?.beta??1)*declinePct/100),0)
+    const floorGap=Math.max(0,...path.points.map(p=>p.gross*(input.survivalSettings?.floorPct??50)/100-p.equity))
+    return {declinePct,portfolioLoss,putChange:point.hedgeValue-input.positions.filter(p=>p.isOption&&p.id!==close?.id).reduce((n,p)=>n+p.shares*p.lastPrice,0),newPayoff:candidate?point.hedgeValue:0,premium,closeCredit,fees,netDebit:premium+fees-closeCredit,financing:point.interest,gross:point.gross,debt:point.debt,equity:point.equity,equityPct:point.equityPct,floorGap,maintenanceGap:path.minExcess==null?null:path.maxDeficiency,omitted:path.minExcess==null?['Maintenance evidence incomplete']:[],lossFromToday:input.gross-input.debt-point.equity}
   })
 }
-export function protectionEntry(input: ProtectionInput, quote: ProtectionQuote, contracts: number) {
-  const close = input.positions.find((p) => p.id === input.closePositionId)
-  const old = close ? input.quotes.find((q) => q.symbol.replace(/\s/g,'') === close.symbol.replace(/\s/g,'')) : undefined
-  const credit = close && old?.multiplier === 100 ? (old.bid ?? 0) * 100 * close.shares : 0
-  const cost = quote.ask! * 100 * contracts + input.feePerContract * (contracts + (close?.shares ?? 0))
-  const debt = Math.max(0, input.debt + cost - credit)
-  const liquidMark = quote.bid! * 100 * contracts
-  const gross = input.gross - (close ? close.shares * close.lastPrice : 0) + liquidMark + Math.max(0, credit - input.debt - cost)
-  const equity = gross - debt
-  let maintenance = liquidMark, unknown = false
-  for (const p of input.positions) {
-    if (p.id === close?.id) continue
-    if (p.isOption) maintenance += Math.max(0, p.shares * p.lastPrice)
-    else { const pct = input.risks[riskKey(p)]?.maintenancePct; if (finite(pct)) maintenance += Math.max(0,p.shares * p.lastPrice) * pct / 100; else unknown = true }
-  }
-  return { gross, debt, equity, equityPct: gross > 0 ? equity / gross * 100 : 0, floorGap: Math.max(0, gross * PROTECTION_FLOOR - equity), maintenanceGap: unknown ? null : Math.max(0, maintenance - equity) }
+function survivalEntry(input:ProtectionInput,result:StrategyResult) {
+  const p=result.scenarios[0].points.find(p=>p.phase==='Replacement filled')??result.scenarios[0].points[0]
+  return {gross:p.gross,debt:p.debt,equity:p.equity,equityPct:p.equityPct,floorGap:Math.max(0,p.gross*(input.survivalSettings?.floorPct??50)/100-p.equity),maintenanceGap:result.immediateExcess==null?null:Math.max(0,-result.immediateExcess)}
+}
+export function protectionEntry(input:ProtectionInput,quote:ProtectionQuote,contracts:number) {
+  const path=simulateSurvival(input,{id:'entry',label:'Entry',quote,contracts,closeContracts:input.positions.find(p=>p.id===input.closePositionId)?.shares??0},{id:'flat',label:'Unchanged market',declinePct:0,kind:'sideways'},input.survivalSettings,input.broker)
+  const p=path.points.find(p=>p.phase==='Replacement filled')??path.points[0]
+  return {gross:p.gross,debt:p.debt,equity:p.equity,equityPct:p.equityPct,floorGap:Math.max(0,p.gross*(input.survivalSettings?.floorPct??50)/100-p.equity),maintenanceGap:p.maintenanceExcess==null?null:Math.max(0,-p.maintenanceExcess)}
 }
 export function rankPortfolioProtection(input: ProtectionInput) {
-  const missing = protectionEvidence(input)
-  const fetched = Date.parse(input.quoteFetchedAt ?? '')
-  if (!Number.isFinite(fetched) || (input.now ?? Date.now()) - fetched > 5 * 60000 || fetched > (input.now ?? Date.now()) + 60000 || input.delayed !== false) missing.push('Fresh, non-delayed option quotes are required for a recommendation')
-  const hold = protectionStress(input)
-  const close = input.positions.find((p) => p.id === input.closePositionId)
-  if (close && !input.quotes.some((q) => q.symbol.replace(/\s/g, '') === close.symbol.replace(/\s/g, '') && finite(q.bid) && q.bid > 0 && q.multiplier === 100)) missing.push('A current bid and confirmed 100-share closing multiplier are required to compare holding versus rolling')
-  const eligible = input.quotes.filter((q) => {
-    const dte = (Date.parse(`${q.expiration}T12:00:00Z`) - Date.parse(`${input.today}T12:00:00Z`)) / 86400000
-    return finite(q.ask) && q.ask > 0 && finite(q.bid) && q.bid >= 0 && q.bid <= q.ask
-      && q.multiplier === 100 && dte >= input.horizonDays && dte <= 365
-      && (!close || q.expiration > close.expiration!)
-      && putPlanMatchesContract({ optionSymbol: q.symbol, proxy: 'QQQ', strike: q.strike, expiration: q.expiration, contracts: 1, premiumPerShare: q.ask }, input.today)
-  })
-  const candidates = eligible.flatMap((quote) => {
-    let best: { quote: ProtectionQuote; contracts: number; stress: ReturnType<typeof protectionStress>; entry: ReturnType<typeof protectionEntry>; worstGap: number; debit: number; withinBudget: boolean; meetsFloor: boolean; score: number } | null = null
-    for (let contracts = 1; contracts <= Math.min(100, input.maxContracts ?? 30); contracts++) {
-      const stress = protectionStress(input, { quote, contracts })
-      const entry = protectionEntry(input, quote, contracts)
-      const worstGap = Math.max(entry.floorGap + (entry.maintenanceGap ?? 0), ...stress.map((s) => s.floorGap + (s.maintenanceGap ?? 0)))
-      const debit = stress[0].premium + stress[0].fees
-      const withinBudget = debit <= input.budget
-      const meetsFloor = entry.floorGap < .01 && (entry.maintenanceGap == null || entry.maintenanceGap < .01) && stress.every((s) => s.floorGap < 0.01 && (s.maintenanceGap == null || s.maintenanceGap < 0.01))
-      const spread = (quote.ask! - quote.bid!) / Math.max(0.01, (quote.ask! + quote.bid!) / 2)
-      const score = worstGap * 100 + (withinBudget ? 0 : (debit - input.budget) * 10) + debit + stress[0].financing + spread * 100
-      const feasible = meetsFloor && withinBudget
-      const bestFeasible = best?.meetsFloor && best.withinBudget
-      if (!best || (feasible && !bestFeasible) || (feasible === !!bestFeasible && score < best.score)) best = { quote, contracts, stress, entry, worstGap, debit, withinBudget, meetsFloor, score }
-    }
-    return best ? [best] : []
-  }).sort((a, b) => a.score - b.score)
-  const holdMeetsFloor = hold.every((s) => s.floorGap < .01 && s.maintenanceGap != null && s.maintenanceGap < .01)
-  return { hold, holdMeetsFloor, candidates, missing, ready: missing.length === 0, recommendation: missing.length === 0 && !holdMeetsFloor ? candidates.find((c) => c.meetsFloor && c.withinBudget) ?? null : null }
+  const report=buildSurvivalReport(input,input.survivalSettings,input.broker)
+  const hold=protectionStress(input)
+  const candidates=report.strategies.filter(r=>r.id.startsWith('roll-')).flatMap(r=>{
+    const quote=input.quotes.find(q=>r.id.startsWith(`roll-${q.symbol}-`))
+    const contracts=Number(r.id.slice(r.id.lastIndexOf('-')+1))
+    if(!quote||!Number.isSafeInteger(contracts))return []
+    const stress=PROTECTION_SHOCKS.map(declinePct=>{
+      const path=r.scenarios.find(p=>p.id===`crash-${declinePct}`)!,point=path.points.at(-1)!
+      const fees=r.fees??0,premium=r.hedgeCost-fees,closeCredit=r.hedgeCost-r.netDebit
+      return {declinePct,portfolioLoss:0,putChange:0,newPayoff:point.hedgeValue,premium,closeCredit,fees,netDebit:premium+fees-closeCredit,financing:point.interest,gross:point.gross,debt:point.debt,equity:point.equity,equityPct:point.equityPct,floorGap:Math.max(0,...path.points.map(p=>p.gross*(input.survivalSettings?.floorPct??50)/100-p.equity)),maintenanceGap:path.minExcess==null?null:path.maxDeficiency,omitted:[] as string[],lossFromToday:input.gross-input.debt-point.equity}
+    })
+    const entry=survivalEntry(input,r)
+    const worstGap=Math.max(...stress.map(p=>p.floorGap+(p.maintenanceGap??0)))
+    return [{quote,contracts,stress,entry,worstGap,debit:r.hedgeCost,withinBudget:r.hedgeCost<=input.budget,meetsFloor:r.qualifies,score:r.maxDeficiency*1e6+worstGap*1e3+r.financing+Math.max(0,r.netDebit),survival:r}]
+  }).sort((a,b)=>Number(b.meetsFloor)-Number(a.meetsFloor)||a.score-b.score)
+  const holdMeetsFloor=report.strategies[0].qualifies
+  const recommended=report.recommended
+  const recommendation=recommended?.id.startsWith('roll-')?candidates.find(c=>c.survival.id===recommended.id)??null:null
+  return {hold,holdMeetsFloor,candidates,missing:report.missing,ready:report.missing.length===0,recommendation,survival:report}
 }
 
 export interface ProtectionAiScenario {
@@ -154,20 +104,22 @@ export interface ProtectionAiScenario {
   maintenanceGap: number | null; premium: number; closeCredit: number; fees: number; financing: number
 }
 export interface ProtectionAiEvidence {
+  survival?: {minimumExcess:number|null;maximumDeficiency:number;firstDeficiency:string|null;scenarioCount:number;policy:string}
   userDirected?: boolean
   quoteCurrent?: boolean
-  targetEquityPct: 50; horizonDays: number; ratePct: number; evidenceComplete: boolean
+  targetEquityPct: number; horizonDays: number; ratePct: number; evidenceComplete: boolean
   missingCount: number; quoteFetchedAt: string; hold: ProtectionAiScenario[]
   candidate: { meetsTargets: boolean; withinBudget: boolean; entryEquityPct: number; entryFloorGap: number; action: 'ADD' | 'ROLL'; strike: number; expiration: string; contracts: number; stress: ProtectionAiScenario[] } | null
 }
 // Send only aggregate comparison values. No account identifiers, raw positions,
 // free-text evidence labels, or credentials belong in an AI request.
-export function protectionAiEvidence(input: ProtectionInput, balancesConfirmed: boolean, selection?: {symbol:string;contracts:number}): ProtectionAiEvidence {
-  const ranking = rankPortfolioProtection(input)
+export function protectionAiEvidence(input: ProtectionInput, balancesConfirmed: boolean, selection?: {symbol:string;contracts:number}, evaluated?: ReturnType<typeof rankPortfolioProtection>, chosen?: ReturnType<typeof protectionChoice>): ProtectionAiEvidence {
+  const ranking = evaluated ?? rankPortfolioProtection(input)
   const scenario = (s: ReturnType<typeof protectionStress>[number]): ProtectionAiScenario => ({declinePct:s.declinePct,equity:s.equity,equityPct:s.equityPct,floorGap:s.floorGap,maintenanceGap:s.maintenanceGap,premium:s.premium,closeCredit:s.closeCredit,fees:s.fees,financing:s.financing})
-  const candidate = selection ? protectionChoice(input,selection) : ranking.recommendation ?? ranking.candidates[0]
+  const candidate = selection ? chosen ?? protectionChoice(input,selection) : ranking.recommendation ?? ranking.candidates[0]
   const age=(input.now??Date.now())-Date.parse(input.quoteFetchedAt??'')
-  return {...(selection ? {userDirected:true} : {}),quoteCurrent:Number.isFinite(age)&&age>=0&&age<=5*60000&&input.delayed===false,targetEquityPct:50,horizonDays:input.horizonDays,ratePct:input.ratePct,evidenceComplete:ranking.ready && balancesConfirmed,missingCount:ranking.missing.length + Number(!balancesConfirmed),quoteFetchedAt:input.quoteFetchedAt ?? '',hold:ranking.hold.map(scenario),candidate:candidate ? {meetsTargets:candidate.meetsFloor,withinBudget:candidate.withinBudget,entryEquityPct:candidate.entry.equityPct,entryFloorGap:candidate.entry.floorGap,action:input.closePositionId?'ROLL':'ADD',strike:candidate.quote.strike,expiration:candidate.quote.expiration,contracts:candidate.contracts,stress:candidate.stress.map(scenario)} : null}
+  const contractAge=candidate?(input.now??Date.now())-(candidate.quote.quoteTime??NaN):0
+  return {...(selection ? {userDirected:true} : {}),quoteCurrent:Number.isFinite(age)&&age>=0&&age<=5*60000&&Number.isFinite(contractAge)&&contractAge>=0&&contractAge<=300000&&input.delayed===false,targetEquityPct:input.survivalSettings?.floorPct??50,horizonDays:ranking.survival.strategies[0].scenarios[0].points.at(-1)!.day,survival:{minimumExcess:ranking.survival.strategies[0].minExcess,maximumDeficiency:ranking.survival.strategies[0].maxDeficiency,firstDeficiency:ranking.survival.strategies[0].firstDeficiency,scenarioCount:ranking.survival.strategies[0].scenarios.length,policy:ranking.survival.policy},ratePct:input.ratePct,evidenceComplete:ranking.ready && balancesConfirmed,missingCount:ranking.missing.length + Number(!balancesConfirmed),quoteFetchedAt:input.quoteFetchedAt ?? '',hold:ranking.hold.map(scenario),candidate:candidate ? {meetsTargets:candidate.meetsFloor,withinBudget:candidate.withinBudget,entryEquityPct:candidate.entry.equityPct,entryFloorGap:candidate.entry.floorGap,action:input.closePositionId?'ROLL':'ADD',strike:candidate.quote.strike,expiration:candidate.quote.expiration,contracts:candidate.contracts,stress:candidate.stress.map(scenario)} : null}
 }
 
 // Quotes that a user may explicitly choose, independent of model sizing or
@@ -182,11 +134,12 @@ export function protectionChoice(input: ProtectionInput, selection: {symbol:stri
   if(!Number.isSafeInteger(selection.contracts)||selection.contracts<1||selection.contracts>100)return null
   const quote=protectionTradeQuotes(input).find(q=>q.symbol===selection.symbol)
   if(!quote)return null
+  const report=buildSurvivalReport(input,input.survivalSettings,input.broker,[{id:'manual-choice',label:'Your selected hedge',quote,contracts:selection.contracts,closeContracts:input.positions.find(p=>p.id===input.closePositionId)?.shares??0}])
+  const survival=report.strategies.find(r=>r.id==='manual-choice')!
   const stress=protectionStress(input,{quote,contracts:selection.contracts})
-  const entry=protectionEntry(input,quote,selection.contracts)
-  const worstGap=Math.max(entry.floorGap+(entry.maintenanceGap??0),...stress.map(s=>s.floorGap+(s.maintenanceGap??0)))
-  const debit=stress[0].premium+stress[0].fees
-  return {quote,contracts:selection.contracts,stress,entry,worstGap,debit,withinBudget:debit<=input.budget,meetsFloor:worstGap<.01&&entry.maintenanceGap!=null&&stress.every(s=>s.maintenanceGap!=null)}
+  const entry=survivalEntry(input,survival)
+  const worstGap=Math.max(survival.maxDeficiency,...survival.scenarios.flatMap(path=>path.points.map(p=>Math.max(0,p.gross*(input.survivalSettings?.floorPct??50)/100-p.equity))))
+  return {quote,contracts:selection.contracts,stress,entry,worstGap,debit:survival.hedgeCost,withinBudget:survival.hedgeCost<=input.budget&&selection.contracts<=(input.maxContracts??30),meetsFloor:survival.qualifies,survival}
 }
 
 export type ProtectionOrderDraft = Omit<HedgeRoll, 'id' | 'createdAt'>
@@ -197,13 +150,18 @@ export function buildProtectionOrderDraft(input: ProtectionInput, selection: {sy
   const fetched=Date.parse(input.quoteFetchedAt??'')
   const age=(input.now??Date.now())-fetched
   if(!Number.isFinite(age)||age < -60000||age>5*60000||input.delayed!==false)return null
+  if(survivalEvidence(input,input.survivalSettings,input.broker).length)return null
   const ranking=mode==='model'?rankPortfolioProtection(input):null
   if(ranking&&(!ranking.ready||ranking.holdMeetsFloor))return null
   const candidate=ranking?ranking.candidates.find(c=>c.quote.symbol===selection.symbol&&c.contracts===selection.contracts):protectionChoice(input,selection)
   if(!candidate||(mode==='model'&&(!candidate.meetsFloor||!candidate.withinBudget)))return null
+  const contractAge=(input.now??Date.now())-(candidate.quote.quoteTime??NaN)
+  if(!Number.isFinite(contractAge)||contractAge<0||contractAge>300000)return null
+  if(mode==='on-demand'&&((!candidate.meetsFloor&&!input.riskAcknowledged)||(!candidate.withinBudget&&!input.limitOverride)))return null
   const closeQuote = close ? input.quotes.find(q=>q.symbol.replace(/\s/g,'')===close.symbol.replace(/\s/g,'')) : undefined
   if (close && (!finite(closeQuote?.bid) || closeQuote.bid<=0 || closeQuote.multiplier!==100)) return null
   return {
+    survivalPolicy:{settings:{...DEFAULT_SURVIVAL,...input.survivalSettings,riskWeights:{...DEFAULT_SURVIVAL.riskWeights,...input.survivalSettings?.riskWeights}},ratePct:input.ratePct,horizonDays:input.horizonDays,budget:input.budget,maxContracts:input.maxContracts??30,feePerContract:input.feePerContract},
     proxy:'QQQ',accountId,optionSymbol:candidate.quote.symbol,contracts:candidate.contracts,
     strike:candidate.quote.strike,expiration:candidate.quote.expiration,
     premiumPerShare:candidate.quote.ask!,grossPremium:candidate.stress[0].premium,rollDate:input.today,

@@ -339,6 +339,8 @@ export interface SymbolRule {
 }
 
 export interface HedgeRoll {
+  survivalPolicy?: import('./survival-policy').SurvivalPolicy
+  previewSurvivalPolicy?: import('./survival-policy').SurvivalPolicy
   id: string
   proxy: 'QQQ' | 'SPY'
   contracts: number
@@ -365,6 +367,24 @@ export interface HedgeRoll {
   closePreviewRequestId?: string
   closePreviewState?: 'not_previewed' | 'accepted' | 'rejected'
   closeOrderId?: string
+  closeFilledQuantity?: number | null
+  closeRemainingQuantity?: number | null
+  filledQuantity?: number | null
+  remainingQuantity?: number | null
+  executionPreflight?: {
+    modeledRisk?: import('./survival-policy').OrderModeledRisk | null
+    executable: boolean
+    checkedAt: number
+    quantity: number
+    heldQuantity: number | null
+    bid: number | null
+    ask: number | null
+    quoteTime: number | null
+    maintenanceRequirement: number | null
+    maintenanceExcess: number | null
+    estimatedPremium: number
+    issues: string[]
+  }
   closeOrderStatus?: string
   closePlacedAt?: string
   closeCostBasis?: number

@@ -31,3 +31,21 @@ assert.equal(reconcileProtectionHoldings([savedHolding],[{symbol:'TEST',shares:7
 assert.equal(reconcileProtectionHoldings([savedHolding],[]).matches,false)
 assert.equal(reconcileProtectionHoldings([savedHolding],[...currentHoldings,{symbol:'NEW',shares:1,lastPrice:20}]).matches,false)
 assert.equal(reconcileProtectionHoldings([{...savedHolding,shares:4},{...savedHolding,id:'lot2',shares:6}],currentHoldings).matches,true,'saved lots can match one aggregate broker position')
+
+// Distinct broker balances must never stand in for one another.
+const evidence = schwabProtectionData([{securitiesAccount:{accountNumber:'12345678',currentBalances:{
+  maintenanceRequirement:100, maintenanceExcess:-20, equity:800, equityPercentage:62,
+  initialMarginRequirement:200, sma:300, buyingPower:400, availableFunds:500,
+  cashAvailableForWithdrawal:600, liquidationValue:900,
+},positions:[{instrument:{symbol:'RULE'},longQuantity:1,marketValue:100,
+  maintenanceRequirement:150, marginEligible:false, specialMaintenanceRequirement:75,
+  concentrationRequirement:25, optionMarginTreatment:'BROKER_EXPLICIT', leveragedEtfTreatment:'SPECIAL',
+} ]}}])[0] as any
+for (const [field,value] of Object.entries({maintenanceRequirement:100,maintenanceExcess:-20,equity:800,equityPercentage:62,initialMarginRequirement:200,sma:300,buyingPower:400,availableFunds:500,cashAvailableForWithdrawal:600,liquidationValue:900})) assert.equal(evidence[field],value,field)
+assert.equal(evidence.positions[0].maintenancePct,150,'house requirements can exceed 100%')
+for (const [field,value] of Object.entries({marginEligible:false,specialMaintenanceRequirement:75,concentrationRequirement:25,optionMarginTreatment:'BROKER_EXPLICIT',leveragedEtfTreatment:'SPECIAL'})) assert.equal(evidence.positions[0][field],value,field)
+const unknown = schwabProtectionData(raw)[0] as any
+for (const field of ['equity','equityPercentage','maintenanceExcess','initialMarginRequirement','sma','buyingPower','availableFunds','cashAvailableForWithdrawal','liquidationValue']) assert.equal(unknown[field],null,field)
+for (const field of ['marginEligible','specialMaintenanceRequirement','concentrationRequirement','optionMarginTreatment','leveragedEtfTreatment']) assert.equal(unknown.positions[1][field],null,field)
+assert.equal(unknown.positions[3].maintenanceRequirement,null)
+console.log('Separate nullable broker balances and explicit position rules passed')

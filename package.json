@@ -34,7 +34,9 @@
     "test:fire": "tsc -p scripts/tsconfig.fire.test.json && node /tmp/simonfire-fire-tests/scripts/test-fire-model.js",
     "test:protection": "tsc -p scripts/tsconfig.protection.test.json && node /tmp/simonfire-protection-tests/scripts/test-portfolio-protection.js && NODE_PATH=./node_modules node /tmp/simonfire-protection-tests/scripts/test-hedge-advisory.js && node /tmp/simonfire-protection-tests/scripts/test-schwab-protection-data.js",
     "test:chunk-recovery": "tsc -p scripts/tsconfig.chunk-recovery.test.json && node /tmp/simonfire-chunk-recovery-tests/scripts/test-chunk-recovery.js",
-    "test:schwab-history": "tsc -p scripts/tsconfig.schwab-history.test.json && NODE_PATH=./node_modules node /tmp/simonfire-schwab-history-tests/scripts/test-schwab-history.js"
+    "test:schwab-history": "tsc -p scripts/tsconfig.schwab-history.test.json && NODE_PATH=./node_modules node /tmp/simonfire-schwab-history-tests/scripts/test-schwab-history.js",
+    "test:margin-survival": "tsc -p scripts/tsconfig.margin-survival.test.json && node /tmp/simonfire-survival-tests/scripts/test-margin-survival.js",
+    "test:schwab-options": "tsc -p scripts/tsconfig.schwab-options.test.json && NODE_PATH=./node_modules node /tmp/simonfire-schwab-options-tests/scripts/test-schwab-options.js"
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.1",

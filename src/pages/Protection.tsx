@@ -32,7 +32,7 @@ export default function Protection() {
     if (value) setSavedReviews((previous) => ({ ...previous, [cacheScope]: { context, value } }))
   }, [cacheScope, context, setSavedReviews])
   return <div>
-    <PageHeader title="Protection" subtitle="Manage protective puts and size new hedges" />
+    <PageHeader title="Protection" subtitle="See what to hold, what to roll, and what it will cost." />
     <HedgeWorkspace key={cacheScope} initialEvidence={savedHedges[cacheScope] ?? undefined} onAiEvidence={receiveAiHedge} onReviewEvidence={receiveProtectionReview} positions={positions} accounts={accounts} />
   </div>
 }
@@ -40,9 +40,15 @@ export default function Protection() {
 function HedgeWorkspace({ positions, accounts, onAiEvidence, initialEvidence, onReviewEvidence }: { positions: Position[]; accounts: Account[]; initialEvidence?: AiHedgeContext; onReviewEvidence: (value: ProtectionAiEvidence | null) => void; onAiEvidence: (value: AiHedgeContext) => void }) {
   const [plan, setPlan] = useState<HedgePlanSnapshot | null>(null)
   const { data, addHedgeRoll } = useStore()
-  const activePuts = positions.filter((p) => isActiveProtectivePut(p, brokerageDate())).length
-  const openPlans = (data.hedgeRolls ?? []).filter((r) => !['closed', 'rolled'].includes(r.status)).length
-  const [mode, setMode] = useState<'manage' | 'portfolio' | 'holding'>(() => activePuts || openPlans ? 'manage' : 'portfolio')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [proxyOpen, setProxyOpen] = useState(false)
+  const reviewRef = useRef<HTMLElement>(null)
+  const [reviewRequest, setReviewRequest] = useState(0)
+  const openPlans = (data.hedgeRolls ?? []).filter((r) => accounts.some((a) => a.id === r.accountId) && !['closed', 'rolled'].includes(r.status)).length
+  const hasCompletedPlans = (data.hedgeRolls ?? []).some((r) => accounts.some((a) => a.id === r.accountId) && ['closed', 'rolled'].includes(r.status))
+  useEffect(() => {
+    if (reviewRequest) reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [reviewRequest])
   const holdingChoices = useMemo(() => positions.filter((p) => !p.isOption && p.shares > 0 && p.lastPrice > 0).sort((a, b) => b.shares * b.lastPrice - a.shares * a.lastPrice), [positions])
   const [holdingId, setHoldingId] = useState(() => holdingChoices[0]?.id ?? '')
   const [orderNote, setOrderNote] = useState('')
@@ -54,20 +60,26 @@ function HedgeWorkspace({ positions, accounts, onAiEvidence, initialEvidence, on
         (!!draft.closeOptionSymbol && contractKey(roll.closeOptionSymbol) === contractKey(draft.closeOptionSymbol))))
     if (!exists) addHedgeRoll(draft)
     setOrderNote(exists ? `Your new choice was not added because a related plan already exists. The existing ticket below is for ${exists.contracts} contracts at ${usd(exists.premiumPerShare)} per share. Review that ticket before proceeding.` : 'Order ready for review. Preview with Schwab before confirming.')
-    setMode('manage')
+    setReviewRequest((request) => request + 1)
   }
-  const tabs = [['manage', `My puts${activePuts + openPlans ? ` · ${activePuts + openPlans}` : ''}`], ['portfolio', 'Protect portfolio'], ['holding', 'Protect a holding']] as const
   return <div className="space-y-4">
-    <div className="flex overflow-x-auto rounded-xl border border-border bg-surface/70 p-1">{tabs.map(([key, label]) => <button key={key} onClick={() => setMode(key)} className={clsx('min-w-max flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors', mode === key ? 'bg-[#c7a96b]/15 text-[#e1c887]' : 'text-muted hover:bg-white/[0.03] hover:text-ink')}>{label}</button>)}</div>
-    {mode === 'manage' && orderNote && <div role="status" className="rounded-xl border border-pos/20 bg-pos/5 p-4 text-sm text-pos">{orderNote}</div>}
-    {mode === 'manage' && <PutRollQueue positions={positions} accounts={accounts} plan={plan && putPlanMatchesContract(plan, brokerageDate()) ? plan : null} onCompare={() => setMode('portfolio')} onProtectHolding={() => setMode('holding')}/>}
-    <div hidden={mode !== 'portfolio'} className="space-y-4"><PortfolioProtection positions={positions} accounts={accounts} onReviewEvidence={onReviewEvidence} onPrepareOrder={prepareOrder}/><details className="card p-0"><summary className="cursor-pointer p-4 text-sm text-muted">Older QQQ / SPY proxy estimate · reference only</summary><div className="space-y-4 border-t border-border-soft p-4"><PortfolioHedgeGuide/><LivePutQuotes positions={positions} accounts={accounts} symbolFilter="QQQ,SPY"/><PortfolioHedgeEngine initialEvidence={initialEvidence} positions={positions} onPlan={setPlan} onAiEvidence={onAiEvidence}/></div></details></div>
-    {mode === 'holding' && <div className="space-y-4">
+    <PortfolioProtection positions={positions} accounts={accounts} onReviewEvidence={onReviewEvidence} onPrepareOrder={prepareOrder}/>
+    {(openPlans > 0 || !!orderNote || hasCompletedPlans) && <section ref={reviewRef} className="scroll-mt-4 space-y-4" aria-label="Prepared orders">
+      <h2 className="text-lg font-semibold">Prepared orders{openPlans ? ` · ${openPlans}` : ''}</h2>
+      <p className="text-xs text-muted">Previewing does not place an order. Review and confirm each order separately. A roll’s close must fill before its replacement can be submitted.</p>
+      {orderNote && <div role="status" className="rounded-xl border border-pos/20 bg-pos/5 p-4 text-sm text-pos">{orderNote}</div>}
+      <PutRollQueue ordersOnly positions={positions} accounts={accounts} plan={plan && putPlanMatchesContract(plan, brokerageDate()) ? plan : null}/>
+    </section>}
+    <details className="card p-0" onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
+      <summary className="cursor-pointer p-5 text-sm font-semibold">Advanced: protect a single holding</summary>
+      {advancedOpen && <div className="space-y-4 border-t border-border-soft p-4">
       {holdingChoices.length > 0 && <div className="card flex flex-wrap items-end gap-3 p-5"><label className="min-w-64 flex-1 text-xs text-muted">Holding to protect<select value={holdingId} onChange={(e) => setHoldingId(e.target.value)} className="mt-1 w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm text-ink">{holdingChoices.map((row) => <option key={row.id} value={row.id}>{row.symbol} · {row.shares} shares · {accounts.find((a) => a.id === row.accountId)?.name ?? row.accountId}</option>)}</select></label><p className="pb-2 text-xs text-faint">1 · Load quotes and pick a contract &nbsp; 2 · Check the cost and outcomes &nbsp; 3 · Copy the ticket</p></div>}
       <LivePutQuotes key={holdingId} positions={positions} accounts={accounts} positionId={holdingId}/>
       <ProtectivePutsEngine positions={positions} accounts={accounts} positionId={holdingId} onPositionChange={setHoldingId}/>
       <ProtectivePutTutorial/>
-    </div>}
+      <details onToggle={(event) => setProxyOpen(event.currentTarget.open)}><summary className="cursor-pointer p-4 text-sm text-muted">Older QQQ / SPY proxy estimate · reference only</summary>{proxyOpen && <div className="space-y-4"><PortfolioHedgeGuide/><LivePutQuotes positions={positions} accounts={accounts} symbolFilter="QQQ,SPY"/><PortfolioHedgeEngine initialEvidence={initialEvidence} positions={positions} onPlan={setPlan} onAiEvidence={onAiEvidence}/></div>}</details>
+      </div>}
+    </details>
   </div>
 }
 
@@ -140,7 +152,7 @@ const optionSymbolForPosition = (position: Position) => {
   const reconstructed = `${root}${date ?? ''}${side}${strike}`
   return /^[A-Z]{1,6}\d{6}[CP]\d{8}$/.test(reconstructed) ? reconstructed : ''
 }
-function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding }: { positions: Position[]; accounts: Account[]; plan: HedgePlanSnapshot | null; onCompare?: () => void; onProtectHolding?: () => void }) {
+function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding, ordersOnly = false }: { ordersOnly?: boolean; positions: Position[]; accounts: Account[]; plan: HedgePlanSnapshot | null; onCompare?: () => void; onProtectHolding?: () => void }) {
   const { data, addHedgeRoll, updateHedgeRoll, removeHedgeRoll } = useStore()
   const [selectedOrderAccount, setOrderAccount] = useState(() => accounts[0]?.id ?? '')
   const orderAccount = accounts.some((account) => account.id === selectedOrderAccount) ? selectedOrderAccount : accounts[0]?.id ?? ''
@@ -154,7 +166,7 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding }
   const [rollWindowDays, setRollWindowDays] = usePersistentState('simonfire.put-roll-window', 60)
   const autoChecked = useRef(false)
   const [quoteClock, setQuoteClock] = useState(() => Date.now())
-  const allRolls = (data.hedgeRolls ?? []).filter((roll) => !roll.accountId || accounts.some((account) => account.id === roll.accountId))
+  const allRolls = (data.hedgeRolls ?? []).filter((roll) => accounts.some((account) => account.id === roll.accountId))
   const openRolls = allRolls.filter((roll) => !['closed', 'rolled'].includes(roll.status))
   const rollKey = (roll: HedgeRoll) => `${roll.accountId}|${roll.closeOptionSymbol ?? ''}|${roll.optionSymbol ?? ''}`
   const queued = openRolls.filter((roll, index, rows) => rows.findIndex((candidate) => rollKey(candidate) === rollKey(roll)) === index)
@@ -190,10 +202,10 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding }
   }, [rollWindowDays])
   // Run once when the protective-put workspace opens; manual refresh remains available.
   useEffect(() => {
-    if (autoChecked.current || !livePuts.length) return
+    if (ordersOnly || autoChecked.current || !livePuts.length) return
     autoChecked.current = true
     void Promise.all(livePuts.map((put) => startRoll(put)))
-  }, [livePuts, startRoll])
+  }, [ordersOnly, livePuts, startRoll])
   useEffect(() => { const timer = window.setInterval(() => setQuoteClock(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
   const preview = async (roll: HedgeRoll) => {
     const order = buildPutPreviewOrder(roll.optionSymbol ?? '', roll.contracts, roll.premiumPerShare)
@@ -292,15 +304,16 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding }
   const confirmLimit = confirmingClose ? confirmRoll?.closeLimitCredit : confirmRoll?.premiumPerShare
   const confirmTotal = (confirmContracts ?? 0) * (confirmLimit ?? 0) * 100
   const statusStyle: Record<HedgeRoll['status'], string> = { queued: 'bg-[#c7a96b]/10 text-[#d8bd7a]', active: 'bg-pos/10 text-pos', rolled: 'bg-[#10233f] text-[#5aa2ff]', closed: 'bg-surface-2 text-muted' }
+  if (ordersOnly && !queued.length && !plan && !completedRolls.length && !rollError) return <div className="card p-5 text-sm text-muted">No prepared orders in this account scope. Review a portfolio choice above to prepare an order.</div>
   if (!livePuts.length && !queued.length && !plan && !completedRolls.length && !rollError) return <div className="card p-8 text-center">
     <h3 className="font-semibold">You don't hold any protective puts yet</h3>
-    <p className="mx-auto mt-2 max-w-md text-sm text-muted">Puts you buy at Schwab show up here after a sync, along with any orders you plan from the other tabs.</p>
+    <p className="mx-auto mt-2 max-w-md text-sm text-muted">Puts you buy at Schwab show up here after a sync, along with any orders you plan from portfolio review.</p>
     <div className="mt-5 flex flex-wrap justify-center gap-2"><Button variant="primary" onClick={onCompare} disabled={!onCompare}>Protect the portfolio</Button><Button onClick={onProtectHolding} disabled={!onProtectHolding}>Protect a holding</Button></div>
   </div>
   return <div className="space-y-4">
-    {!!livePuts.length && <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">Puts you hold</h3><label className="text-xs text-muted">Flag for review <span className="ml-2 inline-flex items-center rounded-lg border border-border bg-surface-2 px-2"><input type="number" min="7" max="120" value={rollWindowDays} onChange={(event) => setRollWindowDays(Math.max(7, Math.min(120, Number(event.target.value) || 60)))} className="num w-12 bg-transparent py-1.5 text-right text-ink outline-none"/><span className="ml-1">days</span></span></label></div>}
-    {!!queued.length && <div className="card p-4"><RollWorkflow rolls={queued} checked={Object.keys(putChecks).length > 0}/></div>}
-    {!!livePuts.length && <div className="grid gap-3 lg:grid-cols-2">{livePuts.map((put) => <CurrentPutCard key={put.id} put={put} account={accounts.find((account) => account.id === put.accountId)} check={putChecks[put.id]} checking={recommending === put.id} now={quoteClock} rollWindowDays={rollWindowDays} onCheck={() => startRoll(put)} onCompare={onCompare}/>)}</div>}
+    {!ordersOnly && !!livePuts.length && <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold">Puts you hold</h3><label className="text-xs text-muted">Flag for review <span className="ml-2 inline-flex items-center rounded-lg border border-border bg-surface-2 px-2"><input type="number" min="7" max="120" value={rollWindowDays} onChange={(event) => setRollWindowDays(Math.max(7, Math.min(120, Number(event.target.value) || 60)))} className="num w-12 bg-transparent py-1.5 text-right text-ink outline-none"/><span className="ml-1">days</span></span></label></div>}
+    {!ordersOnly && !!queued.length && <div className="card p-4"><RollWorkflow rolls={queued} checked={Object.keys(putChecks).length > 0}/></div>}
+    {!ordersOnly && !!livePuts.length && <div className="grid gap-3 lg:grid-cols-2">{livePuts.map((put) => <CurrentPutCard key={put.id} put={put} account={accounts.find((account) => account.id === put.accountId)} check={putChecks[put.id]} checking={recommending === put.id} now={quoteClock} rollWindowDays={rollWindowDays} onCheck={() => startRoll(put)} onCompare={onCompare}/>)}</div>}
     {(plan || rollError) && <div className="card p-5">
       <div className="flex flex-wrap items-end gap-3">
         <ListChecks size={19} className="mb-2 text-brand"/>
@@ -312,16 +325,38 @@ function PutRollQueue({ positions, accounts, plan, onCompare, onProtectHolding }
       {plan?.optionSymbol && <div className="mt-4 rounded-xl border border-border-soft bg-surface-2/35 p-4"><div className="num text-sm">{plan.ticket}</div><div className="mt-2 text-xs text-faint">Gross debit {usd(plan.grossPremium)} · roll by {shortDate(plan.rollDate)} · {plan.optionSymbol ? `contract ${plan.optionSymbol}` : 'select a live quote to capture the contract symbol'}</div></div>}
       {rollError && <div className="mt-3 rounded-lg border border-neg/30 bg-neg/10 p-3 text-xs text-neg">{rollError}</div>}
     </div>}
-    {!!queued.length && <div className="card overflow-x-auto p-0">
-      <div className="flex items-center gap-3 p-5"><h3 className="font-semibold">Planned put orders</h3><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">{livePuts.length} broker holdings</span><span className="rounded-md bg-surface-2 px-2 py-1 text-xs text-muted">{queued.length} tracked rolls</span></div>
+    {!ordersOnly && !!livePuts.length && <div className="card overflow-x-auto p-0">
+      <div className="flex items-center gap-3 p-5"><h3 className="font-semibold">Planned put orders</h3>{!ordersOnly && <span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">{livePuts.length} broker holdings</span>}<span className="rounded-md bg-surface-2 px-2 py-1 text-xs text-muted">{queued.length} tracked rolls</span></div>
       <table className="w-full min-w-[1050px] text-sm"><thead><tr className="border-y border-border-soft text-xs text-muted"><th className="px-4 py-3 text-left">Source</th><th className="px-4 py-3 text-left">Put</th><th className="px-4 py-3 text-right">Contracts</th><th className="px-4 py-3 text-right">Premium / value</th><th className="px-4 py-3 text-left">Expiration</th><th className="px-4 py-3 text-left">Roll by</th><th className="px-4 py-3 text-left">Status</th><th className="px-4 py-3 text-left">Validation</th><th className="px-4 py-3"></th></tr></thead>
         <tbody>
-          {livePuts.map((p) => <tr key={`live-${p.id}`} className="border-b border-border-soft bg-pos/[.03]"><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Broker holding</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === p.accountId)?.name ?? p.accountId}</div></td><td className="px-4 py-3 font-semibold">{p.underlying ?? p.symbol} ${p.strike?.toFixed(2) ?? '—'} put<div className="mt-1 font-mono text-[10px] font-normal text-faint">{optionSymbolForPosition(p) || p.symbol}</div></td><td className="num px-4 py-3 text-right">{p.shares}</td><td className="num px-4 py-3 text-right">{usd(p.shares * p.lastPrice)}</td><td className="px-4 py-3">{p.expiration ? shortDate(p.expiration) : '—'}</td><td className="px-4 py-3 text-faint">{p.expiration ? `${Math.ceil((new Date(`${p.expiration}T00:00:00`).getTime() - quoteClock) / 86_400_000)} DTE` : 'Set in tracker'}</td><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Active</span></td><td className="px-4 py-3"><button onClick={onCompare} disabled={!onCompare} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">Compare protection options</button></td><td></td></tr>)}
-          {queued.map((r) => <tr key={r.id} className="border-b border-border-soft"><td className="px-4 py-3"><span className="rounded-md bg-[#c7a96b]/10 px-2 py-1 text-xs text-[#d8bd7a]">{r.closeOptionSymbol ? 'Roll' : 'Planning'}</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === r.accountId)?.name ?? 'No account'}</div></td><td className="px-4 py-3 font-semibold">{r.proxy} ${r.strike.toFixed(2)} replacement<div className="mt-1 font-mono text-[10px] font-normal text-faint">{r.optionSymbol ?? 'Legacy row · quote required'}</div>{r.closeOptionSymbol && <div className="mt-1 font-mono text-[10px] font-normal text-[#d8bd7a]">Close: {r.closeOptionSymbol} @ ${r.closeLimitCredit?.toFixed(2)}</div>}{r.closeOrderId && <div className="mt-1 text-[10px] font-normal text-muted">Close #{r.closeOrderId} · {r.closeOrderStatus ?? 'ACCEPTED'}</div>}{r.orderId && <div className="mt-1 text-[10px] font-normal text-pos">Open #{r.orderId} · {r.orderStatus ?? 'ACCEPTED'}</div>}</td><td className="num px-4 py-3 text-right">{r.contracts}</td><td className="num px-4 py-3 text-right">{usd(r.grossPremium)}</td><td className="px-4 py-3">{shortDate(r.expiration)}</td><td className={clsx('px-4 py-3', r.status !== 'closed' && r.rollDate <= new Date().toISOString().slice(0, 10) ? 'text-neg' : '')}>{shortDate(r.rollDate)}</td><td className="px-4 py-3"><select aria-label="Manual tracking status" disabled={!!r.orderId || !!r.closeOrderId} value={r.status} onChange={(e) => updateHedgeRoll(r.id, { status: e.target.value as HedgeRoll['status'] })} className={clsx('rounded-md border-0 px-2 py-1 text-xs outline-none', statusStyle[r.status])}><option value="queued">Queued</option><option value="active">Active</option><option value="rolled">Rolled</option><option value="closed">Closed</option></select></td><td className="max-w-[240px] px-4 py-3"><div className="flex flex-wrap gap-1"><button onClick={() => preview(r)} disabled={!r.optionSymbol || !r.accountId || r.status === 'closed' || !!r.orderId || previewing === r.id || (!!r.closeOrderId && r.closeOrderStatus !== 'FILLED')} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">{previewing === r.id ? 'Working…' : previewIsCurrent(r) ? 'Preview again' : 'Preview with Schwab'}</button>{r.closeOrderId && r.closeOrderStatus !== 'FILLED' && <button onClick={() => refreshCloseStatus(r)} disabled={previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted hover:border-brand hover:text-brand disabled:opacity-40">Refresh close status</button>}{r.orderId && !['FILLED', 'CANCELED', 'REJECTED', 'EXPIRED'].includes(r.orderStatus ?? '') && <button onClick={() => refreshOpenStatus(r)} disabled={previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted hover:border-brand hover:text-brand disabled:opacity-40">Refresh open status</button>}{previewIsCurrent(r) && !r.orderId && (!r.closeOrderId || r.closeOrderStatus === 'FILLED') && <button onClick={() => openPlacement(r)} className="rounded-md bg-neg px-2 py-1 text-xs font-semibold text-white hover:brightness-110">{r.closeOptionSymbol && !r.closeOrderId ? 'Review close order' : r.closeOrderStatus === 'FILLED' ? 'Review replacement order' : 'Review purchase order'}</button>}</div><div className={clsx('mt-1 text-[10px]', r.previewState === 'accepted' ? 'text-pos' : r.previewState === 'rejected' ? 'text-neg' : 'text-faint')}>{r.orderId ? `Replacement submitted ${r.placedAt ? shortDate(r.placedAt) : ''}` : r.closeOrderId && r.closeOrderStatus !== 'FILLED' ? 'Waiting for close fill before replacement' : r.closeOrderStatus === 'FILLED' && !previewIsCurrent(r) ? 'Close filled · preview replacement again' : r.previewState === 'accepted' ? previewIsCurrent(r) ? r.closeOptionSymbol && !r.closeOrderId ? 'Both legs previewed · close submits first' : 'Schwab preview passed · expires in 10 minutes' : 'Preview expired · preview again' : r.previewState === 'rejected' ? r.previewError : 'Not previewed'}</div></td><td className="px-4 py-3 text-right"><button onClick={() => removeHedgeRoll(r.id)} disabled={placing} className="text-xs text-faint hover:text-neg disabled:opacity-40">Remove</button></td></tr>)}
+          {!ordersOnly && livePuts.map((p) => <tr key={`live-${p.id}`} className="border-b border-border-soft bg-pos/[.03]"><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Broker holding</span><div className="mt-1 text-[10px] text-faint">{accounts.find((a) => a.id === p.accountId)?.name ?? p.accountId}</div></td><td className="px-4 py-3 font-semibold">{p.underlying ?? p.symbol} ${p.strike?.toFixed(2) ?? '—'} put<div className="mt-1 font-mono text-[10px] font-normal text-faint">{optionSymbolForPosition(p) || p.symbol}</div></td><td className="num px-4 py-3 text-right">{p.shares}</td><td className="num px-4 py-3 text-right">{usd(p.shares * p.lastPrice)}</td><td className="px-4 py-3">{p.expiration ? shortDate(p.expiration) : '—'}</td><td className="px-4 py-3 text-faint">{p.expiration ? `${Math.ceil((new Date(`${p.expiration}T00:00:00`).getTime() - quoteClock) / 86_400_000)} DTE` : 'Set in tracker'}</td><td className="px-4 py-3"><span className="rounded-md bg-pos/10 px-2 py-1 text-xs text-pos">Active</span></td><td className="px-4 py-3"><button onClick={onCompare} disabled={!onCompare} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">Compare protection options</button></td><td></td></tr>)}
+
           {!livePuts.length && !queued.length && <tr><td colSpan={9} className="px-5 py-10 text-center text-sm text-faint">No puts are being tracked yet. Select a live quote, size the hedge, and add it to the queue.</td></tr>}
         </tbody>
       </table>
     </div>}
+    {queued.map((r) => {
+      const closeCredit = r.closeOptionSymbol ? r.closeContracts != null && r.closeLimitCredit != null ? r.closeContracts * r.closeLimitCredit * 100 : null : 0
+      const netDebit = closeCredit == null ? null : r.grossPremium - closeCredit
+      return <article key={r.id} className="card space-y-4 p-5" aria-label={`${r.closeOptionSymbol ? 'Roll' : 'Buy'} order`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold">{accounts.find((a) => a.id === r.accountId)?.name ?? 'No account'} · {r.closeOptionSymbol ? 'Roll' : 'Buy'}</h3>
+          <button onClick={() => removeHedgeRoll(r.id)} disabled={placing} className="text-xs text-faint hover:text-neg disabled:opacity-40">Remove</button>
+        </div>
+        <div className="space-y-3 text-sm">
+          {r.closeOptionSymbol && <div><div className="font-medium">Sell to close {r.closeContracts ?? '—'} × <span className="break-all">{r.closeOptionSymbol}</span></div><div className="mt-1 text-xs text-muted">Limit {r.closeLimitCredit == null ? 'not set' : `${usd(r.closeLimitCredit)} per share`} · estimated credit {closeCredit == null ? 'unavailable' : usd(closeCredit)}</div></div>}
+          <div><div className="font-medium">Buy {r.contracts} × <span className="break-all">{r.optionSymbol ?? `${r.proxy} ${usd(r.strike)} put · quote required`}</span></div><div className="mt-1 text-xs text-muted">Buy to open · limit {usd(r.premiumPerShare)} per share · expires {shortDate(r.expiration)} · gross purchase {usd(r.grossPremium)}</div></div>
+        </div>
+        <div className="rounded-lg bg-surface-2/50 p-3 text-sm"><span className="text-muted">Estimated net cash {netDebit != null && netDebit < 0 ? 'released' : 'cost'} before fees</span><div className="num mt-1 text-lg font-semibold">{netDebit == null ? 'Unavailable' : usd(Math.abs(netDebit))}</div><p className="mt-1 text-xs text-faint">Gross purchase less estimated close proceeds. Fees are excluded.</p></div>
+        <div className="space-y-2"><div className="flex flex-wrap gap-1"><button onClick={() => preview(r)} disabled={!r.optionSymbol || !r.accountId || r.status === 'closed' || !!r.orderId || previewing === r.id || (!!r.closeOrderId && r.closeOrderStatus !== 'FILLED')} className="rounded-md border border-border px-2 py-1 text-xs text-muted enabled:hover:border-brand enabled:hover:text-brand disabled:opacity-40">{previewing === r.id ? 'Working…' : previewIsCurrent(r) ? 'Preview again' : 'Preview with Schwab'}</button>{r.closeOrderId && r.closeOrderStatus !== 'FILLED' && <button onClick={() => refreshCloseStatus(r)} disabled={previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted hover:border-brand hover:text-brand disabled:opacity-40">Refresh close status</button>}{r.orderId && !['FILLED', 'CANCELED', 'REJECTED', 'EXPIRED'].includes(r.orderStatus ?? '') && <button onClick={() => refreshOpenStatus(r)} disabled={previewing === r.id} className="rounded-md border border-border px-2 py-1 text-xs text-muted hover:border-brand hover:text-brand disabled:opacity-40">Refresh open status</button>}{previewIsCurrent(r) && !r.orderId && (!r.closeOrderId || r.closeOrderStatus === 'FILLED') && <button onClick={() => openPlacement(r)} className="rounded-md bg-neg px-2 py-1 text-xs font-semibold text-white hover:brightness-110">{r.closeOptionSymbol && !r.closeOrderId ? 'Review close order' : r.closeOrderStatus === 'FILLED' ? 'Review replacement order' : 'Review purchase order'}</button>}</div><div className={clsx('mt-1 text-[10px]', r.previewState === 'accepted' ? 'text-pos' : r.previewState === 'rejected' ? 'text-neg' : 'text-faint')}>{r.orderId ? `Replacement submitted ${r.placedAt ? shortDate(r.placedAt) : ''}` : r.closeOrderId && r.closeOrderStatus !== 'FILLED' ? 'Waiting for close fill before replacement' : r.closeOrderStatus === 'FILLED' && !previewIsCurrent(r) ? 'Close filled · preview replacement again' : r.previewState === 'accepted' ? previewIsCurrent(r) ? r.closeOptionSymbol && !r.closeOrderId ? 'Both legs previewed · close submits first' : 'Schwab preview passed · expires in 10 minutes' : 'Preview expired · preview again' : r.previewState === 'rejected' ? r.previewError : 'Not previewed'}</div></div>
+        <details className="border-t border-border-soft pt-3"><summary className="cursor-pointer text-xs text-muted">Details · tracking and order references</summary><div className="mt-3 space-y-2 text-xs text-muted">
+          <label className="flex flex-wrap items-center gap-2">Manual tracking status <select aria-label="Manual tracking status" disabled={!!r.orderId || !!r.closeOrderId} value={r.status} onChange={(e) => updateHedgeRoll(r.id, { status: e.target.value as HedgeRoll['status'] })} className={clsx('rounded-md border-0 px-2 py-1 text-xs outline-none', statusStyle[r.status])}><option value="queued">Queued</option><option value="active">Active</option><option value="rolled">Rolled</option><option value="closed">Closed</option></select></label>
+          <div>Roll by {shortDate(r.rollDate)}</div>
+          {r.closeOrderId && <div className="break-all">Close #{r.closeOrderId} · {r.closeOrderStatus ?? 'ACCEPTED'}</div>}
+          {r.orderId && <div className="break-all">Open #{r.orderId} · {r.orderStatus ?? 'ACCEPTED'}</div>}
+        </div></details>
+      </article>
+    })}
     {!!completedRolls.length && <CompletedRollHistory rolls={completedRolls} accounts={accounts}/>}
     {!!duplicateRolls.length && <details className="card p-0"><summary className="cursor-pointer p-5 text-sm font-semibold">Hidden duplicate roll records ({duplicateRolls.length})</summary><div className="border-t border-border-soft p-4 text-xs text-muted">These duplicate planning records are excluded from the active workflow. Remove them from the tracker after confirming they are not distinct Schwab orders.</div></details>}
     <Modal
@@ -460,9 +495,17 @@ function LivePutQuotes({ positions, accounts, symbolFilter, positionId: controll
         {error && <div className="mt-4 rounded-lg border border-neg/30 bg-neg/10 p-3 text-xs text-neg">{error}</div>}
         {rankedQuotes.length > 0 && <>
           <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-faint"><span>{rankedQuotes.length} priced puts ranked</span>{meta.underlyingPrice != null && <span>Underlying {usd(meta.underlyingPrice)}</span>}<span>{meta.delayed ? 'Delayed market data' : 'Schwab market data'}</span>{meta.fetchedAt && <span>Fetched {new Date(meta.fetchedAt).toLocaleTimeString()}</span>}</div>
+          <div className="mt-3 grid gap-3 lg:grid-cols-3">{rankedQuotes.slice(0, 3).map(({ quote, fit }, index) => <div key={quote.symbol} className="rounded-xl border border-border-soft p-4">
+            <div className="text-xs font-semibold text-pos">{index === 0 ? 'Best match' : `Alternative ${index}`}</div>
+            <div className="mt-2 font-semibold">{shortDate(quote.expiration)} · {usd(quote.strike)} put</div>
+            <div className="mt-2 text-sm">{usd((quote.ask ?? 0) * 100)} ask / contract</div>
+            <p className="my-3 text-xs text-muted">{fit.reasons.join(' · ')}</p>
+            <Button onClick={() => selectQuote(quote)}>Use quote</Button>
+          </div>)}</div>
+          <details className="mt-3"><summary className="cursor-pointer text-sm text-muted">Full chain and Greeks · {rankedQuotes.length} contracts</summary>
           <div className="mt-3 max-h-[480px] overflow-auto rounded-xl border border-border-soft"><table className="w-full min-w-[1080px] text-sm"><thead className="sticky top-0 z-10 bg-surface"><tr className="text-xs text-muted"><th className="px-3 py-2 text-left">Fit</th><th className="px-3 py-2 text-left">Expiration</th><th className="px-3 py-2 text-right">DTE</th><th className="px-3 py-2 text-right">Strike</th><th className="px-3 py-2 text-right">Effective floor</th><th className="px-3 py-2 text-right">Bid</th><th className="px-3 py-2 text-right">Ask</th><th className="px-3 py-2 text-right">Mark</th><th className="px-3 py-2 text-right">IV</th><th className="px-3 py-2 text-right">Delta</th><th className="px-3 py-2 text-right">Volume</th><th className="px-3 py-2 text-right">Open interest</th><th className="px-3 py-2"></th></tr></thead>
             <tbody>{rankedQuotes.map(({ quote: q, fit }, index) => <tr key={q.symbol} className={clsx('border-t border-border-soft', index === 0 ? 'bg-pos/[.08] shadow-[inset_3px_0_0_#3fd88a]' : index < 3 ? 'bg-[#c7a96b]/[.04]' : '')}><td className="px-3 py-2"><div className="flex items-center gap-2"><span className={clsx('rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide', index === 0 ? 'bg-pos/15 text-pos' : index < 3 ? 'bg-[#c7a96b]/10 text-[#d8bd7a]' : 'bg-surface-2 text-muted')}>{index === 0 ? 'Best match' : index === 1 ? 'Alternative' : index === 2 ? 'Third choice' : fit.score}</span>{index < 3 && <span className="num text-xs text-muted">{fit.score}/100</span>}</div><div className="mt-1 max-w-[190px] text-[10px] text-faint">{fit.reasons.join(' · ')}</div></td><td className="px-3 py-2">{shortDate(q.expiration)}</td><td className="num px-3 py-2 text-right text-muted">{q.daysToExpiration ?? '—'}</td><td className="num px-3 py-2 text-right font-semibold">{usd(q.strike)}</td><td className="num px-3 py-2 text-right text-pos">{usd(fit.effectiveFloor)}</td><td className="num px-3 py-2 text-right">{q.bid == null ? '—' : usd(q.bid)}</td><td className="num px-3 py-2 text-right">{q.ask == null ? '—' : usd(q.ask)}</td><td className="num px-3 py-2 text-right">{q.mark == null ? '—' : usd(q.mark)}</td><td className="num px-3 py-2 text-right text-muted">{q.volatility == null ? '—' : pct(q.volatility)}</td><td className="num px-3 py-2 text-right text-muted">{q.delta?.toFixed(3) ?? '—'}</td><td className="num px-3 py-2 text-right text-muted">{intfmt(q.volume ?? 0)}</td><td className="num px-3 py-2 text-right text-muted">{intfmt(q.openInterest ?? 0)}</td><td className="px-3 py-2 text-right"><Button variant={index === 0 ? 'primary' : undefined} onClick={() => selectQuote(q)}>Use quote</Button></td></tr>)}</tbody>
-          </table></div>
+          </table></div></details>
           <p className="mt-3 text-xs text-faint">Ranking is decision support, not a recommendation or fill guarantee. “Use quote” starts with the ask; review the spread and choose your actual limit in Schwab.</p>
         </>}
       </div>
